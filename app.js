@@ -4405,6 +4405,11 @@ async function openDetail(id){
   const hash = location.hash;
   const isEmployeeLink = hash.startsWith('#z/');
 
+  window.appLogout = async function(){
+    await sb.auth.signOut();
+    location.href = location.pathname;
+  };
+
   // ==== Přihlašovací obrazovka pro personální/IT (zaměstnanecký odkaz login nepotřebuje) ====
   if(!isEmployeeLink){
     const { data: { session } } = await sb.auth.getSession();
@@ -4417,10 +4422,6 @@ async function openDetail(id){
     }
     state.userEmail = session.user.email;
   }
-  window.appLogout = async function(){
-    await sb.auth.signOut();
-    location.href = location.pathname;
-  };
   startApp();
 
   function renderLoginScreen(){
