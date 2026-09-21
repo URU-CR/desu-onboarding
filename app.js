@@ -4428,16 +4428,34 @@ async function openDetail(id){
     app.innerHTML = `
       <div style="max-width:360px;margin:80px auto;text-align:center;font-family:var(--font-body);">
         <h2 style="font-family:var(--font-display);margin-bottom:6px;">Onboarding — přihlášení</h2>
-        <p style="color:var(--ink-faint);font-size:13px;margin-bottom:20px;">Pro personální oddělení a IT/provoz. Zadejte svůj e-mail, přijde vám přihlašovací odkaz.</p>
+        <p style="color:var(--ink-faint);font-size:13px;margin-bottom:20px;">Pro personální oddělení a IT/provoz.</p>
+
         <input id="login-email" type="email" placeholder="jmeno@urad.cz" style="width:100%;padding:10px;border:1px solid var(--line-strong);border-radius:var(--radius);margin-bottom:10px;">
-        <button id="login-send" class="btn btn-primary" style="width:100%;">Poslat přihlašovací odkaz</button>
-        <p id="login-msg" style="font-size:12.5px;color:var(--ink-faint);margin-top:12px;"></p>
+        <input id="login-password" type="password" placeholder="Heslo" style="width:100%;padding:10px;border:1px solid var(--line-strong);border-radius:var(--radius);margin-bottom:10px;">
+        <button id="login-password-send" class="btn btn-primary" style="width:100%;">Přihlásit se heslem</button>
+        <p id="login-password-msg" style="font-size:12.5px;color:var(--ink-faint);margin-top:8px;"></p>
+
+        <div style="display:flex;align-items:center;gap:8px;margin:18px 0;color:var(--ink-faint);font-size:11.5px;">
+          <div style="flex:1;height:1px;background:var(--line);"></div>nebo<div style="flex:1;height:1px;background:var(--line);"></div>
+        </div>
+
+        <button id="login-send" class="btn btn-ghost" style="width:100%;">Poslat přihlašovací odkaz e-mailem</button>
+        <p id="login-msg" style="font-size:12.5px;color:var(--ink-faint);margin-top:8px;"></p>
       </div>
     `;
+    document.getElementById('login-password-send').addEventListener('click', async () => {
+      const email = document.getElementById('login-email').value.trim();
+      const password = document.getElementById('login-password').value;
+      const msg = document.getElementById('login-password-msg');
+      if(!email || !password){ msg.textContent = 'Zadejte e-mail i heslo.'; return; }
+      msg.textContent = 'Přihlašuji...';
+      const { error } = await sb.auth.signInWithPassword({ email, password });
+      msg.textContent = error ? ('Chyba: ' + error.message) : '';
+    });
     document.getElementById('login-send').addEventListener('click', async () => {
       const email = document.getElementById('login-email').value.trim();
       const msg = document.getElementById('login-msg');
-      if(!email){ msg.textContent = 'Zadejte e-mail.'; return; }
+      if(!email){ msg.textContent = 'Zadejte e-mail výše.'; return; }
       msg.textContent = 'Odesílám...';
       const { error } = await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: location.href.split('#')[0] } });
       msg.textContent = error ? ('Chyba: ' + error.message) : 'Odkaz odeslán — zkontrolujte e-mail.';
