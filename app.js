@@ -258,7 +258,7 @@ const PERSONAL_SECTIONS = [
     {id:'rozsah_uvazku', label:'Rozsah úvazku', essential:true, type:'select', options:['','Plný úvazek','Zkrácený úvazek']},
     {id:'doba_trvani_pomeru', label:'Doba trvání pracovního poměru', essential:true, type:'select', options:['','Na dobu neurčitou','Na dobu určitou']},
     {id:'uvazek', label:'Výše úvazku', placeholder:'např. 1,0'},
-    {id:'zkusebni_doba', label:'Zkušební doba', essential:true, type:'select', options:['','Bez zkušební doby','3 měsíce','6 měsíců']},
+    {id:'zkusebni_doba', label:'Zkušební doba', essential:true, type:'select', options:['','Bez zkušební doby','6 měsíců','8 měsíců (vedoucí zaměstnanec)']},
   ]},
   { id:'mzdove_udaje', label:'Mzdové a organizační údaje', owner:'hr', fields:[
     {id:'vedouci', label:'Vedoucí pozice', essential:true, type:'select', options:['','Ne','Ano']},
