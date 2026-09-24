@@ -149,7 +149,7 @@ const PERSONAL_SECTIONS = [
     {id:'prijmeni_byvale_2', label:'Příjmení bývalé (2)'},
     {id:'rodne_cislo', label:'Rodné číslo (bez lomítka)', placeholder:'9001011234', validate:'rodneCislo', essential:true},
     {id:'datum_narozeni', label:'Datum narození', type:'date', validate:'birthDateVsRC', autofillFrom:'rodne_cislo', essential:true, autocomplete:'bday'},
-    {id:'misto_narozeni', label:'Obec narození', essential:true},
+    {id:'misto_narozeni', label:'Místo narození', essential:true},
     {id:'okres_narozeni', label:'Okres narození'},
     {id:'stat_narozeni', label:'Stát narození', placeholder:'Česká republika', default:'Česká republika', datalist:'zeme'},
     {id:'statni_prislusnost', label:'Státní příslušnost', placeholder:'Česká republika', default:'Česká republika', essential:true, autocomplete:'country-name', datalist:'zeme'},
@@ -169,9 +169,7 @@ const PERSONAL_SECTIONS = [
     {id:'nouzovy_kontakt_telefon', label:'Kontaktní osoba pro mimořádnou událost — telefon', type:'tel'},
     {id:'nouzovy_kontakt_adresa', label:'Kontaktní osoba pro mimořádnou událost — adresa', full:true},
   ]},
-  { id:'doklady', label:'Doklady, účet, pojišťovna', navLabel:'Doklady', owner:'employee', fields:[
-    {id:'platnost_op', label:'Platnost OP', type:'date', validate:'platnostOP'},
-    {id:'cislo_pasu', label:'Číslo cestovního pasu (nepovinné)'},
+  { id:'doklady', label:'Zdravotní pojišťovna a bankovní účet', navLabel:'Pojišťovna a účet', owner:'employee', fields:[
     {id:'zdravotni_pojistovna', label:'Zdravotní pojišťovna', essential:true, full:true, insuranceList:true},
     {id:'cislo_uctu', label:'Číslo bankovního účtu', placeholder:'123456789', validate:'cisloUctu', essential:true},
     {id:'kod_banky', label:'Kód banky', placeholder:'např. 0100', validate:'kodBanky', bankList:true, essential:true},
@@ -201,10 +199,11 @@ const PERSONAL_SECTIONS = [
   ]},
   { id:'vzdelani', label:'Vzdělání', navLabel:'Vzdělání', owner:'employee', fields:[
     {id:'stav_vzdelani', label:'Stav studia', essential:true, type:'select', options:['','Dokončené','Probíhající','Nedokončené']},
-    {id:'rok_zahajeni', label:'Rok zahájení studia', validate:'yearZahajeni', essential:true},
+    {id:'rok_zahajeni', label:'Rok zahájení studia', validate:'yearZahajeni'},
     {id:'rok_ukonceni', label:'Rok ukončení studia', validate:'yearUkonceni'},
     {id:'stupen_vzdelani', label:'Nejvyšší dosažené vzdělání', type:'select', options:['','Základní','Střední bez maturity','Střední s maturitou','Vyšší odborné','Vysokoškolské — bakalářské','Vysokoškolské — magisterské','Vysokoškolské — doktorské'], essential:true},
-    {id:'datum_ukonceni_vzdelani', label:'Datum ukončení nejvyššího vzdělání', type:'date', essential:true, showIf:p=>p.stav_vzdelani==='Dokončené'},
+    {id:'datum_zahajeni_vzdelani', label:'Datum zahájení nejvyššího dokončeného vzdělání', type:'date', essential:true, showIf:p=>p.stav_vzdelani==='Dokončené'},
+    {id:'datum_ukonceni_vzdelani', label:'Datum ukončení nejvyššího dokončeného vzdělání', type:'date', essential:true, showIf:p=>p.stav_vzdelani==='Dokončené'},
     {id:'obor', label:'Obor', essential:true},
     {id:'ziskany_titul', label:'Získaný titul', essential:true, showIf:p=>p.stav_vzdelani==='Dokončené'},
     {id:'skola', label:'Název školy'},
@@ -2966,17 +2965,17 @@ function attachHandlers(){
       const oldValue = state.currentRecord.personal[fieldId] || '';
       if(state.role === 'hr' && owner === 'employee'){
         if(newValue === oldValue){
-          if(state.pendingEdit && state.pendingEdit.key === fieldId){ state.pendingEdit = null; render(); }
+          if(state.pendingEdit && state.pendingEdit.key === fieldId){ state.pendingEdit = null; requestAnimationFrame(render); }
           return;
         }
         state.pendingEdit = { key: fieldId, kind:'field', fieldId, oldValue, newValue };
-        render();
+        requestAnimationFrame(render);
         return;
       }
       state.currentRecord.personal[fieldId] = newValue;
       if(fieldId === 'pozice' || fieldId === 'datum_nastupu' || fieldId === 'pracoviste' || fieldId === 'kategorie') persistCurrentRecord();
       else persistRecordOnly();
-      render();
+      requestAnimationFrame(render);
     });
   });
 
@@ -2997,16 +2996,16 @@ function attachHandlers(){
       const oldValue = state.currentRecord.personal[secId][idx][fieldId] || '';
       if(state.role === 'hr' && sec.owner === 'employee'){
         if(newValue === oldValue){
-          if(state.pendingEdit && state.pendingEdit.key === key){ state.pendingEdit = null; render(); }
+          if(state.pendingEdit && state.pendingEdit.key === key){ state.pendingEdit = null; requestAnimationFrame(render); }
           return;
         }
         state.pendingEdit = { key, kind:'repeat', secId, idx, fieldId, oldValue, newValue };
-        render();
+        requestAnimationFrame(render);
         return;
       }
       state.currentRecord.personal[secId][idx][fieldId] = newValue;
       persistRecordOnly();
-      render();
+      requestAnimationFrame(render);
     });
   });
 
@@ -3958,7 +3957,7 @@ const SATELLITE_TABLES = [
     header: ['oscis-A','rokz-A','roku-A','stupen-A','obor-A','skola-A','sidlo-A','druhzk-A'],
     rows(oscis, p){
       if(!p.skola && !p.stupen_vzdelani) return [];
-      return [[oscis, p.rok_zahajeni, p.datum_ukonceni_vzdelani || p.rok_ukonceni, p.stupen_vzdelani, p.obor, p.skola, p.sidlo_skoly, p.druh_zkousky]];
+      return [[oscis, p.datum_zahajeni_vzdelani || p.rok_zahajeni, p.datum_ukonceni_vzdelani || p.rok_ukonceni, p.stupen_vzdelani, p.obor, p.skola, p.sidlo_skoly, p.druh_zkousky]];
     }
   },
   {
