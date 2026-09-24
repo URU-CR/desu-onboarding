@@ -147,9 +147,9 @@ const PERSONAL_SECTIONS = [
     {id:'rodne_prijmeni', label:'Rodné příjmení'},
     {id:'prijmeni_byvale_1', label:'Příjmení bývalé (1)'},
     {id:'prijmeni_byvale_2', label:'Příjmení bývalé (2)'},
-    {id:'rodne_cislo', label:'Rodné číslo', placeholder:'900101/1234', validate:'rodneCislo', essential:true},
+    {id:'rodne_cislo', label:'Rodné číslo (bez lomítka)', placeholder:'9001011234', validate:'rodneCislo', essential:true},
     {id:'datum_narozeni', label:'Datum narození', type:'date', validate:'birthDateVsRC', autofillFrom:'rodne_cislo', essential:true, autocomplete:'bday'},
-    {id:'misto_narozeni', label:'Obec narození'},
+    {id:'misto_narozeni', label:'Obec narození', essential:true},
     {id:'okres_narozeni', label:'Okres narození'},
     {id:'stat_narozeni', label:'Stát narození', placeholder:'Česká republika', default:'Česká republika', datalist:'zeme'},
     {id:'statni_prislusnost', label:'Státní příslušnost', placeholder:'Česká republika', default:'Česká republika', essential:true, autocomplete:'country-name', datalist:'zeme'},
@@ -170,7 +170,6 @@ const PERSONAL_SECTIONS = [
     {id:'nouzovy_kontakt_adresa', label:'Kontaktní osoba pro mimořádnou událost — adresa', full:true},
   ]},
   { id:'doklady', label:'Doklady, účet, pojišťovna', navLabel:'Doklady', owner:'employee', fields:[
-    {id:'cislo_op', label:'Číslo OP', validate:'cisloOP', essential:true},
     {id:'platnost_op', label:'Platnost OP', type:'date', validate:'platnostOP'},
     {id:'cislo_pasu', label:'Číslo cestovního pasu (nepovinné)'},
     {id:'zdravotni_pojistovna', label:'Zdravotní pojišťovna', essential:true, full:true, insuranceList:true},
@@ -184,7 +183,7 @@ const PERSONAL_SECTIONS = [
     {id:'rodinny_stav', label:'Rodinný stav', essential:true, type:'select', options:['','Svobodný/á','Ženatý/vdaná','Rozvedený/á','Vdovec/vdova','Registrované partnerství']},
     {id:'jmeno_manzela', label:'Jméno manžela/manželky', showIf:p=>['Ženatý/vdaná','Registrované partnerství'].includes(p.rodinny_stav)},
     {id:'prijmeni_manzela', label:'Příjmení manžela/manželky', showIf:p=>['Ženatý/vdaná','Registrované partnerství'].includes(p.rodinny_stav)},
-    {id:'rodne_cislo_manzela', label:'Rodné číslo manžela/manželky', validate:'rodneCislo', showIf:p=>['Ženatý/vdaná','Registrované partnerství'].includes(p.rodinny_stav)},
+    {id:'rodne_cislo_manzela', label:'Rodné číslo manžela/manželky (bez lomítka)', placeholder:'9001011234', validate:'rodneCislo', showIf:p=>['Ženatý/vdaná','Registrované partnerství'].includes(p.rodinny_stav)},
     {id:'datum_narozeni_manzela', label:'Datum narození manžela/manželky', type:'date', showIf:p=>['Ženatý/vdaná','Registrované partnerství'].includes(p.rodinny_stav)},
     {id:'statni_obcanstvi_manzela', label:'Státní občanství manžela/manželky', default:'Česká republika', datalist:'zeme', showIf:p=>['Ženatý/vdaná','Registrované partnerství'].includes(p.rodinny_stav)},
     {id:'bydliste_manzela', label:'Bydliště manžela/manželky', full:true, showIf:p=>['Ženatý/vdaná','Registrované partnerství'].includes(p.rodinny_stav)},
@@ -193,7 +192,7 @@ const PERSONAL_SECTIONS = [
   { id:'deti', label:'Děti', navLabel:'Děti', owner:'employee', type:'repeat', optional:true, addLabel:'+ Přidat dítě', fields:[
     {id:'jmeno', label:'Jméno'},
     {id:'prijmeni', label:'Příjmení'},
-    {id:'rodne_cislo', label:'Rodné číslo', placeholder:'120101/1234', validate:'rodneCislo'},
+    {id:'rodne_cislo', label:'Rodné číslo (bez lomítka)', placeholder:'1201011234', validate:'rodneCislo'},
     {id:'datum_narozeni', label:'Datum narození', type:'date', validate:'birthDateVsRC', autofillFrom:'rodne_cislo'},
     {id:'studuje', label:'Soustavně studuje', essential:true, type:'select', options:['','Ano','Ne']},
     {id:'danove_zvyhodneni', label:'Uplatňuji na toto dítě daňové zvýhodnění', essential:true, type:'select', options:['','Ne','Ano']},
@@ -202,16 +201,17 @@ const PERSONAL_SECTIONS = [
   ]},
   { id:'vzdelani', label:'Vzdělání', navLabel:'Vzdělání', owner:'employee', fields:[
     {id:'stav_vzdelani', label:'Stav studia', essential:true, type:'select', options:['','Dokončené','Probíhající','Nedokončené']},
-    {id:'rok_zahajeni', label:'Rok zahájení studia', validate:'yearZahajeni'},
+    {id:'rok_zahajeni', label:'Rok zahájení studia', validate:'yearZahajeni', essential:true},
     {id:'rok_ukonceni', label:'Rok ukončení studia', validate:'yearUkonceni'},
     {id:'stupen_vzdelani', label:'Nejvyšší dosažené vzdělání', type:'select', options:['','Základní','Střední bez maturity','Střední s maturitou','Vyšší odborné','Vysokoškolské — bakalářské','Vysokoškolské — magisterské','Vysokoškolské — doktorské'], essential:true},
     {id:'datum_ukonceni_vzdelani', label:'Datum ukončení nejvyššího vzdělání', type:'date', essential:true, showIf:p=>p.stav_vzdelani==='Dokončené'},
     {id:'obor', label:'Obor', essential:true},
+    {id:'ziskany_titul', label:'Získaný titul', essential:true, showIf:p=>p.stav_vzdelani==='Dokončené'},
     {id:'skola', label:'Název školy'},
     {id:'sidlo_skoly', label:'Sídlo školy'},
     {id:'druh_zkousky', label:'Druh zkoušky (maturita, státní zkouška, certifikát…)', showIf:p=>p.stav_vzdelani==='Dokončené'},
   ]},
-  { id:'praxe', label:'Předchozí zaměstnání a praxe', navLabel:'Praxe', owner:'employee', type:'repeat', optional:true, addLabel:'+ Přidat zaměstnání', fields:[
+  { id:'praxe', label:'Předchozí zaměstnání a praxe', navLabel:'Praxe', owner:'employee', type:'repeat', requireAtLeastOne:true, addLabel:'+ Přidat zaměstnání', fields:[
     {id:'od', label:'Od', type:'date'},
     {id:'do', label:'Do', type:'date', validate:'praxeDo'},
     {id:'organizace', label:'Organizace'},
@@ -245,7 +245,7 @@ const PERSONAL_SECTIONS = [
   ]},
   { id:'pracovni_pomer', label:'Pracovní poměr', owner:'hr', fields:[
     {id:'osobni_cislo', label:'Osobní číslo (vyplní personální oddělení)', essential:true},
-    {id:'duvod_vzniku_pomeru', label:'Důvod vzniku pracovního poměru', essential:true, type:'select', options:['','Absolvent školy','Nástup z evidence úřadu práce','Ostatní osoby nastupující poprvé','Osoba měnící zaměstnání','Nástup z výběrového řízení']},
+    {id:'duvod_vzniku_pomeru', label:'Důvod vzniku pracovního poměru', essential:true, type:'select', options:['','Absolvent školy','Nástup z evidence úřadu práce','Ostatní osoby nastupující poprvé','Osoba měnící zaměstnání','Nástup z výběrového řízení','Opětovné přijetí do pracovního poměru']},
     {id:'datum_nastupu', label:'Datum nástupu', type:'date', required:true},
     {id:'pozice', label:'Pracovní pozice', type:'select', options: [''], required:true},
     {id:'pracoviste', label:'Pracoviště', type:'select', options: [''], required:true},
@@ -950,7 +950,7 @@ const VALIDATORS = {
       const rem = Number(BigInt(rr+mmRaw+dd+suffix) % 11n);
       if(rem !== 0 && rem !== 10) return {ok:false, severity:'error', message:'Neplatný kontrolní součet rodného čísla'};
     }
-    return {ok:true, formatted: rr+mmRaw+dd+'/'+suffix};
+    return {ok:true, formatted: rr+mmRaw+dd+suffix};
   },
   psc(raw){
     if(!raw) return {ok:true};
@@ -1876,7 +1876,7 @@ function sectionFieldsHtml(sec, r, editable){
     } else if(showFlagInfo && flagged){
       html += `<div class="field-flag-note" style="margin-bottom:10px;">⚑ Personální: ${esc(flags[flagKey] || 'zkontrolujte prosím tuto sekci')}</div>`;
     }
-    if(rows.length === 0) html += `<p class="repeat-empty">Zatím nevyplněno.</p>`;
+    if(rows.length === 0) html += `<p class="repeat-empty" ${missingSet.has('null:_atLeastOne')?'style="color:var(--red);"':''}>Zatím nevyplněno.${sec.requireAtLeastOne?' Je potřeba doplnit alespoň jednu položku.':''}</p>`;
     rows.forEach((row, i) => {
       html += `<div class="repeat-row ${(showFlagInfo || hrFlagMode) && flagged ? 'flagged':''}"><div class="form-grid">`;
       html += sec.fields.map(f => {
@@ -1961,6 +1961,9 @@ function missingRequiredFields(record, includeHr){
     if(sec.owner !== 'employee' && sec.owner !== 'hr') return;
     if(sec.type === 'repeat'){
       const rows = record.personal[sec.id] || [];
+      if(sec.requireAtLeastOne && rows.length === 0){
+        missing.push({ sectionId: sec.id, section: sec.label, fieldId: '_atLeastOne', rowIdx: null, label: 'Alespoň jedna položka' });
+      }
       rows.forEach((row, idx) => {
         sec.fields.forEach(f => {
           if(!f.essential && !f.required) return;
