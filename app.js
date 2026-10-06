@@ -102,7 +102,6 @@ const SETTINGS_RESET_OPTIONS = [
   { key:'facilityStaff', label:'Pracovníci provozu', getDefault: () => [...DEFAULT_FACILITY_STAFF] },
   { key:'categories', label:'Kategorie a přiřazené systémy', getDefault: () => JSON.parse(JSON.stringify(DEFAULT_CATEGORIES)) },
   { key:'offices', label:'Kanceláře podle budovy', getDefault: () => ({...DEFAULT_OFFICES}) },
-  { key:'workplaceVemaCodes', label:'Kódy pracovišť pro Vemu', getDefault: () => ({...DEFAULT_WORKPLACE_VEMA_CODES}) },
   { key:'workplaceLocations', label:'Umístění pracovišť (okres/obec/sídlo)', getDefault: () => ({...DEFAULT_WORKPLACE_LOCATIONS}) },
   { key:'vemaConstants', label:'Pevné hodnoty pro export do Vemy', getDefault: () => ({}) },
   { key:'systemUrls', label:'Adresy systémů', getDefault: () => ({...DEFAULT_SYSTEM_URLS}) },
@@ -121,7 +120,11 @@ function facilityStaffList(){ return (state.settings && state.settings.facilityS
 function officesByWorkplace(){ return (state.settings && state.settings.offices) || DEFAULT_OFFICES; }
 function officesForWorkplace(workplace){ return (officesByWorkplace()[workplace]) || []; }
 function workplaceVemaCodes(){ return (state.settings && state.settings.workplaceVemaCodes) || DEFAULT_WORKPLACE_VEMA_CODES; }
-function workplaceVemaCode(workplace){ return workplaceVemaCodes()[workplace] || ''; }
+function workplaceVemaCode(workplace){
+  const list = workplaceList();
+  const idx = list.indexOf(workplace);
+  return idx >= 0 ? String(idx + 1) : '';
+}
 function workplaceLocations(){ return (state.settings && state.settings.workplaceLocations) || DEFAULT_WORKPLACE_LOCATIONS; }
 function workplaceLocation(workplace){ return workplaceLocations()[workplace] || {okres:'', obec:'', sidlo:''}; }
 function categoryList(){ return (state.settings && state.settings.categories) || DEFAULT_CATEGORIES; }
@@ -1704,12 +1707,11 @@ function renderSettingsPage(){
 
     <div class="panel" style="margin-bottom:20px;">
       ${settingsPanelStart('vemacodes', 'Kód pracoviště pro Vemu')}
-      <p style="font-size:12.5px;color:var(--ink-faint);margin:0 0 12px;">Kód dle číselníku tklc a umístění pracoviště — vyplní se automaticky při generování Zaváděcího formuláře místo textového názvu pracoviště.</p>
-      ${workplaceList().map(w => `
+      <p style="font-size:12.5px;color:var(--ink-faint);margin:0 0 12px;">Číselný kód pracoviště (pracvz/pracv) se generuje automaticky — vzestupně podle pořadí pracovišť níže — a nejde ručně upravit. Export do Vemy z něj zároveň vytvoří záložku s číselníkem pracovišť.</p>
+      ${workplaceList().map((w,wi) => `
         <div style="margin-bottom:14px;">
-          <label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px;">${esc(w)}</label>
-          <div class="contact-edit-row" style="grid-template-columns:120px 1fr 1fr 1fr;">
-            <input data-vemacode-input="${esc(w)}" value="${esc(draft.workplaceVemaCodes[w]||'')}" placeholder="Kód (tklc)">
+          <label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px;">${esc(w)} <span style="font-weight:400;color:var(--ink-faint);">— kód ${wi+1}</span></label>
+          <div class="contact-edit-row" style="grid-template-columns:1fr 1fr 1fr;">
             <input data-workplace-loc-input="${esc(w)}:okres" value="${esc((draft.workplaceLocations[w]||{}).okres||'')}" placeholder="Okres">
             <input data-workplace-loc-input="${esc(w)}:obec" value="${esc((draft.workplaceLocations[w]||{}).obec||'')}" placeholder="Obec">
             <input data-workplace-loc-input="${esc(w)}:sidlo" value="${esc((draft.workplaceLocations[w]||{}).sidlo||'')}" placeholder="Sídlo (ulice, č.p.)">
@@ -2565,9 +2567,6 @@ function attachHandlers(){
   const facilityAddBtn = document.getElementById('btn-facility-add');
   if(facilityAddBtn) facilityAddBtn.addEventListener('click', () => { state.settingsDraft.facilityStaff.push(''); render(); });
 
-  app.querySelectorAll('[data-vemacode-input]').forEach(el => {
-    el.addEventListener('change', () => { state.settingsDraft.workplaceVemaCodes[el.getAttribute('data-vemacode-input')] = el.value; });
-  });
   app.querySelectorAll('[data-workplace-loc-input]').forEach(el => {
     el.addEventListener('change', () => {
       const [w, key] = el.getAttribute('data-workplace-loc-input').split(':');
@@ -3851,7 +3850,7 @@ function zhlavColumns(){
     {code:'pltr', get:p=>p.platova_trida},
     {code:'dopldo', get:p=>''},
     {code:'dopldod', get:p=>''},
-    {code:'minmzda', get:p=>''},
+    {code:'minmzda', get:p=>'0'},
     {code:'vypuv', get:p=>''},
     {code:'limpr', get:p=>''},
     {code:'limnepp', get:p=>''},
@@ -3861,7 +3860,7 @@ function zhlavColumns(){
     {code:'zpodm', get:p=>ZPODM_CODES[p.zpusob_odmenovani] || ''},
     {code:'zmr', get:p=>'0'},
     {code:'rozst', get:p=>'1'},
-    {code:'rozin', get:p=>p.individualni_rozvrh},
+    {code:'rozin', get:p=>'1'},
     {code:'rozprh', get:p=>p.rozsah_uvazku==='Zkrácený úvazek' ? p.zkraceny_uvazek_hodiny : ''},
     {code:'rozpr', get:p=>p.rozsah_uvazku==='Zkrácený úvazek' ? p.zkraceny_uvazek_procenta : ''},
     {code:'odprdo', get:p=>''},
@@ -3911,10 +3910,10 @@ function zhlavColumns(){
     {code:'duchk', get:p=>''},
     {code:'duchp', get:p=>p.pocet_vychovanych_deti},
     {code:'denporod', get:p=>''},
-    {code:'dovpj', get:p=>''},
-    {code:'dovpmt', get:p=>''},
+    {code:'dovpj', get:p=>'0'},
+    {code:'dovpmt', get:p=>'0'},
     {code:'dnyvyp', get:p=>''},
-    {code:'dovup', get:p=>''},
+    {code:'dovup', get:p=>'0'},
     {code:'dovdoz', get:p=>''},
     {code:'dovplo', get:p=>''},
     {code:'dovdocek', get:p=>''},
@@ -4012,6 +4011,12 @@ async function generateVemaExport(ids){
     });
     for(let i=0; i<sheetDef.header.length; i++) ws.getColumn(i+1).width = 14;
   });
+
+  const sheetCiselnik = workbook.addWorksheet('Ciselnik_pracovist');
+  sheetCiselnik.addRow(['kod', 'nazev']);
+  workplaceList().forEach((w, i) => sheetCiselnik.addRow([i + 1, w]));
+  sheetCiselnik.getColumn(1).width = 10;
+  sheetCiselnik.getColumn(2).width = 45;
 
   const now = new Date();
   const stamp = now.toISOString().slice(0,16).replace(/[-:T]/g,'').replace(/(\d{8})(\d{4})/, '$1-$2');
