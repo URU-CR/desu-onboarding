@@ -225,6 +225,7 @@ const PERSONAL_SECTIONS = [
   ]},
   { id:'dalsi_udaje', label:'Další povinné údaje', navLabel:'Další údaje', owner:'employee', optional:true, fields:[
     {id:'prohlaseni_poplatnika', label:'Podepsal/a jsem Prohlášení poplatníka daně z příjmů', essential:true, type:'select', options:['','Ne','Ano']},
+    {id:'zpusob_rocniho_zuctovani', label:'Způsob ročního zúčtování daně', essential:true, type:'select', options:['','Neprovádět — podávám si vlastní daňové přiznání','Provádět — budu u zaměstnavatele zaměstnán/a na konci roku','Provádět — na konci roku už u zaměstnavatele zaměstnán/a nebudu, ale jinde nepracuji']},
     {id:'invalidita', label:'Invalidita (pro daňové účely)', essential:true, type:'select', options:['','Žádná','Invalidita 1. nebo 2. stupně','Invalidita 3. stupně','Držitel průkazu ZTP/P','Invalidita 1./2. stupně a zároveň ZTP/P']},
     {id:'zdrav_postizeni_ozp', label:'Osoba se zdravotním postižením (pro účely zaměstnávání OZP)', essential:true, type:'select', options:['','Ne','Invalidní v 1. nebo 2. stupni','S těžším zdravotním postižením','Zdravotně znevýhodněná osoba']},
     {id:'prukaz_zdravotni', label:'Průkaz zdravotního postižení', essential:true, type:'select', options:['','Nemám','Průkaz I. stupně (TP)','Průkaz II. stupně (ZTP)','Průkaz III. stupně (ZTP/P)']},
@@ -264,16 +265,16 @@ const PERSONAL_SECTIONS = [
     {id:'stupen_rizeni', label:'Stupeň řízení vedoucích zaměstnanců', type:'select', options:['','1. stupeň','2. stupeň','3. stupeň','4. stupeň'], essential:true, showIf:p=>p.vedouci==='Ano'},
     {id:'klasifikace_postaveni', label:'Klasifikace postavení v zaměstnání', type:'select', options:['','Zaměstnanec','Zaměstnavatel','OSVČ (samostatně výdělečně činná osoba)','Pomáhající rodinný příslušník','Člen produkčního družstva'], default:'Zaměstnanec', essential:true},
     {id:'platova_trida', label:'Platová třída', essential:true, type:'select', options:['','1','2','3','4','5','6','7','8','9','10','11','12','13','14','15','16']},
-    {id:'platova_skupina', label:'Platová skupina'},
+    {id:'platova_skupina', label:'Platová skupina', essential:true},
     {id:'platovy_stupen', label:'Platový stupeň', essential:true, type:'select', options:['','1','2','3','4','5','6','7','8','9','10','11','12']},
     {id:'skupina_praci_zaruc_mzda', label:'Skupina prací pro zaručenou mzdu', essential:true, type:'select', options:['','1','2','3','4','5','6','7','8']},
     {id:'nastaveni_platoveho_postupu', label:'Nastavení platového postupu', essential:true, type:'select', options:['','Ano','Ne']},
     {id:'zpusob_urceni_tarifu', label:'Způsob určení platového tarifu'},
-    {id:'tarifni_plat', label:'Tarifní plat (Kč/měsíc)'},
+    {id:'tarifni_plat', label:'Tarifní plat (Kč/měsíc)', essential:true},
     {id:'zpusob_odmenovani', label:'Způsob odměňování', essential:true, type:'select', options:['','Měsíční plat/mzda','Hodinová mzda']},
     {id:'typ_platoveho_vymeru', label:'Typ platového výměru', essential:true, type:'select', options:['','Odměňování podle § 5 NV','Pásmové odměňování (§ 6 NV) s platovými postupy','Pásmové odměňování (§ 6 NV) bez platových postupů']},
     {id:'zkraceny_uvazek_hodiny', label:'Zkrácený úvazek — hodin týdně', showIf:p=>p.rozsah_uvazku==='Zkrácený úvazek'},
-    {id:'zkraceny_uvazek_procenta', label:'Zkrácený úvazek — v %', showIf:p=>p.rozsah_uvazku==='Zkrácený úvazek'},
+    {id:'zkraceny_uvazek_procenta', label:'Zkrácený úvazek — v %', essential:true, showIf:p=>p.rozsah_uvazku==='Zkrácený úvazek'},
     {id:'individualni_rozvrh', label:'Individuální rozvrh (je-li pracovní doba upravena individuálně)'},
   ]},
 ];
@@ -3773,9 +3774,13 @@ const ZPSCH_CODES = {'Invalidní v 1. nebo 2. stupni':'1','S těžším zdravotn
 const ZPSCHZK_CODES = {'Průkaz I. stupně (TP)':'1','Průkaz II. stupně (ZTP)':'2','Průkaz III. stupně (ZTP/P)':'3'};
 const TDVV_CODES = {'Absolvent školy':'911','Nástup z evidence úřadu práce':'920','Ostatní osoby nastupující poprvé':'921','Osoba měnící zaměstnání':'931','Nástup z výběrového řízení':'991'};
 const ZPODM_CODES = {'Hodinová mzda':'1','Měsíční plat/mzda':'2'};
+const ROZUC_CODES = {'Neprovádět — podávám si vlastní daňové přiznání':'0','Provádět — budu u zaměstnavatele zaměstnán/a na konci roku':'1','Provádět — na konci roku už u zaměstnavatele zaměstnán/a nebudu, ale jinde nepracuji':'2'};
 const TYPPV_CODES = {'Odměňování podle § 5 NV':'1','Pásmové odměňování (§ 6 NV) s platovými postupy':'2','Pásmové odměňování (§ 6 NV) bez platových postupů':'3'};
 
-const ZHLAV_POVINNE_KODY = new Set(['oscis','upljmeno','rocis','statp','zivmi','rozuc','predvls','predvlp','predvle','predvlm','potpri','zpo','zpzpoj','danrez','stazas','ppvza','sdouvz','ppvlim','vyods','pracvz','ppvdr','stspr','pocrd','vedouci','minmzda','tarif','zpodm','zmr','rozst','rozin','rozpr','mzdza','plasku','plastu','rodpr','mistn','dovpj','dovpmt','dovup','prvpl','inval','stud','zvzda','ztppm']);
+const ZHLAV_POVINNE_KODY = new Set(['oscis','upljmeno','rocis','statp','zivmi','rozuc','predvls','predvlp','predvle','predvlm','potpri','zpo','zpzpoj','danrez','stazas','ppvza','sdouvz','ppvlim','vyods','pracvz','ppvdr','stspr','pocrd','vedouci','minmzda','tarif','zpodm','zmr','rozst','rozin','rozpr','mzdza','plasku','plastu','rodpr','mistn','dovpj','dovpmt','dovup','prvpl','inval','stud','zvzda']);
+// 'ztppm' (ZTP/P manžela/manželky) záměrně mimo tento seznam — je povinné jen u
+// ženatých/vdaných (viz get() níže, který vrací '' mimo tento případ, aby se
+// u svobodných zaměstnanců nebarvilo červeně jako chybějící údaj).
 
 function zhlavColumns(){
   const vc = (state.settings && state.settings.vemaConstants) || {};
@@ -3791,8 +3796,8 @@ function zhlavColumns(){
     {code:'banz', get:p=>''},
     {code:'banv', get:p=>p.cislo_uctu ? '1' : ''},
     {code:'bancis', get:p=>''},
-    {code:'zivmi', get:p=>''},
-    {code:'rozuc', get:p=>''},
+    {code:'zivmi', get:p=>String((p.deti||[]).filter(d=>d.danove_zvyhodneni==='Ano').length)},
+    {code:'rozuc', get:p=>ROZUC_CODES[p.zpusob_rocniho_zuctovani] || ''},
     {code:'predvls', get:p=>'1'},
     {code:'predvlp', get:p=>'1'},
     {code:'predvle', get:p=>'0'},
@@ -3855,7 +3860,7 @@ function zhlavColumns(){
     {code:'dzpvk', get:p=>''},
     {code:'zpodm', get:p=>ZPODM_CODES[p.zpusob_odmenovani] || ''},
     {code:'zmr', get:p=>'0'},
-    {code:'rozst', get:p=>''},
+    {code:'rozst', get:p=>'1'},
     {code:'rozin', get:p=>p.individualni_rozvrh},
     {code:'rozprh', get:p=>p.rozsah_uvazku==='Zkrácený úvazek' ? p.zkraceny_uvazek_hodiny : ''},
     {code:'rozpr', get:p=>p.rozsah_uvazku==='Zkrácený úvazek' ? p.zkraceny_uvazek_procenta : ''},
@@ -3920,7 +3925,7 @@ function zhlavColumns(){
     {code:'inval', get:p=>INVALIDITA_CODES[p.invalidita] || ''},
     {code:'stud', get:p=>ynCode(p.student_pripravujici_se)},
     {code:'studko', get:p=>p.student_potvrzeni_do},
-    {code:'zvzda', get:p=>''},
+    {code:'zvzda', get:p=>'0'},
     {code:'prijmm', get:p=>p.prijmeni_manzela},
     {code:'jmenom', get:p=>p.jmeno_manzela},
     {code:'rocism', get:p=>p.rodne_cislo_manzela},
