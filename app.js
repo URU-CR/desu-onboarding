@@ -277,7 +277,7 @@ const PERSONAL_SECTIONS = [
     {id:'zpusob_odmenovani', label:'Způsob odměňování', essential:true, type:'select', options:['','Měsíční plat/mzda','Hodinová mzda']},
     {id:'typ_platoveho_vymeru', label:'Typ platového výměru', essential:true, type:'select', options:['','Odměňování podle § 5 NV','Pásmové odměňování (§ 6 NV) s platovými postupy','Pásmové odměňování (§ 6 NV) bez platových postupů']},
     {id:'zkraceny_uvazek_hodiny', label:'Zkrácený úvazek — hodin týdně', showIf:p=>p.rozsah_uvazku==='Zkrácený úvazek'},
-    {id:'zkraceny_uvazek_procenta', label:'Zkrácený úvazek — v %', essential:true, showIf:p=>p.rozsah_uvazku==='Zkrácený úvazek'},
+    {id:'zkraceny_uvazek_procenta', label:'Zkrácený úvazek — v %', default:'100', essential:true, disabledIf:p=>p.rozsah_uvazku!=='Zkrácený úvazek'},
     {id:'individualni_rozvrh', label:'Individuální rozvrh (je-li pracovní doba upravena individuálně)'},
   ]},
 ];
@@ -1905,7 +1905,8 @@ function sectionFieldsHtml(sec, r, editable){
     const f = resolveField(fRaw);
     const flagged = f.id in flags;
     const pending = state.pendingEdit && state.pendingEdit.key === f.id ? state.pendingEdit : null;
-    const displayVal = pending ? pending.newValue : r.personal[f.id];
+    const lockedByDep = f.disabledIf && f.disabledIf(r.personal);
+    const displayVal = lockedByDep ? (f.default || '') : (pending ? pending.newValue : r.personal[f.id]);
     const ctxWithPending = pending ? {...r.personal, [f.id]: pending.newValue} : r.personal;
     const isMissing = missingSet.has(f.id);
     return `<div class="field ${f.full?'full':''} ${f.essential?'essential':''} ${(showFlagInfo || hrFlagMode) && flagged ? 'flagged':''} ${isMissing?'missing':''}">
@@ -1913,7 +1914,7 @@ function sectionFieldsHtml(sec, r, editable){
         <label>${f.essential?'<span class="essential-dot" title="Podstatný údaj">●</span> ':''}${esc(f.label)}${f.required?' *':''}</label>
         ${hrFlagMode ? `<button type="button" class="flag-toggle ${flagged?'active':''}" data-flag-toggle="${f.id}" title="Označit pole jako problém">⚑ ${flagged ? 'Označeno' : 'Označit'}</button>` : ''}
       </div>
-      ${fieldMarkup(f, displayVal, !editable)}
+      ${fieldMarkup(f, displayVal, !editable || lockedByDep)}
       ${isMissing ? `<div class="field-missing-note">Povinný údaj — nevyplněno</div>` : ''}
       ${validationNoteHtml(f, displayVal, ctxWithPending)}
       ${editable ? autofillButtonHtml(f, ctxWithPending, 'field', f.id) : ''}
@@ -1983,6 +1984,7 @@ function missingRequiredFields(record, includeHr){
       if(!f.essential && !f.required) return;
       if(sec.owner === 'hr' && overrides[f.id] === false) return;
       if(f.showIf && !f.showIf(record.personal)) return;
+      if(f.disabledIf && f.disabledIf(record.personal)) return;
       const val = record.personal[f.id];
       if(val == null || (typeof val === 'string' && val.trim() === '')){
         missing.push({ sectionId: sec.id, section: sec.label, fieldId: f.id, rowIdx: null, label: f.label });
@@ -2973,6 +2975,7 @@ function attachHandlers(){
         return;
       }
       state.currentRecord.personal[fieldId] = newValue;
+      if(fieldId === 'rozsah_uvazku' && newValue !== 'Zkrácený úvazek') state.currentRecord.personal.zkraceny_uvazek_procenta = '100';
       if(fieldId === 'pozice' || fieldId === 'datum_nastupu' || fieldId === 'pracoviste' || fieldId === 'kategorie') persistCurrentRecord();
       else persistRecordOnly();
       requestAnimationFrame(render);
@@ -3862,7 +3865,7 @@ function zhlavColumns(){
     {code:'rozst', get:p=>'1'},
     {code:'rozin', get:p=>'1'},
     {code:'rozprh', get:p=>p.rozsah_uvazku==='Zkrácený úvazek' ? p.zkraceny_uvazek_hodiny : ''},
-    {code:'rozpr', get:p=>p.rozsah_uvazku==='Zkrácený úvazek' ? p.zkraceny_uvazek_procenta : ''},
+    {code:'rozpr', get:p=>p.rozsah_uvazku==='Zkrácený úvazek' ? (p.zkraceny_uvazek_procenta || '') : '100'},
     {code:'odprdo', get:p=>''},
     {code:'plpost', get:p=>ynCode(p.nastaveni_platoveho_postupu)},
     {code:'zupltar', get:p=>p.zpusob_urceni_tarifu},
@@ -4200,6 +4203,7 @@ async function openQuickEditModal(id){
     p.nadrizeny = document.getElementById('qe-nadrizeny').value;
     p.rezim_zamestnani = document.getElementById('qe-rezim').value;
     p.rozsah_uvazku = document.getElementById('qe-rozsah').value;
+    if(p.rozsah_uvazku !== 'Zkrácený úvazek') p.zkraceny_uvazek_procenta = '100';
     p.datum_nastupu = document.getElementById('qe-datum').value;
     ensureSuggestedEmail(record);
     idxEntry.jmeno = jmeno;
