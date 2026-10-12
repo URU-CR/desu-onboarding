@@ -83,6 +83,8 @@ const ONBOARDING_TYPES = [
   'Delimitace — přechod na nové pracoviště',
   'Nový zaměstnanec',
 ];
+const ZDROJOVE_URADY = ['DESÚ','MMR','ÚÚR','MD','MPO','Nové','Jiný'];
+const DEFAULT_EMAIL_RULES = { 'DESÚ':'{jmeno}.{prijmeni}@desu.gov.cz' };
 const DEFAULT_CATEGORIES = [
   { name:'Referent', systems:['vema','vema_server','issr','vita','espis','czechpoint','katastr'] },
   { name:'Metodik', systems:['vema','vema_server','espis','czechpoint','katastr'] },
@@ -248,6 +250,8 @@ const PERSONAL_SECTIONS = [
   ]},
   { id:'pracovni_pomer', label:'Pracovní poměr', owner:'hr', fields:[
     {id:'osobni_cislo', label:'Osobní číslo (vyplní personální oddělení)', essential:true},
+    {id:'zdrojovy_urad', label:'Zdrojový úřad', essential:true, type:'select', options:['', ...ZDROJOVE_URADY]},
+    {id:'email_stavajici', label:'Stávající pracovní e-mail (u zdrojového úřadu)', type:'email', validate:'email'},
     {id:'duvod_vzniku_pomeru', label:'Důvod vzniku pracovního poměru', essential:true, type:'select', options:['','Absolvent školy','Nástup z evidence úřadu práce','Ostatní osoby nastupující poprvé','Osoba měnící zaměstnání','Nástup z výběrového řízení','Opětovné přijetí do pracovního poměru']},
     {id:'datum_nastupu', label:'Datum nástupu', type:'date', required:true},
     {id:'pozice', label:'Pracovní pozice', type:'select', options: [''], required:true},
@@ -433,7 +437,7 @@ const DEFAULT_INFO = {
   ],
 };
 
-let state = { view:'list', index:[], currentId:null, currentRecord:null, tab:'personal', loading:true, error:null, collapsed:{}, role:'hr', employeeMode:false, linkCopied:false, wizardStep:0, infoContent:null, editingInfo:false, previewingEmployee:false, returnMsgCopied:false, pendingEdit:null, filterText:'', colFilters:{pozice:'', pracoviste:'', personal:'', it:'', assigned:''}, sortKey:'created', sortDir:'desc', wizardStepError:false, editingWorkplace:null, editingFirstDayType:null, firstDayDismissPrompt:false, firstDayHiddenSession:false, settings:null, settingsDraft:null, settingsSaved:false, openItemNotes:{}, selectedExport:{}, exporting:false, hardRateLimited:false, selectedAssign:{}, bulkAssignTarget:'', bulkAssigning:false, saveStatus:null, saveStatusAt:null, standaloneMode:false, showMissingHighlights:false, userEmail:null, settingsCollapsed:{}, importQueue:[], importCurrent:null };
+let state = { view:'list', index:[], currentId:null, currentRecord:null, tab:'personal', loading:true, error:null, collapsed:{}, role:'hr', employeeMode:false, linkCopied:false, wizardStep:0, infoContent:null, editingInfo:false, previewingEmployee:false, returnMsgCopied:false, pendingEdit:null, filterText:'', colFilters:{pozice:'', pracoviste:'', zdrojovyUrad:'', personal:'', it:'', assigned:''}, sortKey:'created', sortDir:'desc', wizardStepError:false, editingWorkplace:null, editingFirstDayType:null, firstDayDismissPrompt:false, firstDayHiddenSession:false, settings:null, settingsDraft:null, settingsSaved:false, openItemNotes:{}, selectedExport:{}, exporting:false, hardRateLimited:false, selectedAssign:{}, bulkAssignTarget:'', bulkAssigning:false, saveStatus:null, saveStatusAt:null, standaloneMode:false, showMissingHighlights:false, userEmail:null, settingsCollapsed:{}, importQueue:[], importCurrent:null };
 
 function emptyPersonal(){
   const p = {};
@@ -558,7 +562,7 @@ async function saveRecord(id, record){
   }
 }
 async function loadSettings(){
-  const blank = () => ({ workplaces: [...DEFAULT_WORKPLACES], positions: [...DEFAULT_POSITIONS], admins: [...DEFAULT_ADMINS], supervisors: [...DEFAULT_SUPERVISORS], departments: [...DEFAULT_DEPARTMENTS], facilityStaff: [...DEFAULT_FACILITY_STAFF], offices: {...DEFAULT_OFFICES}, workplaceVemaCodes: {...DEFAULT_WORKPLACE_VEMA_CODES}, workplaceLocations: {...DEFAULT_WORKPLACE_LOCATIONS}, vemaConstants: {}, categories: JSON.parse(JSON.stringify(DEFAULT_CATEGORIES)), systemUrls: {...DEFAULT_SYSTEM_URLS}, systemTypes: {...DEFAULT_SYSTEM_TYPES}, hrRequiredOverrides: {} });
+  const blank = () => ({ workplaces: [...DEFAULT_WORKPLACES], positions: [...DEFAULT_POSITIONS], admins: [...DEFAULT_ADMINS], supervisors: [...DEFAULT_SUPERVISORS], departments: [...DEFAULT_DEPARTMENTS], facilityStaff: [...DEFAULT_FACILITY_STAFF], offices: {...DEFAULT_OFFICES}, workplaceVemaCodes: {...DEFAULT_WORKPLACE_VEMA_CODES}, workplaceLocations: {...DEFAULT_WORKPLACE_LOCATIONS}, vemaConstants: {}, categories: JSON.parse(JSON.stringify(DEFAULT_CATEGORIES)), systemUrls: {...DEFAULT_SYSTEM_URLS}, systemTypes: {...DEFAULT_SYSTEM_TYPES}, hrRequiredOverrides: {}, emailRules: {...DEFAULT_EMAIL_RULES} });
   try{
     const res = await window.storage.get(STORAGE_SETTINGS_KEY, true);
     state.settings = res ? JSON.parse(res.value) : blank();
@@ -584,6 +588,8 @@ async function loadSettings(){
   if(!state.settings.systemTypes || typeof state.settings.systemTypes !== 'object') state.settings.systemTypes = {};
   if(!state.settings.hrRequiredOverrides || typeof state.settings.hrRequiredOverrides !== 'object') state.settings.hrRequiredOverrides = {};
   SYSTEM_URL_KEYS.forEach(k => { if(!(k in state.settings.systemTypes)) state.settings.systemTypes[k] = 'web'; });
+  if(!state.settings.emailRules || typeof state.settings.emailRules !== 'object') state.settings.emailRules = {...DEFAULT_EMAIL_RULES};
+  ZDROJOVE_URADY.forEach(z => { if(!(z in state.settings.emailRules)) state.settings.emailRules[z] = ''; });
 }
 async function saveSettings(){
   if(state.standaloneMode) return true;
@@ -903,6 +909,25 @@ function ensureSuggestedEmail(record){
   return true;
 }
 
+// Stávající (předpracovní) e-mail u zdrojového úřadu — na rozdíl od suggestedEmail() výše (návrh
+// NOVÉ pracovní adresy @uru.gov.cz) se počítá podle pravidla uloženého v Nastavení pro konkrétní
+// zdrojový úřad (state.settings.emailRules), protože každý úřad má jinou doménu/formát.
+function existingEmailFromRule(zdrojovyUrad, jmeno, prijmeni){
+  const rule = state.settings && state.settings.emailRules && state.settings.emailRules[zdrojovyUrad];
+  if(!rule) return '';
+  const strip = s => (s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().trim().replace(/[^a-z]/g,'');
+  const j = strip(jmeno), p = strip(prijmeni);
+  if(!j || !p) return '';
+  return rule.replace(/\{jmeno\}/g, j).replace(/\{prijmeni\}/g, p);
+}
+function ensureExistingEmail(record){
+  if(record.personal.email_stavajici) return false;
+  const email = existingEmailFromRule(record.personal.zdrojovy_urad, record.personal.jmeno, record.personal.prijmeni);
+  if(!email) return false;
+  record.personal.email_stavajici = email;
+  return true;
+}
+
 function birthDateFromRC(raw){
   if(!raw) return null;
   const cleaned = raw.replace(/\s+/g,'');
@@ -1105,11 +1130,12 @@ function getFilteredSortedRows(){
   let rows = state.index.slice();
   const text = (state.filterText || '').trim().toLowerCase();
   if(text){
-    rows = rows.filter(r => `${r.jmeno||''} ${r.prijmeni||''} ${r.pozice||''} ${r.pracoviste||''} ${r.assignedAdmin||''} ${r.ref||''}`.toLowerCase().includes(text));
+    rows = rows.filter(r => `${r.jmeno||''} ${r.prijmeni||''} ${r.pozice||''} ${r.pracoviste||''} ${r.zdrojovyUrad||''} ${r.assignedAdmin||''} ${r.ref||''}`.toLowerCase().includes(text));
   }
   const cf = state.colFilters;
   if(cf.pozice) rows = rows.filter(r => (r.pozice||'') === cf.pozice);
   if(cf.pracoviste) rows = rows.filter(r => (r.pracoviste||'') === cf.pracoviste);
+  if(cf.zdrojovyUrad) rows = rows.filter(r => (r.zdrojovyUrad||'') === cf.zdrojovyUrad);
   if(state.role === 'hr' && cf.personal) rows = rows.filter(r => (r.personalStatus||'draft') === cf.personal);
   if(cf.it){
     rows = rows.filter(r => {
@@ -1128,6 +1154,7 @@ function getFilteredSortedRows(){
       case 'name': av = `${a.prijmeni||''} ${a.jmeno||''}`.toLowerCase(); bv = `${b.prijmeni||''} ${b.jmeno||''}`.toLowerCase(); break;
       case 'pozice': av = (a.pozice||'').toLowerCase(); bv = (b.pozice||'').toLowerCase(); break;
       case 'pracoviste': av = (a.pracoviste||'').toLowerCase(); bv = (b.pracoviste||'').toLowerCase(); break;
+      case 'zdrojovyUrad': av = (a.zdrojovyUrad||'').toLowerCase(); bv = (b.zdrojovyUrad||'').toLowerCase(); break;
       case 'datumNastupu': av = a.datumNastupu || ''; bv = b.datumNastupu || ''; break;
       case 'personal': av = PERSONAL_STATUS_ORDER[a.personalStatus||'draft']; bv = PERSONAL_STATUS_ORDER[b.personalStatus||'draft']; break;
       case 'it': av = a.itTotal ? a.itDone/a.itTotal : 0; bv = b.itTotal ? b.itDone/b.itTotal : 0; break;
@@ -1207,6 +1234,7 @@ function renderList(){
           <th data-sort="name">Zaměstnanec${sortArrow('name')}</th>
           <th data-sort="pozice">Pozice${sortArrow('pozice')}</th>
           <th data-sort="pracoviste">Pracoviště${sortArrow('pracoviste')}</th>
+          <th data-sort="zdrojovyUrad">Zdrojový úřad${sortArrow('zdrojovyUrad')}</th>
           <th data-sort="datumNastupu">Nástup${sortArrow('datumNastupu')}</th>
           ${state.role==='hr'?`<th data-sort="personal">Osobní údaje${sortArrow('personal')}</th>`:''}
           <th data-sort="it">IT a přístupy${sortArrow('it')}</th>
@@ -1220,6 +1248,7 @@ function renderList(){
           <th></th>
           <th>${selectHtml('pozice', [['','Vše'], ...positionList().map(p=>[p,p])], cf.pozice)}</th>
           <th>${selectHtml('pracoviste', [['','Vše'], ...workplaceList().map(w=>[w,w])], cf.pracoviste)}</th>
+          <th>${selectHtml('zdrojovyUrad', [['','Vše'], ...ZDROJOVE_URADY.map(z=>[z,z])], cf.zdrojovyUrad)}</th>
           <th></th>
           ${state.role==='hr'?`<th>${selectHtml('personal', personalStatusOpts, cf.personal)}</th>`:''}
           <th>${selectHtml('it', itStatusOpts, cf.it)}</th>
@@ -1238,6 +1267,7 @@ function renderList(){
               <td><div class="index-name">${esc(r.jmeno)} ${esc(r.prijmeni)}</div><div class="index-ref">${esc(r.ref)}</div></td>
               <td>${esc(r.pozice || '—')}</td>
               <td>${esc(r.pracoviste || '—')}</td>
+              <td>${esc(r.zdrojovyUrad || '—')}</td>
               <td>${esc(formatDate(r.datumNastupu)) || '—'}</td>
               ${state.role==='hr'?`<td>${personalChip(r)}</td>`:''}
               <td>${chip(r.itDone === r.itTotal && r.itTotal>0, `${r.itDone||0}/${r.itTotal||0}`)}</td>
@@ -1329,7 +1359,9 @@ function renderDetail(){
         ${state.role==='hr' && !state.previewingEmployee ? (() => {
           const hrMissing = missingHrRequiredFields(r);
           const linkReady = hrMissing.length === 0;
-          return `<button class="btn btn-ghost btn-sm" id="btn-copy-link" ${linkReady?'':'disabled title="Nejdřív doplňte povinné údaje personálního oddělení (viz Osobní údaje)"'}>${state.linkCopied ? 'Odkaz zkopírován ✓' : 'Zkopírovat odkaz pro zaměstnance'}</button>`;
+          const hasExistingEmail = !!r.personal.email_stavajici;
+          return `<button class="btn btn-ghost btn-sm" id="btn-copy-link" ${linkReady?'':'disabled title="Nejdřív doplňte povinné údaje personálního oddělení (viz Osobní údaje)"'}>${state.linkCopied ? 'Odkaz zkopírován ✓' : 'Zkopírovat odkaz pro zaměstnance'}</button>
+          <button class="btn btn-ghost btn-sm" id="btn-email-link" ${linkReady && hasExistingEmail?'':'disabled'} title="${hasExistingEmail?'':'Nejdřív doplňte stávající e-mail v sekci Pracovní poměr'}">Poslat odkaz e-mailem</button>`;
         })() : ''}
       </div>
     </div>
@@ -1700,6 +1732,18 @@ function renderSettingsPage(){
         </div>
       `).join('')}
       <button class="btn btn-ghost btn-sm" type="button" id="btn-supervisor-add">+ Přidat nadřízeného</button>
+      ${settingsPanelEnd()}
+    </div>
+
+    <div class="panel" style="margin-bottom:20px;">
+      ${settingsPanelStart('emailrules', 'Pravidla pro stávající e-mail')}
+      <p style="font-size:12.5px;color:var(--ink-faint);margin:0 0 12px;">Podle zdrojového úřadu se dopočítá stávající pracovní e-mail zaměstnance (pro zaslání odkazu na formulář). Použijte <code>{jmeno}</code> a <code>{prijmeni}</code> — bez diakritiky a malými písmeny se doplní automaticky. Nevyplněné úřady se nedopočítají, e-mail pak zadáte u osoby ručně.</p>
+      ${ZDROJOVE_URADY.map(z => `
+        <div class="contact-edit-row" style="grid-template-columns:120px 1fr;">
+          <label style="font-size:13px;align-self:center;">${esc(z)}</label>
+          <input data-emailrule-input="${esc(z)}" value="${esc((draft.emailRules||{})[z]||'')}" placeholder="{jmeno}.{prijmeni}@domena.cz">
+        </div>
+      `).join('')}
       ${settingsPanelEnd()}
     </div>
 
@@ -2585,6 +2629,13 @@ function attachHandlers(){
   const supervisorAddBtn = document.getElementById('btn-supervisor-add');
   if(supervisorAddBtn) supervisorAddBtn.addEventListener('click', () => { state.settingsDraft.supervisors.push(''); render(); });
 
+  app.querySelectorAll('[data-emailrule-input]').forEach(el => {
+    el.addEventListener('change', () => {
+      if(!state.settingsDraft.emailRules) state.settingsDraft.emailRules = {};
+      state.settingsDraft.emailRules[el.getAttribute('data-emailrule-input')] = el.value.trim();
+    });
+  });
+
   app.querySelectorAll('[data-department-input]').forEach(el => {
     el.addEventListener('change', () => { state.settingsDraft.departments[el.getAttribute('data-department-input')] = el.value; });
   });
@@ -2975,6 +3026,22 @@ function attachHandlers(){
     setTimeout(() => { state.linkCopied = false; }, 3000);
   });
 
+  const emailLinkBtn = document.getElementById('btn-email-link');
+  if(emailLinkBtn) emailLinkBtn.addEventListener('click', () => {
+    const r = state.currentRecord;
+    const existingEmail = r.personal.email_stavajici;
+    if(!existingEmail) return;
+    const url = location.href.split('#')[0] + '#z/' + state.currentId;
+    const subject = `Vyplnění údajů pro nástup — ${r.personal.jmeno} ${r.personal.prijmeni}`;
+    const body = `Dobrý den,\n\npro vyplnění údajů k Vašemu nástupu prosím použijte následující odkaz:\n${url}\n\nS pozdravem`;
+    window.location.href = `mailto:${encodeURIComponent(existingEmail)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    if(!state.currentRecord.linkGeneratedAt){
+      state.currentRecord.linkGeneratedAt = new Date().toISOString();
+      persistCurrentRecord();
+      render();
+    }
+  });
+
   app.querySelectorAll('[data-tab]').forEach(el => {
     el.addEventListener('click', () => { state.tab = el.getAttribute('data-tab'); state.wizardStep = 0; state.wizardStepError = false; render(); });
   });
@@ -3059,7 +3126,8 @@ function attachHandlers(){
       }
       state.currentRecord.personal[fieldId] = newValue;
       if(fieldId === 'rozsah_uvazku' && newValue !== 'Zkrácený úvazek') state.currentRecord.personal.zkraceny_uvazek_procenta = '100';
-      if(fieldId === 'pozice' || fieldId === 'datum_nastupu' || fieldId === 'pracoviste' || fieldId === 'kategorie') persistCurrentRecord();
+      if(fieldId === 'jmeno' || fieldId === 'prijmeni' || fieldId === 'zdrojovy_urad') ensureExistingEmail(state.currentRecord);
+      if(fieldId === 'pozice' || fieldId === 'datum_nastupu' || fieldId === 'pracoviste' || fieldId === 'kategorie' || fieldId === 'zdrojovy_urad') persistCurrentRecord();
       else persistRecordOnly();
       requestAnimationFrame(render);
     });
@@ -3545,6 +3613,7 @@ async function persistCurrentRecord(){
     entry.pozice = state.currentRecord.personal.pozice || entry.pozice;
     entry.pracoviste = state.currentRecord.personal.pracoviste || entry.pracoviste;
     entry.datumNastupu = state.currentRecord.personal.datum_nastupu || entry.datumNastupu;
+    entry.zdrojovyUrad = state.currentRecord.personal.zdrojovy_urad || entry.zdrojovyUrad;
     entry.personalStatus = state.currentRecord.personalStatus;
     entry.assignedAdmin = state.currentRecord.assignedAdmin;
     entry.hrMissingCount = missingHrRequiredFields(state.currentRecord).length;
@@ -3682,6 +3751,14 @@ const IMPORT_FIELD_TARGETS = [
   },
   { key:'poznamka', label:'Poznámka (→ Kurzy a dovednosti)', apply:(r,v) => { r.personal.kurzy_dovednosti = String(v||'').trim(); } },
   { key:'orgPersonId', label:'ID z organigramu (interní, needitovatelné)', apply:(r,v) => { r.orgPersonId = String(v||'').trim(); } },
+  { key:'zdrojovy_urad', label:'Zdrojový úřad', apply:(r,v) => { r.personal.zdrojovy_urad = String(v||'').trim(); } },
+  { key:'nadrizeny', label:'Přímý nadřízený', apply:(r,v) => {
+      const name = String(v||'').trim();
+      if(!name) return;
+      r.personal.nadrizeny = name;
+      if(state.settings && Array.isArray(state.settings.supervisors) && !state.settings.supervisors.includes(name)) state.settings.supervisors.push(name);
+    }
+  },
 ];
 
 function guessFieldTarget(header){
@@ -3754,7 +3831,7 @@ async function readJsonOrgFile(file){
     const pozice = info ? capitalizeFirst(info.pos.label) : '';
     rows.push([prijmeni, jmeno, titlePart, p.src||'', odbor, pracoviste, pozice, p.fte||'']);
   });
-  const mapping = { 0:'prijmeni', 1:'jmeno', 2:'titul_pred', 3:'ignore', 4:'odbor_oddeleni', 5:'pracoviste', 6:'pozice', 7:'rozsah_uvazku' };
+  const mapping = { 0:'prijmeni', 1:'jmeno', 2:'titul_pred', 3:'zdrojovy_urad', 4:'odbor_oddeleni', 5:'pracoviste', 6:'pozice', 7:'rozsah_uvazku' };
   return { headers, rows, mapping, groupColIdx: 3 };
 }
 
@@ -3786,7 +3863,7 @@ async function readOrganigramRoster(){
   const all = data || [];
   const known = alreadyImportedOrgIds();
   const fresh = all.filter(p => p && p.person_id && p.src !== 'DESÚ' && !known.has(p.person_id));
-  const headers = ['ID (organigram)', 'Příjmení', 'Jméno', 'Titul', 'Původ', 'Odbor / oddělení', 'Pracoviště', 'Pozice', 'Úvazek'];
+  const headers = ['ID (organigram)', 'Příjmení', 'Jméno', 'Titul', 'Původ', 'Odbor / oddělení', 'Pracoviště', 'Pozice', 'Úvazek', 'Nadřízený'];
   const rows = fresh.map(p => {
     const raw = String(p.name||'').trim();
     const parts = raw.split(',');
@@ -3796,9 +3873,11 @@ async function readOrganigramRoster(){
     let jmeno = '', prijmeni = '';
     if(tokens.length >= 2){ jmeno = tokens[tokens.length-1]; prijmeni = tokens.slice(0,-1).join(' '); }
     else if(tokens.length === 1){ prijmeni = tokens[0]; }
-    return [p.person_id, prijmeni, jmeno, titlePart, p.src||'', p.unit_path||'', p.location_name||'', capitalizeFirst(p.position_label||''), p.fte != null ? p.fte : ''];
+    return [p.person_id, prijmeni, jmeno, titlePart, p.src||'', p.unit_path||'', p.location_name||'', capitalizeFirst(p.position_label||''), p.fte != null ? p.fte : '', p.supervisor_name||''];
   });
-  const mapping = { 0:'orgPersonId', 1:'prijmeni', 2:'jmeno', 3:'titul_pred', 4:'ignore', 5:'odbor_oddeleni', 6:'pracoviste', 7:'pozice', 8:'rozsah_uvazku' };
+  // Pozn.: sloupec "Původ" (index 4) slouží současně jako groupColIdx (seskupení pro hromadné
+  // hodnoty podle zdrojového úřadu na mapovací stránce) i jako zdroj pro pole zdrojovy_urad u osoby.
+  const mapping = { 0:'orgPersonId', 1:'prijmeni', 2:'jmeno', 3:'titul_pred', 4:'zdrojovy_urad', 5:'odbor_oddeleni', 6:'pracoviste', 7:'pozice', 8:'rozsah_uvazku', 9:'nadrizeny' };
   return { headers, rows, mapping, groupColIdx: 4, totalCount: all.length, newCount: rows.length };
 }
 
@@ -3859,10 +3938,11 @@ async function runImportBatch(){
         try{ target.apply(record, row[colIdx]); }catch(e){ console.error('import apply failed for column', h, e); }
       }
     });
+    ensureExistingEmail(record);
     const {total, done} = checklistTotals(record.checklist, record.personal.kategorie, 'it');
     batch.push({
       id, record,
-      entry: { id, ref, jmeno: record.personal.jmeno||'', prijmeni: record.personal.prijmeni||'', pozice: record.personal.pozice||'', pracoviste: record.personal.pracoviste||'', datumNastupu: record.personal.datum_nastupu||'', created: Date.now()+i, personalStatus:'draft', itTotal: total, itDone: done, hrMissingCount: missingHrRequiredFields(record).length, linkGeneratedAt: null, orgPersonId: record.orgPersonId || null }
+      entry: { id, ref, jmeno: record.personal.jmeno||'', prijmeni: record.personal.prijmeni||'', pozice: record.personal.pozice||'', pracoviste: record.personal.pracoviste||'', datumNastupu: record.personal.datum_nastupu||'', zdrojovyUrad: record.personal.zdrojovy_urad||'', created: Date.now()+i, personalStatus:'draft', itTotal: total, itDone: done, hrMissingCount: missingHrRequiredFields(record).length, linkGeneratedAt: null, orgPersonId: record.orgPersonId || null }
     });
   });
   let saved = 0;
@@ -3871,6 +3951,7 @@ async function runImportBatch(){
     const ok = await saveRecord(item.id, item.record);
     if(ok){ saved++; } else { const idx = state.index.findIndex(e=>e.id===item.id); if(idx!==-1) state.index.splice(idx,1); }
   }
+  await saveSettings(); // uloží případné nové nadřízené přibyté do seznamu během importu
   await saveIndex();
   return { saved, total: batch.length };
 }
