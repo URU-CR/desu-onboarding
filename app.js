@@ -1161,6 +1161,7 @@ function renderList(){
       <h2>Rejstřík nástupů</h2>
       <div style="display:flex;gap:8px;">
         ${canCreate ? `<button class="btn btn-ghost" id="btn-import-upload">Vytěžit podklady</button><input type="file" id="import-file-input" accept=".xlsx,.xls,.json" multiple style="display:none;">` : ''}
+        ${canCreate && organigramConfigured() ? `<button class="btn btn-ghost" id="btn-import-organigram">Stáhnout nové z organigramu</button>` : ''}
         ${canCreate ? `<button class="btn btn-primary" id="btn-new">+ Nový nástup</button>` : ''}
       </div>
     </div>
@@ -1596,6 +1597,29 @@ function downloadCsv(filename, headerCols, rows){
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
+function downloadBlob(blob, filename){
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+// ---- Z\u00E1loha / obnova cel\u00E9 datab\u00E1ze (kv_store) \u2014 st\u00E1hne/nahrad\u00ED v\u0161e pod kl\u00ED\u010Dem "onboarding:" najednou:
+// rejst\u0159\u00EDk, v\u0161echny spisy, nastaven\u00ED i obsah pro zam\u011Bstnance. Nez\u00E1visl\u00E9 na konkr\u00E9tn\u00ED verzi appky.
+async function downloadBackup(){
+  const rows = await window.storage.listAll('onboarding:');
+  const payload = { exportedAt: new Date().toISOString(), app: 'onboarding', rowCount: rows.length, rows };
+  const blob = new Blob([JSON.stringify(payload, null, 1)], {type:'application/json'});
+  downloadBlob(blob, `Onboarding_zaloha_${new Date().toISOString().slice(0,10)}.json`);
+}
+async function restoreBackup(file){
+  const text = await file.text();
+  const payload = JSON.parse(text);
+  if(!payload || !Array.isArray(payload.rows) || !payload.rows.every(r => r && typeof r.key === 'string')){
+    throw new Error('neplatn\u00FD form\u00E1t souboru z\u00E1lohy');
+  }
+  await window.storage.replaceAll('onboarding:', payload.rows);
+}
 function isSettingsSectionCollapsed(key){
   if(!state.settingsCollapsed) state.settingsCollapsed = {};
   return state.settingsCollapsed[key] !== false;
@@ -1839,6 +1863,16 @@ function renderSettingsPage(){
     </div>
 
     <button class="btn btn-primary" id="btn-save-settings">Uložit nastavení</button>
+
+    <div class="panel" style="margin-top:28px;">
+      <h4 style="font-family:var(--font-display);font-size:1.125rem;margin:0 0 8px;">Záloha dat</h4>
+      <p style="font-size:13px;color:var(--ink-soft);margin:0 0 12px;">Stáhne kompletní zálohu — rejstřík, všechny spisy, nastavení i obsah pro zaměstnance — jako jeden soubor. Obnova ze zálohy přepíše úplně vše aktuální tím, co je v souboru. Doporučujeme stáhnout zálohu před hromadným importem nebo jinou rizikovou akcí.</p>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+        <button class="btn btn-ghost" id="btn-backup-download">Stáhnout zálohu (json)</button>
+        <button class="btn btn-ghost" id="btn-backup-restore">Obnovit ze zálohy (json)</button>
+        <input type="file" id="backup-file-input" accept=".json" hidden>
+      </div>
+    </div>
 
     <div class="panel" style="margin-top:28px;border-color:var(--red);">
       <h4 style="font-family:var(--font-display);font-size:1.125rem;margin:0 0 8px;color:var(--red);">Nebezpečná zóna</h4>
@@ -2651,6 +2685,34 @@ function attachHandlers(){
   const deleteAllBtn = document.getElementById('btn-delete-all');
   if(deleteAllBtn) deleteAllBtn.addEventListener('click', openDeleteAllModal);
 
+  const backupDownloadBtn = document.getElementById('btn-backup-download');
+  if(backupDownloadBtn) backupDownloadBtn.addEventListener('click', async () => {
+    const prevText = backupDownloadBtn.textContent;
+    backupDownloadBtn.disabled = true; backupDownloadBtn.textContent = 'Stahuji…';
+    try{ await downloadBackup(); }
+    catch(e){ console.error('backup download failed:', e); alert('Zálohu se nepodařilo stáhnout: ' + e.message); }
+    backupDownloadBtn.disabled = false; backupDownloadBtn.textContent = prevText;
+  });
+  const backupRestoreBtn = document.getElementById('btn-backup-restore');
+  if(backupRestoreBtn) backupRestoreBtn.addEventListener('click', () => {
+    document.getElementById('backup-file-input').click();
+  });
+  const backupFileInput = document.getElementById('backup-file-input');
+  if(backupFileInput) backupFileInput.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if(!file) return;
+    if(!confirm(`Opravdu obnovit data ze zálohy „${file.name}"? Přepíše to VŠECHNY aktuální spisy, nastavení i obsah pro zaměstnance tím, co je v souboru — nynější data se tím ztratí. Tuto akci nelze vrátit zpět.`)) return;
+    try{
+      await restoreBackup(file);
+      alert('Záloha byla obnovena. Stránka se nyní znovu načte.');
+      location.reload();
+    }catch(err){
+      console.error('backup restore failed:', err);
+      alert('Obnovu ze zálohy se nepodařilo dokončit: ' + err.message);
+    }
+  });
+
   app.querySelectorAll('[data-hrreq-toggle]').forEach(cb => {
     cb.addEventListener('change', () => {
       const id = cb.getAttribute('data-hrreq-toggle');
@@ -2725,6 +2787,27 @@ function attachHandlers(){
   const importUploadBtn = document.getElementById('btn-import-upload');
   if(importUploadBtn) importUploadBtn.addEventListener('click', () => {
     document.getElementById('import-file-input').click();
+  });
+  const importOrgBtn = document.getElementById('btn-import-organigram');
+  if(importOrgBtn) importOrgBtn.addEventListener('click', async () => {
+    importOrgBtn.disabled = true;
+    importOrgBtn.textContent = 'Stahuji…';
+    try{
+      const { headers, rows, mapping, groupColIdx, totalCount, newCount } = await readOrganigramRoster();
+      if(rows.length === 0){
+        state.error = totalCount ? `V organigramu je ${totalCount} obsazených osob, ale žádná není nová (zaměstnanci DESÚ se nepřebírají a ostatní už jsou v rejstříku).` : 'V organigramu nejsou žádné obsazené osoby.';
+      } else {
+        state.importCurrent = { fileName: `Organigram (Supabase) — ${newCount} nových`, headers, rows, mapping, common:{}, groupColIdx, groupCommon:{} };
+        state.importQueue = [];
+        state.view = 'import-mapping';
+      }
+    }catch(err){
+      console.error('organigram roster fetch failed:', err);
+      state.error = `Stažení z organigramu se nezdařilo: ${err.message}`;
+    }
+    importOrgBtn.disabled = false;
+    importOrgBtn.textContent = 'Stáhnout nové z organigramu';
+    render();
   });
   const importFileInput = document.getElementById('import-file-input');
   if(importFileInput) importFileInput.addEventListener('change', async (e) => {
@@ -3598,6 +3681,7 @@ const IMPORT_FIELD_TARGETS = [
     }
   },
   { key:'poznamka', label:'Poznámka (→ Kurzy a dovednosti)', apply:(r,v) => { r.personal.kurzy_dovednosti = String(v||'').trim(); } },
+  { key:'orgPersonId', label:'ID z organigramu (interní, needitovatelné)', apply:(r,v) => { r.orgPersonId = String(v||'').trim(); } },
 ];
 
 function guessFieldTarget(header){
@@ -3674,6 +3758,50 @@ async function readJsonOrgFile(file){
   return { headers, rows, mapping, groupColIdx: 3 };
 }
 
+// ---- Napojení na organigram přes Supabase (tabulka organigram_roster, publikovaná organigramem při
+// každém uložení) — alternativa k ručnímu importu JSON souboru. Druhý, samostatný anon klíč čte jen
+// tuto jednu odvozenou tabulku, nikoliv celou strukturu organigramu. ----
+let orgSb = null;
+function getOrgSb(){
+  if(orgSb) return orgSb;
+  if(typeof window.supabase === 'undefined' || typeof window.supabase.createClient !== 'function') return null;
+  const url = window.ORGANIGRAM_SUPABASE_URL, key = window.ORGANIGRAM_SUPABASE_ANON_KEY;
+  if(!url || !key || url.includes('VASE-PROJEKT') || key.includes('VLOZTE-SEM')) return null;
+  orgSb = window.supabase.createClient(url, key);
+  return orgSb;
+}
+function organigramConfigured(){ return !!getOrgSb(); }
+function alreadyImportedOrgIds(){
+  const ids = new Set();
+  state.index.forEach(e => { if(e.orgPersonId) ids.add(e.orgPersonId); });
+  return ids;
+}
+// Stáhne aktuální seznam osob z organigramu a vrátí jen ty, co ještě nejsou v rejstříku
+// (dle stabilního person_id) a nejsou současnými zaměstnanci DESÚ (ti onboardingem neprocházejí).
+async function readOrganigramRoster(){
+  const sbOrg = getOrgSb();
+  if(!sbOrg) throw new Error('Napojení na organigram není v config.js nastaveno (ORGANIGRAM_SUPABASE_URL / ORGANIGRAM_SUPABASE_ANON_KEY).');
+  const { data, error } = await sbOrg.from('organigram_roster').select('*');
+  if(error) throw error;
+  const all = data || [];
+  const known = alreadyImportedOrgIds();
+  const fresh = all.filter(p => p && p.person_id && p.src !== 'DESÚ' && !known.has(p.person_id));
+  const headers = ['ID (organigram)', 'Příjmení', 'Jméno', 'Titul', 'Původ', 'Odbor / oddělení', 'Pracoviště', 'Pozice', 'Úvazek'];
+  const rows = fresh.map(p => {
+    const raw = String(p.name||'').trim();
+    const parts = raw.split(',');
+    const namePart = (parts[0]||'').trim();
+    const titlePart = parts.slice(1).join(',').trim();
+    const tokens = namePart.split(/\s+/).filter(Boolean);
+    let jmeno = '', prijmeni = '';
+    if(tokens.length >= 2){ jmeno = tokens[tokens.length-1]; prijmeni = tokens.slice(0,-1).join(' '); }
+    else if(tokens.length === 1){ prijmeni = tokens[0]; }
+    return [p.person_id, prijmeni, jmeno, titlePart, p.src||'', p.unit_path||'', p.location_name||'', capitalizeFirst(p.position_label||''), p.fte != null ? p.fte : ''];
+  });
+  const mapping = { 0:'orgPersonId', 1:'prijmeni', 2:'jmeno', 3:'titul_pred', 4:'ignore', 5:'odbor_oddeleni', 6:'pracoviste', 7:'pozice', 8:'rozsah_uvazku' };
+  return { headers, rows, mapping, groupColIdx: 4, totalCount: all.length, newCount: rows.length };
+}
+
 async function readXlsxFile(file){
   const buffer = await file.arrayBuffer();
   const wb = new ExcelJS.Workbook();
@@ -3734,7 +3862,7 @@ async function runImportBatch(){
     const {total, done} = checklistTotals(record.checklist, record.personal.kategorie, 'it');
     batch.push({
       id, record,
-      entry: { id, ref, jmeno: record.personal.jmeno||'', prijmeni: record.personal.prijmeni||'', pozice: record.personal.pozice||'', pracoviste: record.personal.pracoviste||'', datumNastupu: record.personal.datum_nastupu||'', created: Date.now()+i, personalStatus:'draft', itTotal: total, itDone: done, hrMissingCount: missingHrRequiredFields(record).length, linkGeneratedAt: null }
+      entry: { id, ref, jmeno: record.personal.jmeno||'', prijmeni: record.personal.prijmeni||'', pozice: record.personal.pozice||'', pracoviste: record.personal.pracoviste||'', datumNastupu: record.personal.datum_nastupu||'', created: Date.now()+i, personalStatus:'draft', itTotal: total, itDone: done, hrMissingCount: missingHrRequiredFields(record).length, linkGeneratedAt: null, orgPersonId: record.orgPersonId || null }
     });
   });
   let saved = 0;
@@ -4415,6 +4543,20 @@ async function openDetail(id){
       const { error } = await sb.from('kv_store').delete().eq('key', key);
       if(error) throw error;
       return { key, deleted: true, shared: true };
+    },
+    async listAll(prefix){
+      const { data, error } = await sb.from('kv_store').select('key,value').like('key', prefix + '%');
+      if(error) throw error;
+      return data || [];
+    },
+    async replaceAll(prefix, rows){
+      const { error: delErr } = await sb.from('kv_store').delete().like('key', prefix + '%');
+      if(delErr) throw delErr;
+      if(rows.length){
+        const payload = rows.map(r => ({ key: r.key, value: r.value, updated_at: new Date().toISOString() }));
+        const { error: insErr } = await sb.from('kv_store').insert(payload);
+        if(insErr) throw insErr;
+      }
     },
   };
 
