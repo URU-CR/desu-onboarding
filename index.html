@@ -297,7 +297,7 @@ input:-webkit-autofill,input:-webkit-autofill:hover,input:-webkit-autofill:focus
 }
 
 /* Nápověda (vysouvací zleva) */
-#help{position:fixed;top:0;left:0;bottom:0;width:min(460px,92vw);background:var(--card);border-right:1px solid var(--line-strong);box-shadow:8px 0 30px rgba(0,0,0,.18);z-index:60;display:none;flex-direction:column;font-size:13px;color:var(--ink)}
+#help{position:fixed;top:0;left:0;bottom:0;width:min(380px,92vw);background:var(--card);border-right:1px solid var(--line-strong);box-shadow:8px 0 30px rgba(0,0,0,.18);z-index:60;display:none;flex-direction:column;font-size:13px;color:var(--ink)}
 #help.open{display:flex}
 #help .hh{display:flex;align-items:center;gap:8px;padding:12px 14px;border-bottom:1px solid var(--line);font-size:15px}
 #help .hh .sp{flex:1}#help .hint{color:var(--ink-faint);font-size:11px;font-weight:400}
@@ -319,13 +319,14 @@ input:-webkit-autofill,input:-webkit-autofill:hover,input:-webkit-autofill:focus
 .help-fab:hover{filter:brightness(1.1);}
 @media print{.help-fab{display:none!important}}
 .help-link{color:var(--blue);cursor:pointer;text-decoration:none}
-@media print{#help{display:none!important}}
+@media (min-width:1000px){body{transition:padding-left .15s;}body.help-open{padding-left:380px;}}
+@media print{#help{display:none!important}body.help-open{padding-left:0!important}}
 </style>
 </head>
 <body>
 <div id="app"></div>
 
-<script src="config.js?v=43"></script>
-<script src="app.js?v=43"></script>
+<script src="config.js?v=44"></script>
+<script src="app.js?v=44"></script>
 </body>
 </html>

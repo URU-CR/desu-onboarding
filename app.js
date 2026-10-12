@@ -1,4 +1,4 @@
-const APP_VERSION = '2026-10-12.4';
+const APP_VERSION = '2026-10-12.5';
 const STORAGE_INDEX_KEY = 'onboarding:index';
 const STORAGE_INFO_KEY = 'onboarding:info-content';
 const STORAGE_SETTINGS_KEY = 'onboarding:settings';
@@ -1133,7 +1133,7 @@ function render(){
       </div>
     </div>
     <div class="no-print">
-    ${state.employeeMode ? `<div class="employee-banner">Toto je váš osobní onboardingový prostor. Vyplněné údaje uvidí personální oddělení, které je zkontroluje a případně doplní.<div style="margin-top:8px;"><button type="button" id="btn-help" class="help-cta">❓ Nevíte si rady? Otevřít nápovědu</button></div></div>` : renderRoleSwitch()}
+    ${state.employeeMode ? `<div class="employee-banner">Toto je váš osobní onboardingový prostor. Vyplněné údaje uvidí personální oddělení, které je zkontroluje a případně doplní.</div>` : renderRoleSwitch()}
     ${state.error ? `<div style="background:var(--red-tint);color:var(--red);padding:10px 14px;border-radius:3px;margin-bottom:16px;font-size:13px;">${esc(state.error)}</div>` : ''}
     </div>
     ${state.employeeMode ? `<button type="button" id="btn-help-fab" class="help-fab no-print" title="Nápověda (klávesa ?)">❓ Nápověda</button>` : ''}
@@ -4996,7 +4996,7 @@ const HELP = [
 (function(){
   const q = s => document.querySelector(s);
   const hd = document.createElement('div'); hd.id = 'help'; document.body.appendChild(hd);
-  function openHelp(){ hd.classList.toggle('open'); if(hd.classList.contains('open')){ renderHelp(''); setTimeout(()=>{ const i=q('#hq'); if(i) i.focus(); },0); } }
+  function openHelp(){ hd.classList.toggle('open'); document.body.classList.toggle('help-open', hd.classList.contains('open')); if(hd.classList.contains('open')){ renderHelp(''); setTimeout(()=>{ const i=q('#hq'); if(i) i.focus(); },0); } }
   function renderHelp(qs){
     qs = (qs||'').trim().toLowerCase();
     const strip = t => t.replace(/<[^>]+>/g,' ').toLowerCase();
@@ -5012,11 +5012,11 @@ const HELP = [
     const inp = q('#hq');
     inp.addEventListener('input', () => { const v=inp.value, pos=inp.selectionStart; renderHelp(v); const i2=q('#hq'); i2.focus(); i2.setSelectionRange(pos,pos); });
   }
-  hd.addEventListener('click', e => { if(e.target.closest('[data-hx]')) hd.classList.remove('open'); });
+  hd.addEventListener('click', e => { if(e.target.closest('[data-hx]')){ hd.classList.remove('open'); document.body.classList.remove('help-open'); } });
   document.addEventListener('click', e => { if(e.target.closest('#btn-help, #btn-help-fab')){ e.preventDefault(); openHelp(); } });
   document.addEventListener('keydown', e => {
     const typing = /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
     if(e.key === '?' && !typing && !q('.modal-backdrop')){ e.preventDefault(); openHelp(); }
-    if(e.key === 'Escape' && hd.classList.contains('open') && !q('.modal-backdrop')) hd.classList.remove('open');
+    if(e.key === 'Escape' && hd.classList.contains('open') && !q('.modal-backdrop')){ hd.classList.remove('open'); document.body.classList.remove('help-open'); }
   });
 })();
