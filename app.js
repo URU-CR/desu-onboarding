@@ -3764,6 +3764,9 @@ const IMPORT_FIELD_TARGETS = [
   { key:'odbor_oddeleni', label:'Odbor / oddělení', apply:(r,v) => { r.personal.odbor_oddeleni = String(v||'').trim(); } },
   { key:'pracoviste', label:'Pracoviště', apply:(r,v) => { r.personal.pracoviste = String(v||'').trim(); } },
   { key:'pozice', label:'Pracovní pozice', apply:(r,v) => { r.personal.pozice = String(v||'').trim(); } },
+  { key:'vedouci', label:'Vedoucí pozice (Ano/Ne)', apply:(r,v) => { const s=String(v||'').trim().toLowerCase(); if(s==='ano'||s==='a'||s==='1') r.personal.vedouci='Ano'; else if(s==='ne'||s==='n'||s==='0') r.personal.vedouci='Ne'; } },
+  { key:'stupen_rizeni', label:'Stupeň řízení vedoucích zaměstnanců (1–4)', apply:(r,v) => { const m=String(v||'').match(/[1-4]/); if(m) r.personal.stupen_rizeni = m[0]+'. stupeň'; } },
+  { key:'platova_trida', label:'Platová třída (1–16)', apply:(r,v) => { const n=parseInt(String(v||'').replace(/\D/g,''),10); if(n>=1&&n<=16) r.personal.platova_trida = String(n); } },
   { key:'rezim_zamestnani', label:'Typ úvazku (PP/SP → Pracovní/Služební poměr)', apply:(r,v) => {
       const t = String(v||'').trim().toUpperCase();
       if(t === 'SP' || t.includes('SLUŽEBN')) r.personal.rezim_zamestnani = 'Služební poměr';
@@ -3910,7 +3913,7 @@ async function fetchFreshOrganigramPeople(){
 // Sestaví {headers, rows, mapping, groupColIdx} pro import-mapping stránku z už vyfiltrovaného
 // seznamu osob (viz fetchFreshOrganigramPeople — tady se jen staví řádky tabulky).
 function organigramPeopleToImportRows(fresh){
-  const headers = ['ID (organigram)', 'Příjmení', 'Jméno', 'Titul', 'Původ', 'Odbor / oddělení', 'Pracoviště', 'Pozice', 'Úvazek', 'Nadřízený', 'Režim zaměstnání'];
+  const headers = ['ID (organigram)', 'Příjmení', 'Jméno', 'Titul', 'Původ', 'Odbor / oddělení', 'Pracoviště', 'Pozice', 'Úvazek', 'Nadřízený', 'Režim zaměstnání', 'Vedoucí pozice', 'Stupeň řízení', 'Platová třída'];
   const rows = fresh.map(p => {
     const raw = String(p.name||'').trim();
     const parts = raw.split(',');
@@ -3920,11 +3923,11 @@ function organigramPeopleToImportRows(fresh){
     let jmeno = '', prijmeni = '';
     if(tokens.length >= 2){ jmeno = tokens[tokens.length-1]; prijmeni = tokens.slice(0,-1).join(' '); }
     else if(tokens.length === 1){ prijmeni = tokens[0]; }
-    return [p.person_id, prijmeni, jmeno, titlePart, p.src||'', p.unit_path||'', p.location_name||'', capitalizeFirst(p.position_label||''), p.fte != null ? p.fte : '', p.supervisor_name||'', p.employment_type||''];
+    return [p.person_id, prijmeni, jmeno, titlePart, p.src||'', p.unit_path||'', p.location_name||'', capitalizeFirst(p.position_label||''), p.fte != null ? p.fte : '', p.supervisor_name||'', p.employment_type||'', p.position_kind==='head' ? 'Ano' : 'Ne', p.position_kind==='head' && p.management_level ? p.management_level : '', p.pay_grade != null ? p.pay_grade : ''];
   });
   // Pozn.: sloupec "Původ" (index 4) slouží současně jako groupColIdx (seskupení pro hromadné
   // hodnoty podle zdrojového úřadu na mapovací stránce) i jako zdroj pro pole zdrojovy_urad u osoby.
-  const mapping = { 0:'orgPersonId', 1:'prijmeni', 2:'jmeno', 3:'titul_pred', 4:'zdrojovy_urad', 5:'odbor_oddeleni', 6:'pracoviste', 7:'pozice', 8:'rozsah_uvazku', 9:'nadrizeny', 10:'rezim_zamestnani' };
+  const mapping = { 0:'orgPersonId', 1:'prijmeni', 2:'jmeno', 3:'titul_pred', 4:'zdrojovy_urad', 5:'odbor_oddeleni', 6:'pracoviste', 7:'pozice', 8:'rozsah_uvazku', 9:'nadrizeny', 10:'rezim_zamestnani', 11:'vedouci', 12:'stupen_rizeni', 13:'platova_trida' };
   return { headers, rows, mapping, groupColIdx: 4, newCount: rows.length };
 }
 // Nechá vybrat jeden konkrétní zdrojový úřad (typicky se doladí ÚÚR, pak teprve další úřady),
