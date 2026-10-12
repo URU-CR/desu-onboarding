@@ -1,4 +1,4 @@
-const APP_VERSION = '2026-10-12.2';
+const APP_VERSION = '2026-10-12.3';
 const STORAGE_INDEX_KEY = 'onboarding:index';
 const STORAGE_INFO_KEY = 'onboarding:info-content';
 const STORAGE_SETTINGS_KEY = 'onboarding:settings';
@@ -2176,6 +2176,7 @@ function renderHrStatusPanel(r){
   }
   if(status !== 'draft'){
     html += `<button class="btn btn-ghost btn-sm" id="btn-return">Vrátit zaměstnanci k doplnění${flagCount? ' ('+flagCount+')':''}</button>`;
+    if(status === 'returned') html += `<button class="btn btn-ghost btn-sm" id="btn-email-return" ${returnEmailAddress(r)?'':'disabled'}>Poslat zaměstnanci e-mailem</button>`;
     html += `<button class="btn btn-ghost btn-sm" id="btn-copy-return-message">${state.returnMsgCopied ? 'Zkopírováno ✓' : 'Zkopírovat zprávu pro zaměstnance'}</button>`;
   }
   html += `</div>`;
@@ -3139,17 +3140,12 @@ function attachHandlers(){
   });
   const returnBtn = document.getElementById('btn-return');
   if(returnBtn) returnBtn.addEventListener('click', openReturnModal);
+  const emailReturnBtn = document.getElementById('btn-email-return');
+  if(emailReturnBtn) emailReturnBtn.addEventListener('click', () => sendReturnEmail(state.currentRecord, state.currentId));
   const copyMsgBtn = document.getElementById('btn-copy-return-message');
   if(copyMsgBtn) copyMsgBtn.addEventListener('click', async () => {
     const r = state.currentRecord;
-    const flagged = Object.entries(r.fieldFlags || {}).filter(([,v]) => v !== undefined);
-    let msg = `Dobrý den,\n\nprosíme o doplnění/opravu údajů v onboardingové aplikaci.\n`;
-    if(r.returnNote) msg += `\n${r.returnNote}\n`;
-    if(flagged.length){
-      msg += `\nKonkrétně prosím zkontrolujte:\n`;
-      flagged.forEach(([key, note]) => { msg += `- ${flagLabelFor(key)}${note ? ': '+note : ''}\n`; });
-    }
-    msg += `\nDěkujeme,\npersonální oddělení`;
+    const msg = returnMessageText(r, state.currentId);
     try{ await navigator.clipboard.writeText(msg); }catch(e){}
     state.returnMsgCopied = true;
     render();
@@ -3728,6 +3724,30 @@ function flagLabelFor(key){
   return key;
 }
 
+
+// Text zprávy zaměstnanci při vrácení k doplnění (kopírování i e-mail)
+function returnMessageText(r, id){
+  const flagged = Object.entries(r.fieldFlags || {}).filter(([,v]) => v !== undefined);
+  const url = location.href.split('#')[0] + '#z/' + id;
+  let msg = `Dobrý den,\n\nprosíme o doplnění/opravu údajů v onboardingové aplikaci.\n`;
+  if(r.returnNote) msg += `\n${r.returnNote}\n`;
+  if(flagged.length){
+    msg += `\nKonkrétně prosím zkontrolujte:\n`;
+    flagged.forEach(([key, note]) => { msg += `- ${flagLabelFor(key)}${note ? ': '+note : ''}\n`; });
+  }
+  msg += `\nDotazník otevřete a opravené údaje odešlete znovu zde:\n${url}\n`;
+  msg += `\nDěkujeme,\npersonální oddělení`;
+  return msg;
+}
+function returnEmailAddress(r){ return (r.personal && (r.personal.email_stavajici || r.personal.email_soukromy)) || ''; }
+function sendReturnEmail(r, id){
+  const to = returnEmailAddress(r);
+  if(!to) return false;
+  const subject = `Doplnění údajů pro nástup — ${r.personal.jmeno||''} ${r.personal.prijmeni||''}`.trim();
+  window.location.href = `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(returnMessageText(r, id))}`;
+  return true;
+}
+
 function openReturnModal(){
   const r = state.currentRecord;
   const flagCount = Object.keys(r.fieldFlags || {}).length;
@@ -3742,20 +3762,24 @@ function openReturnModal(){
       </div>
       <div class="modal-actions">
         <button class="btn btn-ghost" id="rm-cancel">Zrušit</button>
-        <button class="btn btn-primary" id="rm-confirm">Vrátit zaměstnanci</button>
+        <button class="btn btn-ghost" id="rm-confirm">Jen vrátit</button>
+        <button class="btn btn-primary" id="rm-confirm-mail" ${returnEmailAddress(r)?'':'disabled title="Zaměstnanec nemá vyplněný e-mail (stávající ani soukromý)"'}>Vrátit a poslat e-mailem</button>
       </div>
     </div>
   `;
   document.body.appendChild(backdrop);
   document.getElementById('rm-cancel').addEventListener('click', () => backdrop.remove());
   backdrop.addEventListener('click', (ev) => { if(ev.target === backdrop) backdrop.remove(); });
-  document.getElementById('rm-confirm').addEventListener('click', () => {
+  const doReturn = (mail) => {
     state.currentRecord.returnNote = document.getElementById('rm-note').value.trim();
     state.currentRecord.personalStatus = 'returned';
     persistCurrentRecord();
     backdrop.remove();
     render();
-  });
+    if(mail) sendReturnEmail(state.currentRecord, state.currentId);
+  };
+  document.getElementById('rm-confirm').addEventListener('click', () => doReturn(false));
+  document.getElementById('rm-confirm-mail').addEventListener('click', () => doReturn(true));
 }
 
 const IMPORT_COMMON_FIELDS = [
@@ -4923,7 +4947,7 @@ const HELP = [
   ['ℹ️','Co potřebujete vědět','Informační záložka pro zaměstnance (kontakty, informace k pracovištím, obecné karty). Obsah se upravuje v Nastavení → Obsah pro zaměstnance.']]},
  {g:'Kontrola a schválení',items:[
   ['⚑','Vlajky u polí','Nejasné nebo chybějící položky označte vlajkou ⚑ u pole či sekce. Zaměstnanec je uvidí zvýrazněné i s vaší poznámkou.'],
-  ['↩️','Vrátit k doplnění','Vrátí spis zaměstnanci s volitelným vzkazem. Tlačítko <b>Zkopírovat zprávu pro zaměstnance</b> připraví text k odeslání vlastním kanálem.'],
+  ['↩️','Vrátit k doplnění','Vrátí spis zaměstnanci s volitelným vzkazem. <b>Aplikace sama žádné upozornění neposílá</b>, proto zaměstnance informujte: tlačítkem <b>Vrátit a poslat e-mailem</b> (otevře e-mail s vaším vzkazem, seznamem označených polí a odkazem na dotazník; adresa je stávající e-mail, jinak soukromý), později <b>Poslat zaměstnanci e-mailem</b> ve spisu, nebo <b>Zkopírovat zprávu pro zaměstnance</b> a poslat ji vlastním kanálem.'],
   ['✅','Schválit údaje','Dostupné ve stavu Odesláno / Vráceno, pokud jsou vyplněna všechna povinná pole. Po schválení má spis stav Zkontrolováno.'],
   ['🙋','Co dělá zaměstnanec','Vyplní průvodce, potvrdí souhlas se zpracováním osobních údajů a odešle. Po odeslání je formulář zamčen; zaměstnanec ho může sám stáhnout zpět a opravit, pokud ho ještě nezkontrolujete.']]},
  {g:'Výstupy',items:[
