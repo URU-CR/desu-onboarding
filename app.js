@@ -2040,7 +2040,7 @@ function sectionFieldsHtml(sec, r, editable){
     const isMissing = missingSet.has(f.id);
     return `<div class="field ${f.full?'full':''} ${f.essential?'essential':''} ${(showFlagInfo || hrFlagMode) && flagged ? 'flagged':''} ${isMissing?'missing':''}">
       <div class="field-label-row">
-        <label>${f.essential?'<span class="essential-dot" title="Podstatný údaj">●</span> ':''}${esc(f.label)}${f.required?' *':''}</label>
+        <label>${esc(f.label)}${(f.essential||f.required)?' <span class="essential-dot" title="Povinný údaj">*</span>':''}</label>
         ${hrFlagMode ? `<button type="button" class="flag-toggle ${flagged?'active':''}" data-flag-toggle="${f.id}" title="Označit pole jako problém">⚑ ${flagged ? 'Označeno' : 'Označit'}</button>` : ''}
       </div>
       ${fieldMarkup(f, displayVal, !editable || lockedByDep)}
@@ -2183,7 +2183,7 @@ function renderHrStatusPanel(r){
   const approveMissing = currentApproveMissing();
   if(approveMissing.length > 0){
     const incompleteSectionNames = [...new Set(approveMissing.map(m => m.section.replace(/ \(položka \d+\)$/,'')))];
-    html += `<div class="return-banner"><strong>Než půjde schválit, doplňte prosím povinné/podstatné údaje (${approveMissing.length}) v těchto sekcích:</strong> ${incompleteSectionNames.map(esc).join(', ')}. Chybějící pole jsou červeně označená přímo níže.</div>`;
+    html += `<div class="return-banner"><strong>Než půjde schválit, doplňte prosím povinné údaje (${approveMissing.length}) v těchto sekcích:</strong> ${incompleteSectionNames.map(esc).join(', ')}. Chybějící pole jsou červeně označená přímo níže.</div>`;
   }
   html += `<p style="font-size:12.5px;color:var(--ink-faint);margin-top:-6px;margin-bottom:18px;">Chybějící nebo nejasně vyplněné položky označte vlajkou ⚑ u konkrétního pole (nebo sekce) níže — zaměstnanec je pak uvidí zvýrazněné i s vaší poznámkou.</p>`;
   return html;
@@ -2515,7 +2515,7 @@ function renderPersonalWizard(r){
         const s = steps.find(s => s.id === m.sectionId);
         return s ? (s.navLabel || s.label) : m.section;
       }))];
-      body += `<div class="return-banner"><strong>Než budete moct odeslat, doplňte prosím podstatné údaje (${submitMissing.length}) v těchto krocích:</strong> ${incompleteStepNames.map(esc).join(', ')}. Chybějící pole jsou červeně označená přímo v daném kroku i v navigaci nahoře.</div>`;
+      body += `<div class="return-banner"><strong>Než budete moct odeslat, doplňte prosím povinné údaje (${submitMissing.length}) v těchto krocích:</strong> ${incompleteStepNames.map(esc).join(', ')}. Chybějící pole jsou červeně označená přímo v daném kroku i v navigaci nahoře.</div>`;
     }
   }
   const returnBanner = (status === 'returned' && idx < steps.length)
@@ -2532,7 +2532,7 @@ function renderPersonalWizard(r){
     ${stepErrorBanner}
     <div class="wizard-breadcrumb">${breadcrumb}</div>
     <div class="wizard-step-title" style="margin:0 0 4px;">Krok ${idx+1}/${total} · ${esc(title)}${sectionOptional?' <span class="section-optional-tag">doplňkové</span>':''}</div>
-    ${idx===0 && canEdit ? `<p style="font-size:12px;color:var(--ink-faint);margin:0 0 14px;"><span class="essential-dot" style="font-size:11px;">●</span> = podstatný údaj — bez něj se dotazník neobejde, zbytek je doplňkový.</p>` : ''}
+    ${idx===0 && canEdit ? `<p style="font-size:12px;color:var(--ink-faint);margin:0 0 14px;"><span class="essential-dot">*</span> = povinný údaj — bez něj se dotazník neobejde, zbytek je doplňkový.</p>` : ''}
     ${saveStatusHtml}
     ${body}
     <div class="wizard-nav">
