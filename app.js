@@ -3939,7 +3939,7 @@ function zhlavColumns(){
 const SATELLITE_TABLES = [
   {
     name: 'Adresy',
-    header: ['oscis','adrcis','ucel','prij','ulice','cp','co','obec','psc','posta','stat','telefon','indadr'],
+    header: ['oscis-A','adrcis-A','ucel-A','prij-A','ulice-A','cp-A','co-A','obec-A','psc-A','posta-A','stat-A','telefon-A','indadr-A'],
     rows(oscis, p){
       return [[oscis, '1', 'Trvalá', '', p.trvale_ulice, p.trvale_cp, p.trvale_co, p.trvale_obec, p.trvale_psc, '', countryCode(p.trvale_stat), p.telefon_soukromy, '']];
     }
