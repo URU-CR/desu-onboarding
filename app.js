@@ -136,7 +136,36 @@ function workplaceLocation(workplace){ return workplaceLocations()[workplace] ||
 function categoryList(){ return (state.settings && state.settings.categories) || DEFAULT_CATEGORIES; }
 function categoryNames(){ return categoryList().map(c => c.name); }
 function systemsForCategory(name){ const c = categoryList().find(c => c.name === name); return c ? c.systems : []; }
-function resolveField(f){
+// Zkušební doba závisí na typu úvazku a na tom, zda jde o vedoucí pozici:
+//  - služební poměr: 6 měsíců, u vedoucích 8 měsíců (hodnota se předvyplní, jde změnit),
+//  - pracovní poměr: výběr počtu měsíců po jednom (do 3 měsíců, u vedoucích do 6 — § 35 zákoníku práce).
+const ZKUSEBNI_SLUZEBNI = ['6 měsíců','8 měsíců (vedoucí zaměstnanec)'];
+const ZKUSEBNI_ALL = ['','Bez zkušební doby','6 měsíců','8 měsíců (vedoucí zaměstnanec)'];
+function monthsLabel(n){ return n===1 ? '1 měsíc' : (n<5 ? n+' měsíce' : n+' měsíců'); }
+function zkusebniDobaOptions(p){
+  if(!p) return ZKUSEBNI_ALL;
+  if(p.rezim_zamestnani === 'Služební poměr') return ['', ...ZKUSEBNI_SLUZEBNI];
+  if(p.rezim_zamestnani === 'Pracovní poměr'){
+    const max = p.vedouci === 'Ano' ? 6 : 3;
+    return ['', 'Bez zkušební doby', ...Array.from({length:max}, (_,i) => monthsLabel(i+1))];
+  }
+  return ZKUSEBNI_ALL;
+}
+// Po změně typu úvazku / vedoucí pozice srovná zkušební dobu: u služebního poměru předvyplní správnou
+// hodnotu (8 měsíců vedoucí, jinak 6), u pracovního poměru zruší hodnotu, která už mezi možnostmi není.
+function syncZkusebniDoba(p){
+  if(!p) return;
+  if(p.rezim_zamestnani === 'Služební poměr'){
+    // Dokud není známo, zda jde o vedoucí pozici (ruční zadání bez organigramu), se nic nepředvyplňuje.
+    if(p.vedouci === 'Ano') p.zkusebni_doba = ZKUSEBNI_SLUZEBNI[1];
+    else if(p.vedouci === 'Ne') p.zkusebni_doba = ZKUSEBNI_SLUZEBNI[0];
+    else if(p.zkusebni_doba && !ZKUSEBNI_SLUZEBNI.includes(p.zkusebni_doba)) p.zkusebni_doba = '';
+  } else if(p.zkusebni_doba && !zkusebniDobaOptions(p).includes(p.zkusebni_doba)){
+    p.zkusebni_doba = '';
+  }
+}
+function resolveField(f, p){
+  if(f.id === 'zkusebni_doba' && p) return {...f, options: zkusebniDobaOptions(p)};
   if(f.id === 'pracoviste') return {...f, options: ['', ...workplaceList()]};
   if(f.id === 'kategorie') return {...f, options: ['', ...categoryNames()]};
   if(f.id === 'pozice') return {...f, options: ['', ...positionList()]};
@@ -265,7 +294,7 @@ const PERSONAL_SECTIONS = [
     {id:'odbor_oddeleni', label:'Odbor / oddělení', essential:true, type:'select', options:['']},
     {id:'nadrizeny', label:'Přímý nadřízený', essential:true, type:'select', options:['']},
     {id:'rezim_zamestnani', label:'Typ úvazku', essential:true, type:'select', options:['','Pracovní poměr','Služební poměr']},
-    {id:'typ_pomeru', label:'Typ pracovního poměru', essential:true, type:'select', options:['','HPP','DPP','DPČ']},
+    {id:'typ_pomeru', label:'Typ pracovního poměru', essential:true, type:'select', options:['','HPP','DPP','DPČ'], default:'HPP'},
     {id:'rozsah_uvazku', label:'Rozsah úvazku', essential:true, type:'select', options:['','Plný úvazek','Zkrácený úvazek']},
     {id:'doba_trvani_pomeru', label:'Doba trvání pracovního poměru', essential:true, type:'select', options:['','Na dobu neurčitou','Na dobu určitou']},
     {id:'uvazek', label:'Výše úvazku', placeholder:'např. 1,0'},
@@ -2002,7 +2031,7 @@ function sectionFieldsHtml(sec, r, editable){
     return html;
   }
   return `<div class="form-grid">${sec.fields.filter(f => !f.showIf || f.showIf(r.personal)).map(fRaw => {
-    const f = resolveField(fRaw);
+    const f = resolveField(fRaw, r.personal);
     const flagged = f.id in flags;
     const pending = state.pendingEdit && state.pendingEdit.key === f.id ? state.pendingEdit : null;
     const lockedByDep = f.disabledIf && f.disabledIf(r.personal);
@@ -3167,6 +3196,7 @@ function attachHandlers(){
       }
       state.currentRecord.personal[fieldId] = newValue;
       if(fieldId === 'rozsah_uvazku' && newValue !== 'Zkrácený úvazek') state.currentRecord.personal.zkraceny_uvazek_procenta = '100';
+      if(fieldId === 'rezim_zamestnani' || fieldId === 'vedouci') syncZkusebniDoba(state.currentRecord.personal);
       if(fieldId === 'jmeno' || fieldId === 'prijmeni' || fieldId === 'zdrojovy_urad') ensureExistingEmail(state.currentRecord);
       if(fieldId === 'pozice' || fieldId === 'datum_nastupu' || fieldId === 'pracoviste' || fieldId === 'kategorie' || fieldId === 'zdrojovy_urad') persistCurrentRecord();
       else persistRecordOnly();
@@ -3734,6 +3764,8 @@ const IMPORT_COMMON_FIELDS = [
   { key:'odbor_oddeleni', label:'Odbor / oddělení', type:'select', options: () => ['', ...departmentList()] },
   { key:'rezim_zamestnani', label:'Typ úvazku', type:'select', options: () => ['','Pracovní poměr','Služební poměr'] },
   { key:'doba_trvani_pomeru', label:'Doba trvání poměru', type:'select', options: () => ['','Na dobu neurčitou','Na dobu určitou'] },
+  { key:'duvod_vzniku_pomeru', label:'Důvod vzniku pracovního poměru', type:'select', options: () => fieldDefFor('duvod_vzniku_pomeru').options },
+  { key:'typ_pomeru', label:'Typ pracovního poměru (výchozí HPP)', type:'select', options: () => fieldDefFor('typ_pomeru').options },
 ];
 
 const IMPORT_FIELD_TARGETS = [
@@ -4034,6 +4066,7 @@ async function runImportBatch(){
         try{ target.apply(record, row[colIdx]); }catch(e){ console.error('import apply failed for column', h, e); }
       }
     });
+    syncZkusebniDoba(record.personal);
     ensureExistingEmail(record);
     const {total, done} = checklistTotals(record.checklist, record.personal.kategorie, 'it');
     batch.push({
