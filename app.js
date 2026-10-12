@@ -2279,6 +2279,11 @@ function renderImportMappingPage(){
   const cur = state.importCurrent;
   if(!cur) return `<p>Není co mapovat.</p>`;
   const previewRows = cur.rows.slice(0, 3);
+  // Údaj, který se už u řádku přenáší namapovaným sloupcem (typicky z organigramu), nenabízíme
+  // zároveň jako hromadnou/společnou hodnotu — ta by jen matla, protože hodnota ze sloupce má
+  // vždy přednost (viz runImportBatch) a reálně by se nikdy neuplatnila.
+  const mappedTargets = new Set(Object.values(cur.mapping || {}).filter(t => t && t !== 'ignore'));
+  const commonFields = IMPORT_COMMON_FIELDS.filter(f => !mappedTargets.has(f.key));
   return `
     <div class="no-print" style="margin-bottom:16px;">
       <button class="btn btn-ghost btn-sm" id="btn-import-cancel">← Zrušit vytěžování</button>
@@ -2286,12 +2291,12 @@ function renderImportMappingPage(){
     <h2 style="font-family:var(--font-display);font-size:1.4rem;margin:0 0 6px;">Vytěžení podkladů — ${esc(cur.fileName)}</h2>
     <p style="font-size:13px;color:var(--ink-soft);margin:0 0 16px;">Nalezeno ${cur.rows.length} řádků. Zkontrolujte prosím u každého sloupce, na jaký údaj se má namapovat — appka to zkusila odhadnout sama, ale stojí za to to zkontrolovat, hlavně u sloupců, které nešly jednoznačně rozpoznat.</p>
 
-    ${cur.groupColIdx == null ? `
+    ${commonFields.length === 0 ? '' : cur.groupColIdx == null ? `
     <div class="panel" style="margin-bottom:16px;">
       <h4 style="font-family:var(--font-display);font-size:1.125rem;margin:0 0 4px;">Společné hodnoty pro celý soubor</h4>
-      <p style="font-size:12.5px;color:var(--ink-faint);margin:0 0 12px;">Nepovinné. Tabulky bývají za jednotlivá pracoviště, takže třeba pracoviště nebo datum nástupu bude stejné pro všechny řádky — vyplňte to tady místo v tabulce sloupec po sloupci. Pokud níže zároveň namapujete i sloupec z tabulky pro stejný údaj, hodnota ze sloupce má přednost.</p>
+      <p style="font-size:12.5px;color:var(--ink-faint);margin:0 0 12px;">Nepovinné. Tabulky bývají za jednotlivá pracoviště, takže třeba pracoviště nebo datum nástupu bude stejné pro všechny řádky — vyplňte to tady místo v tabulce sloupec po sloupci. Pokud níže zároveň namapujete i sloupec z tabulky pro stejný údaj, hodnota ze sloupce má přednost (údaje už namapované sloupcem se tu proto nenabízí).</p>
       <div class="form-grid">
-        ${IMPORT_COMMON_FIELDS.map(f => `
+        ${commonFields.map(f => `
           <div class="field">
             <label>${esc(f.label)}</label>
             ${f.type === 'select'
@@ -2309,12 +2314,12 @@ function renderImportMappingPage(){
       return `
       <div class="panel" style="margin-bottom:16px;">
         ${settingsPanelStart('import-group-common', 'Společné hodnoty podle původu')}
-        <p style="font-size:12.5px;color:var(--ink-faint);margin:0 0 14px;">Nepovinné. Soubor obsahuje lidi z více původních útvarů/úřadů — u každého jde nastavit vlastní společné hodnoty (např. typ nástupu se může lišit podle toho, odkud kdo přechází). Pokud níže zároveň namapujete i sloupec z tabulky pro stejný údaj, hodnota ze sloupce má přednost.</p>
+        <p style="font-size:12.5px;color:var(--ink-faint);margin:0 0 14px;">Nepovinné. Soubor obsahuje lidi z více původních útvarů/úřadů — u každého jde nastavit vlastní společné hodnoty (např. typ nástupu se může lišit podle toho, odkud kdo přechází). Pokud níže zároveň namapujete i sloupec z tabulky pro stejný údaj, hodnota ze sloupce má přednost (údaje už namapované sloupcem se tu proto nenabízí).</p>
         ${groups.map(g => `
           <div style="margin-bottom:18px;border-top:1px solid var(--line);padding-top:12px;">
             <label style="font-size:13.5px;font-weight:600;display:block;margin-bottom:8px;">${esc(g)} <span style="font-weight:400;color:var(--ink-faint);">(${groupCounts[g]} ${groupCounts[g]===1?'osoba':groupCounts[g]<5?'osoby':'osob'})</span></label>
             <div class="form-grid">
-              ${IMPORT_COMMON_FIELDS.map(f => {
+              ${commonFields.map(f => {
                 const val = (cur.groupCommon[g] && cur.groupCommon[g][f.key]) || '';
                 return `
                 <div class="field">
@@ -2844,21 +2849,20 @@ function attachHandlers(){
     importOrgBtn.disabled = true;
     importOrgBtn.textContent = 'Stahuji…';
     try{
-      const { headers, rows, mapping, groupColIdx, totalCount, newCount } = await readOrganigramRoster();
-      if(rows.length === 0){
-        state.error = totalCount ? `V organigramu je ${totalCount} obsazených osob, ale žádná není nová (zaměstnanci DESÚ se nepřebírají a ostatní už jsou v rejstříku).` : 'V organigramu nejsou žádné obsazené osoby.';
+      const { all, fresh } = await fetchFreshOrganigramPeople();
+      if(fresh.length === 0){
+        state.error = all.length ? `V organigramu je ${all.length} obsazených osob, ale žádná není nová (zaměstnanci DESÚ se nepřebírají a ostatní už jsou v rejstříku).` : 'V organigramu nejsou žádné obsazené osoby.';
+        render();
       } else {
-        state.importCurrent = { fileName: `Organigram (Supabase) — ${newCount} nových`, headers, rows, mapping, common:{}, groupColIdx, groupCommon:{} };
-        state.importQueue = [];
-        state.view = 'import-mapping';
+        openOrganigramSourceModal(fresh, all.length);
       }
     }catch(err){
       console.error('organigram roster fetch failed:', err);
       state.error = `Stažení z organigramu se nezdařilo: ${err.message}`;
+      render();
     }
     importOrgBtn.disabled = false;
     importOrgBtn.textContent = 'Stáhnout nové z organigramu';
-    render();
   });
   const importFileInput = document.getElementById('import-file-input');
   if(importFileInput) importFileInput.addEventListener('change', async (e) => {
@@ -3853,9 +3857,10 @@ function alreadyImportedOrgIds(){
   state.index.forEach(e => { if(e.orgPersonId) ids.add(e.orgPersonId); });
   return ids;
 }
-// Stáhne aktuální seznam osob z organigramu a vrátí jen ty, co ještě nejsou v rejstříku
-// (dle stabilního person_id) a nejsou současnými zaměstnanci DESÚ (ti onboardingem neprocházejí).
-async function readOrganigramRoster(){
+// Stáhne aktuální seznam osob z organigramu a vrátí ty, co ještě nejsou v rejstříku (dle stabilního
+// person_id) a nejsou současnými zaměstnanci DESÚ (ti onboardingem neprocházejí) — bez ohledu na úřad.
+// Výběr konkrétního úřadu řeší volající (openOrganigramSourceModal) filtrováním před sestavením importu.
+async function fetchFreshOrganigramPeople(){
   const sbOrg = getOrgSb();
   if(!sbOrg) throw new Error('Napojení na organigram není v config.js nastaveno (ORGANIGRAM_SUPABASE_URL / ORGANIGRAM_SUPABASE_ANON_KEY).');
   const { data, error } = await sbOrg.from('organigram_roster').select('*');
@@ -3863,7 +3868,12 @@ async function readOrganigramRoster(){
   const all = data || [];
   const known = alreadyImportedOrgIds();
   const fresh = all.filter(p => p && p.person_id && p.src !== 'DESÚ' && !known.has(p.person_id));
-  const headers = ['ID (organigram)', 'Příjmení', 'Jméno', 'Titul', 'Původ', 'Odbor / oddělení', 'Pracoviště', 'Pozice', 'Úvazek', 'Nadřízený'];
+  return { all, fresh };
+}
+// Sestaví {headers, rows, mapping, groupColIdx} pro import-mapping stránku z už vyfiltrovaného
+// seznamu osob (viz fetchFreshOrganigramPeople — tady se jen staví řádky tabulky).
+function organigramPeopleToImportRows(fresh){
+  const headers = ['ID (organigram)', 'Příjmení', 'Jméno', 'Titul', 'Původ', 'Odbor / oddělení', 'Pracoviště', 'Pozice', 'Úvazek', 'Nadřízený', 'Režim zaměstnání'];
   const rows = fresh.map(p => {
     const raw = String(p.name||'').trim();
     const parts = raw.split(',');
@@ -3873,12 +3883,58 @@ async function readOrganigramRoster(){
     let jmeno = '', prijmeni = '';
     if(tokens.length >= 2){ jmeno = tokens[tokens.length-1]; prijmeni = tokens.slice(0,-1).join(' '); }
     else if(tokens.length === 1){ prijmeni = tokens[0]; }
-    return [p.person_id, prijmeni, jmeno, titlePart, p.src||'', p.unit_path||'', p.location_name||'', capitalizeFirst(p.position_label||''), p.fte != null ? p.fte : '', p.supervisor_name||''];
+    return [p.person_id, prijmeni, jmeno, titlePart, p.src||'', p.unit_path||'', p.location_name||'', capitalizeFirst(p.position_label||''), p.fte != null ? p.fte : '', p.supervisor_name||'', p.employment_type||''];
   });
   // Pozn.: sloupec "Původ" (index 4) slouží současně jako groupColIdx (seskupení pro hromadné
   // hodnoty podle zdrojového úřadu na mapovací stránce) i jako zdroj pro pole zdrojovy_urad u osoby.
-  const mapping = { 0:'orgPersonId', 1:'prijmeni', 2:'jmeno', 3:'titul_pred', 4:'zdrojovy_urad', 5:'odbor_oddeleni', 6:'pracoviste', 7:'pozice', 8:'rozsah_uvazku', 9:'nadrizeny' };
-  return { headers, rows, mapping, groupColIdx: 4, totalCount: all.length, newCount: rows.length };
+  const mapping = { 0:'orgPersonId', 1:'prijmeni', 2:'jmeno', 3:'titul_pred', 4:'zdrojovy_urad', 5:'odbor_oddeleni', 6:'pracoviste', 7:'pozice', 8:'rozsah_uvazku', 9:'nadrizeny', 10:'rezim_zamestnani' };
+  return { headers, rows, mapping, groupColIdx: 4, newCount: rows.length };
+}
+// Nechá vybrat jeden konkrétní zdrojový úřad (typicky se doladí ÚÚR, pak teprve další úřady),
+// nebo stáhnout rovnou všechny nové osoby najednou.
+function openOrganigramSourceModal(fresh, totalCount){
+  const counts = {};
+  fresh.forEach(p => { const s = p.src || '(bez úřadu)'; counts[s] = (counts[s]||0) + 1; });
+  const sources = Object.keys(counts).sort((a,b) => {
+    const ia = ZDROJOVE_URADY.indexOf(a), ib = ZDROJOVE_URADY.indexOf(b);
+    if(ia === -1 && ib === -1) return a.localeCompare(b);
+    if(ia === -1) return 1;
+    if(ib === -1) return -1;
+    return ia - ib;
+  });
+  const backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+  backdrop.innerHTML = `
+    <div class="modal">
+      <h3>Které osoby stáhnout?</h3>
+      <p style="font-size:13.5px;color:var(--ink-soft);">V organigramu je ${totalCount} obsazených osob k založení, z toho ${fresh.length} nových (po vyřazení DESÚ a již založených). Vyberte, jestli chcete stáhnout jen jeden zdrojový úřad, nebo rovnou všechny.</p>
+      <div class="field">
+        <label>Zdrojový úřad</label>
+        <select id="org-src-select">
+          <option value="">Všechny úřady (${fresh.length})</option>
+          ${sources.map(s => `<option value="${esc(s)}">${esc(s)} (${counts[s]})</option>`).join('')}
+        </select>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="org-src-cancel">Zrušit</button>
+        <button class="btn btn-primary" id="org-src-confirm">Stáhnout</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(backdrop);
+  document.getElementById('org-src-cancel').addEventListener('click', () => backdrop.remove());
+  backdrop.addEventListener('click', (ev) => { if(ev.target === backdrop) backdrop.remove(); });
+  document.getElementById('org-src-confirm').addEventListener('click', () => {
+    const chosen = document.getElementById('org-src-select').value;
+    backdrop.remove();
+    const subset = chosen ? fresh.filter(p => (p.src||'(bez úřadu)') === chosen) : fresh;
+    const { headers, rows, mapping, groupColIdx } = organigramPeopleToImportRows(subset);
+    const label = chosen ? `${chosen} — ${subset.length} nových` : `${subset.length} nových (všechny úřady)`;
+    state.importCurrent = { fileName: `Organigram (Supabase) — ${label}`, headers, rows, mapping, common:{}, groupColIdx, groupCommon:{} };
+    state.importQueue = [];
+    state.view = 'import-mapping';
+    render();
+  });
 }
 
 async function readXlsxFile(file){
