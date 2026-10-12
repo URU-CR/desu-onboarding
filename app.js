@@ -1338,7 +1338,7 @@ function personalChip(r){
 }
 
 function availableTabs(){
-  if(state.role === 'employee') return ['info','personal'];
+  if(state.role === 'employee') return ['personal','info'];
   if(state.role === 'admin') return ['it','provoz'];
   return ['personal','it'];
 }
@@ -1402,8 +1402,8 @@ function renderDetail(){
       </div>
     </div>
     <div class="tabs">
-      ${tabs.includes('info') ? `<div class="tab ${state.tab==='info'?'active':''}" data-tab="info">Co potřebujete vědět</div>` : ''}
       ${tabs.includes('personal') ? `<div class="tab ${state.tab==='personal'?'active':''}" data-tab="personal">${state.role==='employee'?'Vaše údaje':'Osobní údaje'}${personalBadge}</div>` : ''}
+      ${tabs.includes('info') ? `<div class="tab ${state.tab==='info'?'active':''}" data-tab="info">Co potřebujete vědět</div>` : ''}
       ${tabs.includes('it') ? `<div class="tab ${state.tab==='it'?'active':''}" data-tab="it">IT a přístupy <span class="tab-badge">${itTotals.done}/${itTotals.total}</span></div>` : ''}
       ${tabs.includes('provoz') ? `<div class="tab ${state.tab==='provoz'?'active':''}" data-tab="provoz">Provoz <span class="tab-badge">${provozTotals.done}/${provozTotals.total}</span></div>` : ''}
     </div>
