@@ -1,4 +1,4 @@
-const APP_VERSION = '2026-10-12.3';
+const APP_VERSION = '2026-10-12.4';
 const STORAGE_INDEX_KEY = 'onboarding:index';
 const STORAGE_INFO_KEY = 'onboarding:info-content';
 const STORAGE_SETTINGS_KEY = 'onboarding:settings';
@@ -89,6 +89,10 @@ const DEFAULT_EMAIL_RULES = { 'DESÚ':'{jmeno}.{prijmeni}@desu.gov.cz' };
 const DEFAULT_LINK_EMAIL_TEMPLATE = {
   subject: 'Vyplnění údajů pro nástup — {jmeno} {prijmeni}',
   body: 'Dobrý den,\n\npro vyplnění údajů k Vašemu nástupu prosím použijte následující odkaz:\n{odkaz}\n\nS pozdravem',
+};
+const DEFAULT_RETURN_EMAIL_TEMPLATE = {
+  subject: 'Doplnění údajů pro nástup — {jmeno} {prijmeni}',
+  body: 'Dobrý den,\n\nprosíme o doplnění/opravu údajů v onboardingové aplikaci.\n{vzkaz}{pole}\nDotazník otevřete a opravené údaje odešlete znovu zde:\n{odkaz}\n\nDěkujeme,\npersonální oddělení',
 };
 const DEFAULT_CATEGORIES = [
   { name:'Referent', systems:['vema','vema_server','issr','vita','espis','czechpoint','katastr'] },
@@ -627,6 +631,9 @@ async function loadSettings(){
   if(!state.settings.linkEmailTemplate || typeof state.settings.linkEmailTemplate !== 'object') state.settings.linkEmailTemplate = {...DEFAULT_LINK_EMAIL_TEMPLATE};
   if(!state.settings.linkEmailTemplate.subject) state.settings.linkEmailTemplate.subject = DEFAULT_LINK_EMAIL_TEMPLATE.subject;
   if(!state.settings.linkEmailTemplate.body) state.settings.linkEmailTemplate.body = DEFAULT_LINK_EMAIL_TEMPLATE.body;
+  if(!state.settings.returnEmailTemplate || typeof state.settings.returnEmailTemplate !== 'object') state.settings.returnEmailTemplate = {...DEFAULT_RETURN_EMAIL_TEMPLATE};
+  if(!state.settings.returnEmailTemplate.subject) state.settings.returnEmailTemplate.subject = DEFAULT_RETURN_EMAIL_TEMPLATE.subject;
+  if(!state.settings.returnEmailTemplate.body) state.settings.returnEmailTemplate.body = DEFAULT_RETURN_EMAIL_TEMPLATE.body;
 }
 async function saveSettings(){
   if(state.standaloneMode) return true;
@@ -1801,6 +1808,21 @@ function renderSettingsPage(){
     </div>
 
     <div class="panel" style="margin-bottom:20px;">
+      ${settingsPanelStart('returnemail', 'Text e-mailu při vrácení k doplnění')}
+      <p style="font-size:12.5px;color:var(--ink-faint);margin:0 0 12px;">Použije se při tlačítkách „Vrátit a poslat e-mailem" a „Poslat zaměstnanci e-mailem" i při kopírování zprávy. Zástupné značky: <code>{jmeno}</code>, <code>{prijmeni}</code>, <code>{odkaz}</code> (odkaz na dotazník), <code>{vzkaz}</code> (váš vzkaz při vrácení) a <code>{pole}</code> (seznam polí označených vlajkou ⚑). Značky <code>{vzkaz}</code> a <code>{pole}</code> se vynechají, pokud není co doplnit.</p>
+      <div style="margin-bottom:10px;">
+        <label style="font-size:12.5px;color:var(--ink-soft);display:block;margin-bottom:4px;">Předmět</label>
+        <input data-returnemail-input="subject" value="${esc((draft.returnEmailTemplate||{}).subject||'')}" placeholder="${esc(DEFAULT_RETURN_EMAIL_TEMPLATE.subject)}" style="width:100%;">
+      </div>
+      <div>
+        <label style="font-size:12.5px;color:var(--ink-soft);display:block;margin-bottom:4px;">Text zprávy</label>
+        <textarea data-returnemail-input="body" rows="9" style="width:100%;font:inherit;" placeholder="${esc(DEFAULT_RETURN_EMAIL_TEMPLATE.body)}">${esc((draft.returnEmailTemplate||{}).body||'')}</textarea>
+      </div>
+      <button class="btn btn-ghost btn-sm" type="button" id="btn-returnemail-reset" style="margin-top:10px;">Obnovit výchozí text</button>
+      ${settingsPanelEnd()}
+    </div>
+
+    <div class="panel" style="margin-bottom:20px;">
       ${settingsPanelStart('departments', 'Odbory / oddělení', {field:'departments', label:'Odbory / oddělení'})}
       <p style="font-size:12.5px;color:var(--ink-faint);margin:0 0 12px;">Seznam pro výběr odboru/oddělení v sekci Pracovní poměr.</p>
       ${draft.departments.map((w,i) => `
@@ -2701,6 +2723,18 @@ function attachHandlers(){
       state.settingsDraft.linkEmailTemplate[el.getAttribute('data-linkemail-input')] = el.value;
     });
   });
+  app.querySelectorAll('[data-returnemail-input]').forEach(el => {
+    el.addEventListener('change', () => {
+      if(!state.settingsDraft.returnEmailTemplate) state.settingsDraft.returnEmailTemplate = {};
+      state.settingsDraft.returnEmailTemplate[el.getAttribute('data-returnemail-input')] = el.value;
+    });
+  });
+  const returnEmailResetBtn = document.getElementById('btn-returnemail-reset');
+  if(returnEmailResetBtn) returnEmailResetBtn.addEventListener('click', () => {
+    if(!confirm('Obnovit výchozí text e-mailu při vrácení k doplnění? Projeví se to až po uložení tlačítkem „Uložit nastavení".')) return;
+    state.settingsDraft.returnEmailTemplate = {...DEFAULT_RETURN_EMAIL_TEMPLATE};
+    render();
+  });
   const linkEmailResetBtn = document.getElementById('btn-linkemail-reset');
   if(linkEmailResetBtn) linkEmailResetBtn.addEventListener('click', () => {
     if(!confirm('Obnovit výchozí text e-mailu s odkazem? Projeví se to až po uložení tlačítkem „Uložit nastavení".')) return;
@@ -3145,7 +3179,7 @@ function attachHandlers(){
   const copyMsgBtn = document.getElementById('btn-copy-return-message');
   if(copyMsgBtn) copyMsgBtn.addEventListener('click', async () => {
     const r = state.currentRecord;
-    const msg = returnMessageText(r, state.currentId);
+    const msg = returnMessageText(r, state.currentId).body;
     try{ await navigator.clipboard.writeText(msg); }catch(e){}
     state.returnMsgCopied = true;
     render();
@@ -3726,25 +3760,24 @@ function flagLabelFor(key){
 
 
 // Text zprávy zaměstnanci při vrácení k doplnění (kopírování i e-mail)
-function returnMessageText(r, id){
+function returnMessageText(r, id, tplOverride){
   const flagged = Object.entries(r.fieldFlags || {}).filter(([,v]) => v !== undefined);
   const url = location.href.split('#')[0] + '#z/' + id;
-  let msg = `Dobrý den,\n\nprosíme o doplnění/opravu údajů v onboardingové aplikaci.\n`;
-  if(r.returnNote) msg += `\n${r.returnNote}\n`;
+  const tpl = tplOverride || (state.settings && state.settings.returnEmailTemplate) || DEFAULT_RETURN_EMAIL_TEMPLATE;
+  const vzkaz = r.returnNote ? `\n${r.returnNote}\n` : '';
+  let pole = '';
   if(flagged.length){
-    msg += `\nKonkrétně prosím zkontrolujte:\n`;
-    flagged.forEach(([key, note]) => { msg += `- ${flagLabelFor(key)}${note ? ': '+note : ''}\n`; });
+    pole = `\nKonkrétně prosím zkontrolujte:\n` + flagged.map(([key, note]) => `- ${flagLabelFor(key)}${note ? ': '+note : ''}\n`).join('');
   }
-  msg += `\nDotazník otevřete a opravené údaje odešlete znovu zde:\n${url}\n`;
-  msg += `\nDěkujeme,\npersonální oddělení`;
-  return msg;
+  const fill = (s) => (s||'').replaceAll('{jmeno}', r.personal.jmeno||'').replaceAll('{prijmeni}', r.personal.prijmeni||'').replaceAll('{odkaz}', url).replaceAll('{vzkaz}', vzkaz).replaceAll('{pole}', pole);
+  return { subject: fill(tpl.subject || DEFAULT_RETURN_EMAIL_TEMPLATE.subject).trim(), body: fill(tpl.body || DEFAULT_RETURN_EMAIL_TEMPLATE.body) };
 }
 function returnEmailAddress(r){ return (r.personal && (r.personal.email_stavajici || r.personal.email_soukromy)) || ''; }
 function sendReturnEmail(r, id){
   const to = returnEmailAddress(r);
   if(!to) return false;
-  const subject = `Doplnění údajů pro nástup — ${r.personal.jmeno||''} ${r.personal.prijmeni||''}`.trim();
-  window.location.href = `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(returnMessageText(r, id))}`;
+  const m = returnMessageText(r, id);
+  window.location.href = `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(m.subject)}&body=${encodeURIComponent(m.body)}`;
   return true;
 }
 
@@ -4947,7 +4980,7 @@ const HELP = [
   ['ℹ️','Co potřebujete vědět','Informační záložka pro zaměstnance (kontakty, informace k pracovištím, obecné karty). Obsah se upravuje v Nastavení → Obsah pro zaměstnance.']]},
  {g:'Kontrola a schválení',items:[
   ['⚑','Vlajky u polí','Nejasné nebo chybějící položky označte vlajkou ⚑ u pole či sekce. Zaměstnanec je uvidí zvýrazněné i s vaší poznámkou.'],
-  ['↩️','Vrátit k doplnění','Vrátí spis zaměstnanci s volitelným vzkazem. <b>Aplikace sama žádné upozornění neposílá</b>, proto zaměstnance informujte: tlačítkem <b>Vrátit a poslat e-mailem</b> (otevře e-mail s vaším vzkazem, seznamem označených polí a odkazem na dotazník; adresa je stávající e-mail, jinak soukromý), později <b>Poslat zaměstnanci e-mailem</b> ve spisu, nebo <b>Zkopírovat zprávu pro zaměstnance</b> a poslat ji vlastním kanálem.'],
+  ['↩️','Vrátit k doplnění','Vrátí spis zaměstnanci s volitelným vzkazem. <b>Aplikace sama žádné upozornění neposílá</b>, proto zaměstnance informujte: tlačítkem <b>Vrátit a poslat e-mailem</b> (otevře e-mail s vaším vzkazem, seznamem označených polí a odkazem na dotazník; adresa je stávající e-mail, jinak soukromý), později <b>Poslat zaměstnanci e-mailem</b> ve spisu (text e-mailu upravíte v Nastavení → <b>Text e-mailu při vrácení k doplnění</b>), nebo <b>Zkopírovat zprávu pro zaměstnance</b> a poslat ji vlastním kanálem.'],
   ['✅','Schválit údaje','Dostupné ve stavu Odesláno / Vráceno, pokud jsou vyplněna všechna povinná pole. Po schválení má spis stav Zkontrolováno.'],
   ['🙋','Co dělá zaměstnanec','Vyplní průvodce, potvrdí souhlas se zpracováním osobních údajů a odešle. Po odeslání je formulář zamčen; zaměstnanec ho může sám stáhnout zpět a opravit, pokud ho ještě nezkontrolujete.']]},
  {g:'Výstupy',items:[
@@ -4956,7 +4989,7 @@ const HELP = [
  {g:'IT a provoz (stručně)',items:[
   ['💻','Přiřazení administrátora','V pohledu IT a provoz lze spisy hromadně přiřadit administrátorovi systémů. Záložky <b>IT a přístupy</b> a <b>Provoz</b> obsahují checklisty podle kategorie zaměstnance.']]},
  {g:'Nastavení (⚙)',items:[
-  ['⚙️','Přehled sekcí','Pracoviště, pozice, administrátoři systémů, nadřízení, pravidla pro stávající e-mail, <b>text e-mailu s odkazem</b>, odbory/oddělení, pracovníci provozu, kód pracoviště pro Vemu, pevné hodnoty pro Vemu, kanceláře podle budovy, adresy systémů, kategorie a přiřazené systémy, <b>povinné položky personálního oddělení</b>. Sekce lze sbalit; změny se uloží tlačítkem Uložit.'],
+  ['⚙️','Přehled sekcí','Pracoviště, pozice, administrátoři systémů, nadřízení, pravidla pro stávající e-mail, <b>text e-mailu s odkazem</b>, <b>text e-mailu při vrácení k doplnění</b>, odbory/oddělení, pracovníci provozu, kód pracoviště pro Vemu, pevné hodnoty pro Vemu, kanceláře podle budovy, adresy systémů, kategorie a přiřazené systémy, <b>povinné položky personálního oddělení</b>. Sekce lze sbalit; změny se uloží tlačítkem Uložit.'],
   ['💾','Záloha a obnova','Stažení zálohy všech dat do souboru a její obnovení najdete v Nastavení. Zálohu doporučuji stáhnout před hromadným mazáním.'],
   ['🧹','Smazat všechny spisy','Nevratná operace v Nastavení; před ní stáhněte zálohu.']]}
 ];
