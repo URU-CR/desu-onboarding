@@ -1,4 +1,4 @@
-const APP_VERSION = '2026-10-12.6';
+const APP_VERSION = '2026-10-12.7';
 const STORAGE_INDEX_KEY = 'onboarding:index';
 const STORAGE_INFO_KEY = 'onboarding:info-content';
 const STORAGE_SETTINGS_KEY = 'onboarding:settings';
@@ -1220,6 +1220,7 @@ function renderList(){
   const rows = getFilteredSortedRows();
   const reviewedRows = rows.filter(r => (r.personalStatus||'draft') === 'reviewed');
   const selectedCount = reviewedRows.filter(r => state.selectedExport[r.id]).length;
+  const purgeableCount = reviewedRows.filter(r => state.selectedExport[r.id] && r.vemaExportedAt && !r.personalPurgedAt).length;
   const allReviewedSelected = reviewedRows.length > 0 && reviewedRows.every(r => state.selectedExport[r.id]);
   const assignSelectedCount = rows.filter(r => state.selectedAssign[r.id]).length;
   const allAssignSelected = rows.length > 0 && rows.every(r => state.selectedAssign[r.id]);
@@ -1253,6 +1254,7 @@ function renderList(){
       <div class="export-bar">
         <span style="font-size:13px;color:var(--ink-soft);">${selectedCount ? `Vybráno ${selectedCount} ke exportu` : 'Export do VEMY — vyberte zkontrolované spisy'}</span>
         <button class="btn btn-primary btn-sm" id="btn-generate-vema" ${selectedCount===0 || state.exporting ? 'disabled':''}>${state.exporting ? 'Generuji…' : `Generovat tabulky pro VEMU${selectedCount?' ('+selectedCount+')':''}`}</button>
+        <button class="btn btn-ghost btn-sm" id="btn-purge-selected" ${purgeableCount===0 ? 'disabled':''} title="Smaže osobní údaje zaměstnanců u vybraných spisů, u kterých už byly vygenerovány tabulky pro VEMU. Použijte až po ověření, že se vše ve Vemě nahrálo.">Smazat osobní údaje${purgeableCount?' ('+purgeableCount+')':''}</button>
       </div>
       ` : ''}
       ${isAdmin ? `
@@ -1317,7 +1319,7 @@ function renderList(){
               ${state.role==='hr'?`<td>${personalChip(r)}</td>`:''}
               <td>${chip(r.itDone === r.itTotal && r.itTotal>0, `${r.itDone||0}/${r.itTotal||0}`)}</td>
               ${state.role==='admin'?`<td>${urgencyChip(r)}</td><td>${adminList().length ? `<select data-list-assign="${r.id}"><option value="">— nepřiřazeno —</option>${adminList().map(a => `<option value="${esc(a)}" ${r.assignedAdmin===a?'selected':''}>${esc(a)}</option>`).join('')}</select>` : (r.assignedAdmin ? esc(r.assignedAdmin) : '<span style="color:var(--ink-faint);">—</span>')}</td>`:''}
-              ${canCreate?`<td>${r.vemaExportedAt ? `<span class="chip chip-done" title="${esc(new Date(r.vemaExportedAt).toLocaleString('cs-CZ'))}">Vygenerováno</span>` : `<span class="chip chip-progress-bg">Negenerováno</span>`}</td>
+              ${canCreate?`<td>${r.personalPurgedAt ? `<span class="chip chip-done" title="Osobní údaje byly smazány">Údaje smazány</span>` : r.vemaExportedAt ? `<span class="chip chip-done" title="${esc(new Date(r.vemaExportedAt).toLocaleString('cs-CZ'))}">Vygenerováno</span>` : `<span class="chip chip-progress-bg">Negenerováno</span>`}</td>
               <td style="text-align:right;"><button class="btn-delete-tiny" data-delete="${r.id}" title="Smazat spis">Smazat</button></td>`:''}
             </tr>
           `;
@@ -2942,6 +2944,12 @@ function attachHandlers(){
     render();
   });
 
+  const purgeSelBtn = document.getElementById('btn-purge-selected');
+  if(purgeSelBtn) purgeSelBtn.addEventListener('click', () => {
+    const ids = state.index.filter(r => state.selectedExport[r.id] && r.vemaExportedAt && !r.personalPurgedAt).map(r => r.id);
+    if(ids.length) openPurgeModal(ids);
+  });
+
   const importUploadBtn = document.getElementById('btn-import-upload');
   if(importUploadBtn) importUploadBtn.addEventListener('click', () => {
     document.getElementById('import-file-input').click();
@@ -3804,6 +3812,58 @@ function sendReturnEmail(r, id){
   const m = returnMessageText(r, id);
   window.location.href = `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(m.subject)}&body=${encodeURIComponent(m.body)}`;
   return true;
+}
+
+// Smazání osobních údajů zaměstnance ze spisu (ručně po nahrání do Vemy; automaticky viz purge_onboarding v security.sql).
+// Zůstane jméno, příjmení a údaje personálního oddělení (pozice, pracoviště, datum nástupu…).
+function purgeRecordPersonalData(record){
+  const keep = new Set(['jmeno','prijmeni']);
+  PERSONAL_SECTIONS.filter(s => s.owner === 'employee').forEach(sec => {
+    if(sec.type === 'repeat'){ record.personal[sec.id] = []; return; }
+    sec.fields.forEach(f => { if(!keep.has(f.id)) record.personal[f.id] = ''; });
+  });
+  delete record.accessToken; delete record.linkExpiresAt;
+  record.consentGiven = false;
+  record.fieldFlags = {};
+  record.personalPurgedAt = new Date().toISOString();
+  return record;
+}
+function openPurgeModal(ids){
+  const backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+  backdrop.innerHTML = `
+    <div class="modal">
+      <h3>Smazat osobní údaje (${ids.length})?</h3>
+      <p style="font-size:13.5px;color:var(--ink-soft);">U vybraných spisů se nevratně smažou osobní údaje zaměstnance (rodné číslo, adresa, účet, rodina, děti, vzdělání, praxe…) a odkaz pro zaměstnance přestane fungovat. Zůstane jméno, pozice, pracoviště, datum nástupu a stavy.</p>
+      <p style="font-size:13.5px;color:var(--ink-soft);"><strong>Smažte až poté, co jste ověřili, že se vše ve Vemě nahrálo.</strong> Případně si předtím uložte tištěné podklady.</p>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="pg-cancel">Zrušit</button>
+        <button class="btn btn-primary" id="pg-confirm">Ano, nevratně smazat</button>
+      </div>
+    </div>`;
+  document.body.appendChild(backdrop);
+  document.getElementById('pg-cancel').addEventListener('click', () => backdrop.remove());
+  backdrop.addEventListener('click', (ev) => { if(ev.target === backdrop) backdrop.remove(); });
+  document.getElementById('pg-confirm').addEventListener('click', async () => {
+    const btn = document.getElementById('pg-confirm');
+    btn.disabled = true; btn.textContent = 'Mažu…';
+    let failed = 0;
+    for(const id of ids){
+      try{
+        const res = await window.storage.get(recordKey(id), true);   // přímo, aby výpadek nenahradil spis prázdným
+        const rec = normalizeRecord(JSON.parse(res.value));
+        purgeRecordPersonalData(rec);
+        if(!(await saveRecord(id, rec))) throw new Error('save');
+        const entry = state.index.find(e => e.id === id);
+        if(entry){ entry.personalPurgedAt = rec.personalPurgedAt; entry.linkGeneratedAt = null; }
+      }catch(e){ console.error('purge failed', id, e); failed++; }
+    }
+    await saveIndex();
+    state.selectedExport = {};
+    if(failed) state.error = `U ${failed} spisů se smazání nezdařilo, zkuste to prosím znovu.`;
+    backdrop.remove();
+    render();
+  });
 }
 
 function openReturnModal(){
@@ -5054,13 +5114,14 @@ const HELP = [
   ['🙋','Co dělá zaměstnanec','Vyplní průvodce, potvrdí souhlas se zpracováním osobních údajů a odešle. Po odeslání je formulář zamčen; zaměstnanec ho může sám stáhnout zpět a opravit, pokud ho ještě nezkontrolujete.']]},
  {g:'Výstupy',items:[
   ['📊','Generovat tabulky pro VEMU','V rejstříku zaškrtněte zkontrolované spisy (výběr lze udělat hromadně v záhlaví) a použijte <b>Generovat tabulky pro VEMU</b>. Stav „Vygenerováno“ se u spisu zapamatuje. Pevné hodnoty a kódy pracovišť se nastavují v Nastavení.'],
+  ['🧹','Smazání osobních údajů','Po nahrání do Vemy a ověření, že je vše správně, vyberte ve rejstříku zkontrolované spisy a klikněte na <b>Smazat osobní údaje</b>. Tlačítko je aktivní jen u spisů, pro které už byly vygenerovány tabulky pro VEMU. Nevratně se smažou osobní údaje zaměstnance (zůstane jméno, pozice, pracoviště, datum nástupu a stavy) a jeho odkaz přestane fungovat. Pokud smazání zapomenete, proběhne automaticky 60 dní po vygenerování tabulek.'],
   ['🖨️','Tištěné podklady','Ve spisu <b>Tisk podkladů</b>: A – Osobní dotazník, B – Prohlášení o předchozích zaměstnáních, C – Souhlas se zasíláním platu na účet. Předvyplněno z formuláře; lze tisknout/uložit jako PDF nebo odeslat e-mailem (potřebuje přidělený e-mail zaměstnance).']]},
  {g:'IT a provoz (stručně)',items:[
   ['💻','Přiřazení administrátora','V pohledu IT a provoz lze spisy hromadně přiřadit administrátorovi systémů. Záložky <b>IT a přístupy</b> a <b>Provoz</b> obsahují checklisty podle kategorie zaměstnance.']]},
  {g:'Nastavení (⚙)',items:[
   ['⚙️','Přehled sekcí','Pracoviště, pozice, administrátoři systémů, nadřízení, pravidla pro stávající e-mail, <b>text e-mailu s odkazem</b>, <b>text e-mailu při vrácení k doplnění</b>, odbory/oddělení, pracovníci provozu, kód pracoviště pro Vemu, pevné hodnoty pro Vemu, kanceláře podle budovy, adresy systémů, kategorie a přiřazené systémy, <b>povinné položky personálního oddělení</b>. Sekce lze sbalit; změny se uloží tlačítkem Uložit.'],
   ['💾','Záloha a obnova','Stažení zálohy všech dat do souboru a její obnovení najdete v Nastavení. Zálohu doporučuji stáhnout před hromadným mazáním.'],
-  ['🛡️','Ochrana osobních údajů','Data vidí jen přihlášení zaměstnanci ze seznamu oprávněných (databázová tabulka <code>staff</code>). Zaměstnanec se přes svůj odkaz dostane jen ke svému spisu. Po uplynutí lhůty od <b>Generovat tabulky pro VEMU</b> (výchozí 60 dní, nastavuje se v <code>security.sql</code>) se osobní údaje ze spisu automaticky smažou — proto si tabulky a podklady uložte včas na řádné místo.'],
+  ['🛡️','Ochrana osobních údajů','Data vidí jen přihlášení zaměstnanci ze seznamu oprávněných (databázová tabulka <code>staff</code>). Zaměstnanec se přes svůj odkaz dostane jen ke svému spisu. Po uplynutí lhůty od <b>Generovat tabulky pro VEMU</b> (60 dní; ručně to lze udělat dřív tlačítkem <b>Smazat osobní údaje</b> v rejstříku) se osobní údaje ze spisu automaticky smažou — proto si tabulky a podklady uložte včas na řádné místo.'],
   ['🧹','Smazat všechny spisy','Nevratná operace v Nastavení; před ní stáhněte zálohu.']]}
 ];
 (function(){
