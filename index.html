@@ -313,6 +313,11 @@ input:-webkit-autofill,input:-webkit-autofill:hover,input:-webkit-autofill:focus
 #help .hi .ic{flex:0 0 26px;text-align:center;font-size:15px;line-height:1.3}
 #help .hi p{margin:2px 0 0;color:var(--ink-soft);line-height:1.45}
 #help kbd{background:var(--paper-alt);border:1px solid var(--line-strong);border-radius:4px;padding:0 5px;font-size:11px}
+.help-cta{font-family:var(--font-body);font-size:14px;font-weight:600;background:var(--blue);color:#fff;border:0;border-radius:var(--radius);padding:9px 16px;cursor:pointer;}
+.help-cta:hover{filter:brightness(1.1);}
+.help-fab{position:fixed;right:18px;bottom:18px;z-index:40;font-family:var(--font-body);font-size:15px;font-weight:600;background:var(--blue);color:#fff;border:0;border-radius:28px;padding:13px 20px;cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,.28);}
+.help-fab:hover{filter:brightness(1.1);}
+@media print{.help-fab{display:none!important}}
 .help-link{color:var(--blue);cursor:pointer;text-decoration:none}
 @media print{#help{display:none!important}}
 </style>
@@ -320,7 +325,7 @@ input:-webkit-autofill,input:-webkit-autofill:hover,input:-webkit-autofill:focus
 <body>
 <div id="app"></div>
 
-<script src="config.js?v=40"></script>
-<script src="app.js?v=40"></script>
+<script src="config.js?v=41"></script>
+<script src="app.js?v=41"></script>
 </body>
 </html>

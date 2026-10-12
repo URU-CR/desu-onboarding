@@ -1,4 +1,4 @@
-const APP_VERSION = '2026-10-12.1';
+const APP_VERSION = '2026-10-12.2';
 const STORAGE_INDEX_KEY = 'onboarding:index';
 const STORAGE_INFO_KEY = 'onboarding:info-content';
 const STORAGE_SETTINGS_KEY = 'onboarding:settings';
@@ -1126,9 +1126,10 @@ function render(){
       </div>
     </div>
     <div class="no-print">
-    ${state.employeeMode ? `<div class="employee-banner">Toto je váš osobní onboardingový prostor. Vyplněné údaje uvidí personální oddělení, které je zkontroluje a případně doplní.</div>` : renderRoleSwitch()}
+    ${state.employeeMode ? `<div class="employee-banner">Toto je váš osobní onboardingový prostor. Vyplněné údaje uvidí personální oddělení, které je zkontroluje a případně doplní.<div style="margin-top:8px;"><button type="button" id="btn-help" class="help-cta">❓ Nevíte si rady? Otevřít nápovědu</button></div></div>` : renderRoleSwitch()}
     ${state.error ? `<div style="background:var(--red-tint);color:var(--red);padding:10px 14px;border-radius:3px;margin-bottom:16px;font-size:13px;">${esc(state.error)}</div>` : ''}
     </div>
+    ${state.employeeMode ? `<button type="button" id="btn-help-fab" class="help-fab no-print" title="Nápověda (klávesa ?)">❓ Nápověda</button>` : ''}
     ${state.view === 'list' ? renderList() : state.view === 'info-admin' ? renderInfoAdminPage() : state.view === 'settings' ? renderSettingsPage() : state.view === 'print-docs' ? renderPrintDocsPage() : state.view === 'import-mapping' ? renderImportMappingPage() : renderDetail()}
   `;
   attachHandlers();
@@ -4869,6 +4870,32 @@ async function openDetail(id){
   }
 })();
 
+
+/* Nápověda pro zaměstnance (dotazník). Jednoduchým jazykem, pro člověka, který to dělá poprvé a naposledy.
+   KAŽDOU ZMĚNU DOTAZNÍKU (kroky, pole, tlačítka, stavy) PROMÍTNOUT I SEM. */
+const HELP_EMP = [
+ {g:'Na úvod',items:[
+  ['👋','K čemu dotazník slouží','Údaje, které zde vyplníte, potřebuje personální oddělení k vaší smlouvě, mzdám a přihlášení k pojištění. Nic jiného se s nimi nedělá.'],
+  ['💾','Nemusíte to stihnout najednou','Vyplněné se ukládá samo. Dotazník můžete kdykoli zavřít a později se k němu vrátit <b>stejným odkazem</b> – nic se neztratí. Odkaz nikomu nepřeposílejte, je osobní.'],
+  ['⭐','Co je povinné','Povinné údaje jsou označeny <b style="color:#C62828">červenou hvězdičkou *</b>. Bez nich dotazník nepůjde odeslat. Ostatní údaje jsou doplňkové – vyplňte je, pokud se vás týkají.'],
+  ['➡️','Jak se pohybovat','Dotazník je rozdělen do kroků. Tlačítky <b>Pokračovat</b> a <b>Zpět</b> se posouváte mezi kroky, nahoře můžete kliknutím přeskočit na libovolný krok. Červeně podtržený krok znamená, že tam něco povinného chybí.']]},
+ {g:'Jednotlivé kroky',items:[
+  ['🪪','Základní údaje','Jméno, příjmení, tituly, rodné číslo <b>bez lomítka</b> (např. 9001011234), místo narození a státní příslušnost. Datum narození se z rodného čísla doplní samo a aplikace ho zkontroluje.'],
+  ['🏠','Bydliště a kontakt','Trvalé bydliště, soukromý telefon a e-mail. Doručovací adresu vyplňte jen tehdy, pokud je jiná než trvalá. Kontakt pro mimořádnou událost je doplňkový (koho zavolat, kdyby se vám něco stalo).'],
+  ['🏦','Pojišťovna a účet','Zdravotní pojišťovnu vyberte ze seznamu. Číslo účtu zadejte bez lomítka a kódu banky, kód banky vyplňte zvlášť (např. 0100). Po zadání čísla účtu se zobrazí tři souhlasy se zasíláním platu, cestovních náhrad a příspěvku na stravování na tento účet.'],
+  ['👪','Rodina a děti','Rodinný stav je povinný. Krok <b>Děti</b> je doplňkový – pokud děti nemáte, jen pokračujte dál. Další dítě přidáte tlačítkem <b>+ Přidat dítě</b>.'],
+  ['🎓','Vzdělání','Údaje o vašem dosaženém vzdělání – vyplňte podle pokynů u polí.'],
+  ['💼','Praxe','Předchozí zaměstnání a činnosti. Uveďte <b>alespoň jedno</b>; další přidáte tlačítkem <b>+ Přidat zaměstnání</b>.'],
+  ['🌍','Jazyky a další údaje','Jazykové znalosti jsou doplňkové. V kroku <b>Další údaje</b> jsou dodatečné údaje, které úřad ze zákona potřebuje; vyplňte je podle pokynů u polí.']]},
+ {g:'Odeslání a kontrola',items:[
+  ['✅','Souhrn a odeslání','Poslední krok je <b>Souhrn</b>. Pokud chybí povinné údaje, aplikace vypíše, ve kterých krocích. Až je vše hotové, klikněte na <b>Odeslat personálnímu oddělení</b> a potvrďte.'],
+  ['🔒','Po odeslání','Formulář se zamkne a personální oddělení údaje zkontroluje. Zjistíte-li chybu, můžete ho sami odemknout tlačítkem <b>Stáhnout zpět a opravit</b> (pokud ho už neschválilo).'],
+  ['↩️','Když vás požádají o doplnění','Personální oddělení vám dotazník může vrátit. Nahoře uvidíte jeho vzkaz a v krocích budou <b>zvýrazněná pole</b> s poznámkou, co opravit. Opravené údaje odešlete znovu.']]},
+ {g:'Další záložka a pomoc',items:[
+  ['ℹ️','Co potřebujete vědět','Druhá záložka obsahuje praktické informace k nástupu: kontakty, pracoviště a další informace pro nové zaměstnance.'],
+  ['📞','Něco se nedaří?','Pokud si nevíte rady, obraťte se na personální oddělení – kontakty najdete v záložce <b>Co potřebujete vědět</b>.']]}
+];
+
 /* ====== NÁPOVĚDA (pohled personálního oddělení) ======
    Vysouvá se zleva (odkaz „? Nápověda“ v záhlaví nebo klávesa ?). Obsah je ručně udržovaný v poli HELP.
    KAŽDOU NOVOU FUNKCI NEBO ZMĚNU CHOVÁNÍ DOPLNIT SEM (a zvýšit APP_VERSION + ?v= v index.html). */
@@ -4916,8 +4943,9 @@ const HELP = [
   function renderHelp(qs){
     qs = (qs||'').trim().toLowerCase();
     const strip = t => t.replace(/<[^>]+>/g,' ').toLowerCase();
-    let h = `<div class="hh"><b>Nápověda – personální oddělení</b><span class="hint">verze ${APP_VERSION}</span><span class="sp"></span><button data-hx title="Zavřít">✕</button></div><div class="hs"><input id="hq" placeholder="Hledat… (název funkce, slovo)" value="${esc(qs)}" autocomplete="off"></div><div class="hb">`;
-    for(const g of HELP){
+    let h = `<div class="hh"><b>${state.employeeMode ? 'Nápověda k dotazníku' : 'Nápověda – personální oddělení'}</b><span class="hint">verze ${APP_VERSION}</span><span class="sp"></span><button data-hx title="Zavřít">✕</button></div><div class="hs"><input id="hq" placeholder="Hledat… (název funkce, slovo)" value="${esc(qs)}" autocomplete="off"></div><div class="hb">`;
+    const SET = state.employeeMode ? HELP_EMP : HELP;
+    for(const g of SET){
       const items = g.items.filter(([i,t,d]) => !qs || (t+' '+strip(d)).toLowerCase().includes(qs));
       if(!items.length) continue;
       h += `<details ${qs?'open':''}><summary>${esc(g.g)} <span class="hint">${items.length}</span></summary>${items.map(([i,t,d])=>`<div class="hi"><span class="ic">${i}</span><div><b>${esc(t)}</b><p>${d}</p></div></div>`).join('')}</details>`;
@@ -4928,9 +4956,8 @@ const HELP = [
     inp.addEventListener('input', () => { const v=inp.value, pos=inp.selectionStart; renderHelp(v); const i2=q('#hq'); i2.focus(); i2.setSelectionRange(pos,pos); });
   }
   hd.addEventListener('click', e => { if(e.target.closest('[data-hx]')) hd.classList.remove('open'); });
-  document.addEventListener('click', e => { if(e.target.closest('#btn-help')){ e.preventDefault(); openHelp(); } });
+  document.addEventListener('click', e => { if(e.target.closest('#btn-help, #btn-help-fab')){ e.preventDefault(); openHelp(); } });
   document.addEventListener('keydown', e => {
-    if(state.employeeMode) return;
     const typing = /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
     if(e.key === '?' && !typing && !q('.modal-backdrop')){ e.preventDefault(); openHelp(); }
     if(e.key === 'Escape' && hd.classList.contains('open') && !q('.modal-backdrop')) hd.classList.remove('open');
