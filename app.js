@@ -1,4 +1,4 @@
-const APP_VERSION = '2026-10-12.7';
+const APP_VERSION = '2026-10-12.8';
 const STORAGE_INDEX_KEY = 'onboarding:index';
 const STORAGE_INFO_KEY = 'onboarding:info-content';
 const STORAGE_SETTINGS_KEY = 'onboarding:settings';
@@ -1133,7 +1133,7 @@ function render(){
       </div>
     </div>
     <div class="no-print">
-    ${state.employeeMode ? `<div class="employee-banner">Toto je váš osobní onboardingový prostor. Vyplněné údaje uvidí personální oddělení, které je zkontroluje a případně doplní.</div>` : renderRoleSwitch()}
+    ${state.employeeMode ? `<div class="employee-banner">${state.infoOnly ? 'Toto je váš osobní onboardingový prostor. Dotazník je již uzavřen (údaje byly zpracovány nebo vypršela platnost jeho vyplnění). Informace pro váš nástup zůstávají dostupné níže. Potřebujete-li údaje doplnit nebo opravit, kontaktujte personální oddělení.' : 'Toto je váš osobní onboardingový prostor. Vyplněné údaje uvidí personální oddělení, které je zkontroluje a případně doplní.'}</div>` : renderRoleSwitch()}
     ${state.error ? `<div style="background:var(--red-tint);color:var(--red);padding:10px 14px;border-radius:3px;margin-bottom:16px;font-size:13px;">${esc(state.error)}</div>` : ''}
     </div>
     ${state.employeeMode ? `<button type="button" id="btn-help-fab" class="help-fab no-print" title="Nápověda (klávesa ?)">❓ Nápověda</button>` : ''}
@@ -1349,7 +1349,7 @@ function personalChip(r){
 }
 
 function availableTabs(){
-  if(state.role === 'employee') return ['personal','info'];
+  if(state.role === 'employee') return state.infoOnly ? ['info'] : ['personal','info'];
   if(state.role === 'admin') return ['it','provoz'];
   return ['personal','it'];
 }
@@ -1369,7 +1369,7 @@ function renderDetail(){
   const tabs = availableTabs();
   if(!tabs.includes(state.tab)) state.tab = tabs[0];
 
-  if(state.role === 'employee' && !r.consentGiven){
+  if(state.role === 'employee' && !state.infoOnly && !r.consentGiven){
     return `
       ${state.employeeMode || state.previewingEmployee ? '' : `<div class="back-link" id="btn-back">← Zpět na rejstřík</div>`}
       <div class="detail-head">
@@ -3822,7 +3822,7 @@ function purgeRecordPersonalData(record){
     if(sec.type === 'repeat'){ record.personal[sec.id] = []; return; }
     sec.fields.forEach(f => { if(!keep.has(f.id)) record.personal[f.id] = ''; });
   });
-  delete record.accessToken; delete record.linkExpiresAt;
+  // odkaz zůstává platný, ale otevře už jen záložku „Co potřebujete vědět“ (server pak osobní údaje nepošle)
   record.consentGiven = false;
   record.fieldFlags = {};
   record.personalPurgedAt = new Date().toISOString();
@@ -3834,7 +3834,7 @@ function openPurgeModal(ids){
   backdrop.innerHTML = `
     <div class="modal">
       <h3>Smazat osobní údaje (${ids.length})?</h3>
-      <p style="font-size:13.5px;color:var(--ink-soft);">U vybraných spisů se nevratně smažou osobní údaje zaměstnance (rodné číslo, adresa, účet, rodina, děti, vzdělání, praxe…) a odkaz pro zaměstnance přestane fungovat. Zůstane jméno, pozice, pracoviště, datum nástupu a stavy.</p>
+      <p style="font-size:13.5px;color:var(--ink-soft);">U vybraných spisů se nevratně smažou osobní údaje zaměstnance (rodné číslo, adresa, účet, rodina, děti, vzdělání, praxe…) a odkaz pro zaměstnance dál otevře jen informační záložku „Co potřebujete vědět“. Zůstane jméno, pozice, pracoviště, datum nástupu a stavy.</p>
       <p style="font-size:13.5px;color:var(--ink-soft);"><strong>Smažte až poté, co jste ověřili, že se vše ve Vemě nahrálo.</strong> Případně si předtím uložte tištěné podklady.</p>
       <div class="modal-actions">
         <button class="btn btn-ghost" id="pg-cancel">Zrušit</button>
@@ -3855,7 +3855,7 @@ function openPurgeModal(ids){
         purgeRecordPersonalData(rec);
         if(!(await saveRecord(id, rec))) throw new Error('save');
         const entry = state.index.find(e => e.id === id);
-        if(entry){ entry.personalPurgedAt = rec.personalPurgedAt; entry.linkGeneratedAt = null; }
+        if(entry){ entry.personalPurgedAt = rec.personalPurgedAt; }
       }catch(e){ console.error('purge failed', id, e); failed++; }
     }
     await saveIndex();
@@ -5006,7 +5006,7 @@ async function openDetail(id){
       </div>`;
     };
     if(!opened) return failScreen('Odkaz nebyl nalezen', 'Zkontrolujte prosím, že jste odkaz zkopíroval/a celý. Pokud problém trvá, kontaktujte personální oddělení.');
-    if(opened.expired) return failScreen('Platnost odkazu vypršela', 'Z bezpečnostních důvodů odkaz platí omezenou dobu. Požádejte prosím personální oddělení o nový.');
+    state.infoOnly = !!opened.infoOnly;   // dotazník uzavřen (vypršela platnost / údaje smazány): jen „Co potřebujete vědět“
     const cache = {};
     cache[recordKey(empId)] = JSON.stringify(opened.record);
     if(opened.settings) cache[STORAGE_SETTINGS_KEY] = opened.settings;
@@ -5017,7 +5017,7 @@ async function openDetail(id){
         throw new Error('not found: ' + key);
       },
       async set(key, value){
-        if(key !== recordKey(empId)) return { key, value, shared: true };   // zaměstnanec smí uložit jen svůj spis
+        if(key !== recordKey(empId) || state.infoOnly) return { key, value, shared: true };   // zaměstnanec smí uložit jen svůj spis a jen u otevřeného dotazníku
         const rec = JSON.parse(value);
         const patch = { personal: rec.personal, personalStatus: rec.personalStatus, consentGiven: !!rec.consentGiven, consentAt: rec.consentAt || null, firstDayDismissed: !!rec.firstDayDismissed };
         const { data, error } = await sb.rpc('emp_save', { p_id: empId, p_token: empToken, p_patch: patch });
@@ -5062,7 +5062,7 @@ async function openDetail(id){
 const HELP_EMP = [
  {g:'Na úvod',items:[
   ['👋','K čemu dotazník slouží','Údaje, které zde vyplníte, potřebuje personální oddělení k vaší smlouvě, mzdám a přihlášení k pojištění. Nic jiného se s nimi nedělá.'],
-  ['💾','Nemusíte to stihnout najednou','Vyplněné se ukládá samo. Dotazník můžete kdykoli zavřít a později se k němu vrátit <b>stejným odkazem</b> – nic se neztratí. Odkaz nikomu nepřeposílejte, je osobní a platí omezenou dobu (zhruba měsíc). Po vypršení vám personální oddělení pošle nový.'],
+  ['💾','Nemusíte to stihnout najednou','Vyplněné se ukládá samo. Dotazník můžete kdykoli zavřít a později se k němu vrátit <b>stejným odkazem</b> – nic se neztratí. Odkaz nikomu nepřeposílejte, je osobní. Dotazník se přes něj dá vyplňovat zhruba měsíc; potom (nebo po zpracování údajů) se uzavře a odkaz vám dál ukáže jen záložku <b>Co potřebujete vědět</b>. Potřebujete-li údaje ještě opravit, požádejte personální oddělení o nový odkaz.'],
   ['⭐','Co je povinné','Povinné údaje jsou označeny <b style="color:#C62828">červenou hvězdičkou *</b>. Bez nich dotazník nepůjde odeslat. Ostatní údaje jsou doplňkové – vyplňte je, pokud se vás týkají.'],
   ['➡️','Jak se pohybovat','Dotazník je rozdělen do kroků. Tlačítky <b>Pokračovat</b> a <b>Zpět</b> se posouváte mezi kroky, nahoře můžete kliknutím přeskočit na libovolný krok. Červeně podtržený krok znamená, že tam něco povinného chybí.']]},
  {g:'Jednotlivé kroky',items:[
@@ -5104,7 +5104,7 @@ const HELP = [
   ['🪪','Rodné číslo','Aplikace kontroluje rodné číslo a z něj dopočítá datum narození; nesrovnalosti zobrazí jako upozornění u pole.'],
   ['✉️','Stávající e-mail','Navrhuje se podle pravidel z Nastavení (zdrojový úřad, jméno, příjmení). Je potřeba pro odeslání odkazu e-mailem.']]},
  {g:'Odkaz pro zaměstnance',items:[
-  ['🔗','Vygenerovat a zkopírovat odkaz','Tlačítko je aktivní, až když jsou doplněny povinné údaje personálního oddělení. Odkaz je <b>osobní a tajný</b> (obsahuje dlouhý náhodný kód) a platí <b>30 dní</b>; vrácením k doplnění se platnost prodlouží. Po vypršení nebo ztrátě odkaz vygenerujte znovu; odkazy rozeslané před zavedením tajného kódu už nefungují. Odkaz otevírá osobní prostor zaměstnance (první záložka <b>Vaše údaje</b>, druhá <b>Co potřebujete vědět</b>).'],
+  ['🔗','Vygenerovat a zkopírovat odkaz','Tlačítko je aktivní, až když jsou doplněny povinné údaje personálního oddělení. Odkaz je <b>osobní a tajný</b> (obsahuje dlouhý náhodný kód) a dotazník lze přes něj vyplňovat <b>30 dní</b> (vrácením k doplnění nebo novým zkopírováním odkazu se platnost obnoví). Po vypršení nebo po smazání osobních údajů odkaz dál otevře jen záložku <b>Co potřebujete vědět</b> — osobní údaje se ze serveru vůbec nepošlou. Odkazy rozeslané před zavedením tajného kódu už nefungují. Odkaz otevírá osobní prostor zaměstnance (první záložka <b>Vaše údaje</b>, druhá <b>Co potřebujete vědět</b>).'],
   ['📧','Poslat odkaz e-mailem','Otevře e-mail s odkazem. Text si upravíte v Nastavení → <b>Text e-mailu s odkazem pro zaměstnance</b>. Vyžaduje stávající e-mail zaměstnance.'],
   ['ℹ️','Co potřebujete vědět','Informační záložka pro zaměstnance (kontakty, informace k pracovištím, obecné karty). Obsah se upravuje v Nastavení → Obsah pro zaměstnance.']]},
  {g:'Kontrola a schválení',items:[
@@ -5114,7 +5114,7 @@ const HELP = [
   ['🙋','Co dělá zaměstnanec','Vyplní průvodce, potvrdí souhlas se zpracováním osobních údajů a odešle. Po odeslání je formulář zamčen; zaměstnanec ho může sám stáhnout zpět a opravit, pokud ho ještě nezkontrolujete.']]},
  {g:'Výstupy',items:[
   ['📊','Generovat tabulky pro VEMU','V rejstříku zaškrtněte zkontrolované spisy (výběr lze udělat hromadně v záhlaví) a použijte <b>Generovat tabulky pro VEMU</b>. Stav „Vygenerováno“ se u spisu zapamatuje. Pevné hodnoty a kódy pracovišť se nastavují v Nastavení.'],
-  ['🧹','Smazání osobních údajů','Po nahrání do Vemy a ověření, že je vše správně, vyberte ve rejstříku zkontrolované spisy a klikněte na <b>Smazat osobní údaje</b>. Tlačítko je aktivní jen u spisů, pro které už byly vygenerovány tabulky pro VEMU. Nevratně se smažou osobní údaje zaměstnance (zůstane jméno, pozice, pracoviště, datum nástupu a stavy) a jeho odkaz přestane fungovat. Pokud smazání zapomenete, proběhne automaticky 60 dní po vygenerování tabulek.'],
+  ['🧹','Smazání osobních údajů','Po nahrání do Vemy a ověření, že je vše správně, vyberte ve rejstříku zkontrolované spisy a klikněte na <b>Smazat osobní údaje</b>. Tlačítko je aktivní jen u spisů, pro které už byly vygenerovány tabulky pro VEMU. Nevratně se smažou osobní údaje zaměstnance (zůstane jméno, pozice, pracoviště, datum nástupu a stavy) a jeho odkaz dál otevře jen záložku „Co potřebujete vědět“. Pokud smazání zapomenete, proběhne automaticky 60 dní po vygenerování tabulek.'],
   ['🖨️','Tištěné podklady','Ve spisu <b>Tisk podkladů</b>: A – Osobní dotazník, B – Prohlášení o předchozích zaměstnáních, C – Souhlas se zasíláním platu na účet. Předvyplněno z formuláře; lze tisknout/uložit jako PDF nebo odeslat e-mailem (potřebuje přidělený e-mail zaměstnance).']]},
  {g:'IT a provoz (stručně)',items:[
   ['💻','Přiřazení administrátora','V pohledu IT a provoz lze spisy hromadně přiřadit administrátorovi systémů. Záložky <b>IT a přístupy</b> a <b>Provoz</b> obsahují checklisty podle kategorie zaměstnance.']]},

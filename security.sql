@@ -86,29 +86,10 @@ revoke all on function public._kv_text(text) from public, anon, authenticated;
 revoke all on function public._kv_put(text, text) from public, anon, authenticated;
 revoke all on function public._emp_rec(text, text) from public, anon, authenticated;
 
--- 4) Funkce pro zaměstnance (bez přihlášení) ---------------------------
-create or replace function public.emp_open(p_id text, p_token text) returns jsonb
-language plpgsql security definer set search_path = public as $$
-declare rec jsonb;
-begin
-  rec := public._emp_rec(p_id, p_token);
-  if rec is null then return null; end if;
-  if rec ->> 'linkExpiresAt' is not null and (rec ->> 'linkExpiresAt')::timestamptz < now() then
-    return jsonb_build_object('expired', true);
-  end if;
-  return jsonb_build_object(
-    'record',   (rec - 'accessToken'),
-    'settings', public._kv_text('onboarding:settings'),
-    'info',     public._kv_text('onboarding:info-content'));
-end $$;
-
--- Pole, která smí zaměstnanec měnit (= kroky dotazníku s owner 'employee' v app.js).
--- Při změně dotazníku je třeba seznam aktualizovat i tady.
-create or replace function public.emp_save(p_id text, p_token text, p_patch jsonb) returns boolean
-language plpgsql security definer set search_path = public as $$
-declare
-  rec jsonb; cur text; nw text; np jsonb; k text; idx jsonb;
-  allowed text[] := array[
+-- Seznam polí dotazníku, která vyplňuje zaměstnanec (= kroky s owner 'employee' v app.js).
+-- Při změně dotazníku je třeba seznam aktualizovat zde a skript znovu spustit.
+create or replace function public._emp_fields() returns text[]
+language sql immutable as $$ select array[
     'titul_pred','jmeno','prijmeni','titul_za','rodne_prijmeni','prijmeni_byvale_1','prijmeni_byvale_2',
     'rodne_cislo','datum_narozeni','misto_narozeni','okres_narozeni','stat_narozeni','statni_prislusnost',
     'trvale_ulice','trvale_cp','trvale_co','trvale_obec','trvale_psc','kraj','trvale_stat','dorucovaci_adresa',
@@ -120,12 +101,56 @@ declare
     'druh_zkousky','praxe','jazyky','prohlaseni_poplatnika','zpusob_rocniho_zuctovani','invalidita','zdrav_postizeni_ozp',
     'prukaz_zdravotni','zdrav_rozhodnuti_platnost_do','vojak','student_pripravujici_se','student_potvrzeni_do','duchod',
     'duchod_detail','pocet_vychovanych_deti','sluzebni_pomer_drive','clenstvi_organy','vydelecna_cinnost_souhlas',
-    'soudni_rizeni','soudni_srazky','kurzy_dovednosti'];
+    'soudni_rizeni','soudni_srazky','kurzy_dovednosti'] $$;
+
+-- Odstraní z kopie spisu osobní údaje zaměstnance (zůstane jméno, příjmení a údaje personálního oddělení).
+create or replace function public._strip_personal(rec jsonb) returns jsonb
+language plpgsql immutable set search_path = public as $$
+declare np jsonb := coalesce(rec -> 'personal', '{}'::jsonb); k text;
+begin
+  foreach k in array public._emp_fields() loop
+    continue when k in ('jmeno', 'prijmeni');
+    if np ? k then
+      np := jsonb_set(np, array[k], case when k in ('deti', 'praxe', 'jazyky') then '[]'::jsonb else '""'::jsonb end, true);
+    end if;
+  end loop;
+  return jsonb_set(rec, '{personal}', np, true);
+end $$;
+revoke all on function public._emp_fields() from public, anon, authenticated;
+revoke all on function public._strip_personal(jsonb) from public, anon, authenticated;
+
+-- 4) Funkce pro zaměstnance (bez přihlášení) ---------------------------
+create or replace function public.emp_open(p_id text, p_token text) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare rec jsonb; info_only boolean;
+begin
+  rec := public._emp_rec(p_id, p_token);
+  if rec is null then return null; end if;
+  -- Po vypršení platnosti dotazníku nebo po smazání údajů zůstane odkazu jen záložka „Co potřebujete vědět“:
+  -- osobní údaje zaměstnance se v takovém případě vůbec neodešlou.
+  info_only := (rec ->> 'personalPurgedAt') is not null
+            or ((rec ->> 'linkExpiresAt') is not null and (rec ->> 'linkExpiresAt')::timestamptz < now());
+  if info_only then rec := public._strip_personal(rec); end if;
+  return jsonb_build_object(
+    'record',   (rec - 'accessToken'),
+    'infoOnly', info_only,
+    'settings', public._kv_text('onboarding:settings'),
+    'info',     public._kv_text('onboarding:info-content'));
+end $$;
+
+-- Pole, která smí zaměstnanec měnit (= kroky dotazníku s owner 'employee' v app.js).
+-- Při změně dotazníku je třeba seznam aktualizovat i tady.
+create or replace function public.emp_save(p_id text, p_token text, p_patch jsonb) returns boolean
+language plpgsql security definer set search_path = public as $$
+declare
+  rec jsonb; cur text; nw text; np jsonb; k text; idx jsonb;
+  allowed text[] := public._emp_fields();
 begin
   if p_patch is null or length(p_patch::text) > 300000 then return false; end if;
   rec := public._emp_rec(p_id, p_token);
   if rec is null then return false; end if;
   if rec ->> 'linkExpiresAt' is not null and (rec ->> 'linkExpiresAt')::timestamptz < now() then return false; end if;
+  if rec ->> 'personalPurgedAt' is not null then return false; end if;
 
   cur := coalesce(rec ->> 'personalStatus', 'draft');
   nw  := coalesce(p_patch ->> 'personalStatus', cur);
@@ -181,25 +206,10 @@ grant execute on function public.emp_save(text, text, jsonb) to anon, authentica
 -- 5) Mazání osobních údajů po lhůtě ---------------------------------------
 -- Pro spisy, u kterých od vygenerování tabulek pro VEMU uplynulo p_days dní,
 -- smaže osobní údaje zaměstnance (zůstane jméno, příjmení, pozice, pracoviště,
--- datum nástupu a stavy). Vrací počet vyčištěných spisů.
+-- datum nástupu a stavy; odkaz dál otevře jen záložku „Co potřebujete vědět“). Vrací počet vyčištěných spisů.
 create or replace function public.purge_onboarding(p_days int default 60) returns int
 language plpgsql security definer set search_path = public as $$
-declare
-  r record; rec jsonb; np jsonb; n int := 0; k text;
-  wipe text[] := array[
-    'titul_pred','titul_za','rodne_prijmeni','prijmeni_byvale_1','prijmeni_byvale_2',
-    'rodne_cislo','datum_narozeni','misto_narozeni','okres_narozeni','stat_narozeni','statni_prislusnost',
-    'trvale_ulice','trvale_cp','trvale_co','trvale_obec','trvale_psc','kraj','trvale_stat','dorucovaci_adresa',
-    'telefon_soukromy','email_soukromy','nouzovy_kontakt_jmeno','nouzovy_kontakt_telefon','nouzovy_kontakt_adresa',
-    'zdravotni_pojistovna','cislo_uctu','kod_banky','souhlas_plat_ucet','souhlas_cestovni_nahrady','souhlas_stravovani',
-    'rodinny_stav','jmeno_manzela','prijmeni_manzela','rodne_cislo_manzela','datum_narozeni_manzela',
-    'statni_obcanstvi_manzela','bydliste_manzela','manzel_ztpp','stav_vzdelani','rok_zahajeni','rok_ukonceni',
-    'stupen_vzdelani','datum_zahajeni_vzdelani','datum_ukonceni_vzdelani','obor','ziskany_titul','skola','sidlo_skoly',
-    'druh_zkousky','prohlaseni_poplatnika','zpusob_rocniho_zuctovani','invalidita','zdrav_postizeni_ozp',
-    'prukaz_zdravotni','zdrav_rozhodnuti_platnost_do','vojak','student_pripravujici_se','student_potvrzeni_do','duchod',
-    'duchod_detail','pocet_vychovanych_deti','sluzebni_pomer_drive','clenstvi_organy','vydelecna_cinnost_souhlas',
-    'soudni_rizeni','soudni_srazky','kurzy_dovednosti'];
-  wipe_arrays text[] := array['deti','praxe','jazyky'];
+declare r record; rec jsonb; n int := 0;
 begin
   for r in select key from public.kv_store where key like 'onboarding:record:%' loop
     begin
@@ -208,17 +218,11 @@ begin
       continue when rec ->> 'personalPurgedAt' is not null;
       continue when rec ->> 'vemaExportedAt' is null;
       continue when (rec ->> 'vemaExportedAt')::timestamptz > now() - make_interval(days => p_days);
-      np := coalesce(rec -> 'personal', '{}'::jsonb);
-      foreach k in array wipe loop
-        if np ? k then np := jsonb_set(np, array[k], '""'::jsonb, true); end if;
-      end loop;
-      foreach k in array wipe_arrays loop
-        if np ? k then np := jsonb_set(np, array[k], '[]'::jsonb, true); end if;
-      end loop;
-      rec := jsonb_set(rec, '{personal}', np, true) - 'accessToken' - 'linkExpiresAt';
+      rec := public._strip_personal(rec);
       rec := jsonb_set(rec, '{personalPurgedAt}', to_jsonb(now()), true);
       rec := jsonb_set(rec, '{consentGiven}', 'false'::jsonb, true);
-      perform public._kv_put(r.key, rec::text);
+      rec := jsonb_set(rec, '{fieldFlags}', '{}'::jsonb, true);
+      perform public._kv_put(r.key, rec::text);   -- odkaz (accessToken) zůstává: dál otevře jen „Co potřebujete vědět“
       n := n + 1;
     exception when others then null;
     end;
