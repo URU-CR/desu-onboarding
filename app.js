@@ -85,6 +85,10 @@ const ONBOARDING_TYPES = [
 ];
 const ZDROJOVE_URADY = ['DESÚ','MMR','ÚÚR','MD','MPO','Nové','Jiný'];
 const DEFAULT_EMAIL_RULES = { 'DESÚ':'{jmeno}.{prijmeni}@desu.gov.cz' };
+const DEFAULT_LINK_EMAIL_TEMPLATE = {
+  subject: 'Vyplnění údajů pro nástup — {jmeno} {prijmeni}',
+  body: 'Dobrý den,\n\npro vyplnění údajů k Vašemu nástupu prosím použijte následující odkaz:\n{odkaz}\n\nS pozdravem',
+};
 const DEFAULT_CATEGORIES = [
   { name:'Referent', systems:['vema','vema_server','issr','vita','espis','czechpoint','katastr'] },
   { name:'Metodik', systems:['vema','vema_server','espis','czechpoint','katastr'] },
@@ -590,6 +594,9 @@ async function loadSettings(){
   SYSTEM_URL_KEYS.forEach(k => { if(!(k in state.settings.systemTypes)) state.settings.systemTypes[k] = 'web'; });
   if(!state.settings.emailRules || typeof state.settings.emailRules !== 'object') state.settings.emailRules = {...DEFAULT_EMAIL_RULES};
   ZDROJOVE_URADY.forEach(z => { if(!(z in state.settings.emailRules)) state.settings.emailRules[z] = ''; });
+  if(!state.settings.linkEmailTemplate || typeof state.settings.linkEmailTemplate !== 'object') state.settings.linkEmailTemplate = {...DEFAULT_LINK_EMAIL_TEMPLATE};
+  if(!state.settings.linkEmailTemplate.subject) state.settings.linkEmailTemplate.subject = DEFAULT_LINK_EMAIL_TEMPLATE.subject;
+  if(!state.settings.linkEmailTemplate.body) state.settings.linkEmailTemplate.body = DEFAULT_LINK_EMAIL_TEMPLATE.body;
 }
 async function saveSettings(){
   if(state.standaloneMode) return true;
@@ -1748,6 +1755,21 @@ function renderSettingsPage(){
     </div>
 
     <div class="panel" style="margin-bottom:20px;">
+      ${settingsPanelStart('linkemail', 'Text e-mailu s odkazem pro zaměstnance')}
+      <p style="font-size:12.5px;color:var(--ink-faint);margin:0 0 12px;">Tento text se použije při odeslání odkazu zaměstnanci tlačítkem „Poslat odkaz e-mailem". Použijte <code>{jmeno}</code>, <code>{prijmeni}</code> a <code>{odkaz}</code> — doplní se automaticky za konkrétní osobu.</p>
+      <div style="margin-bottom:10px;">
+        <label style="font-size:12.5px;color:var(--ink-soft);display:block;margin-bottom:4px;">Předmět</label>
+        <input data-linkemail-input="subject" value="${esc((draft.linkEmailTemplate||{}).subject||'')}" placeholder="${esc(DEFAULT_LINK_EMAIL_TEMPLATE.subject)}" style="width:100%;">
+      </div>
+      <div>
+        <label style="font-size:12.5px;color:var(--ink-soft);display:block;margin-bottom:4px;">Text zprávy</label>
+        <textarea data-linkemail-input="body" rows="6" style="width:100%;font:inherit;" placeholder="${esc(DEFAULT_LINK_EMAIL_TEMPLATE.body)}">${esc((draft.linkEmailTemplate||{}).body||'')}</textarea>
+      </div>
+      <button class="btn btn-ghost btn-sm" type="button" id="btn-linkemail-reset" style="margin-top:10px;">Obnovit výchozí text</button>
+      ${settingsPanelEnd()}
+    </div>
+
+    <div class="panel" style="margin-bottom:20px;">
       ${settingsPanelStart('departments', 'Odbory / oddělení', {field:'departments', label:'Odbory / oddělení'})}
       <p style="font-size:12.5px;color:var(--ink-faint);margin:0 0 12px;">Seznam pro výběr odboru/oddělení v sekci Pracovní poměr.</p>
       ${draft.departments.map((w,i) => `
@@ -2641,6 +2663,19 @@ function attachHandlers(){
     });
   });
 
+  app.querySelectorAll('[data-linkemail-input]').forEach(el => {
+    el.addEventListener('change', () => {
+      if(!state.settingsDraft.linkEmailTemplate) state.settingsDraft.linkEmailTemplate = {};
+      state.settingsDraft.linkEmailTemplate[el.getAttribute('data-linkemail-input')] = el.value;
+    });
+  });
+  const linkEmailResetBtn = document.getElementById('btn-linkemail-reset');
+  if(linkEmailResetBtn) linkEmailResetBtn.addEventListener('click', () => {
+    if(!confirm('Obnovit výchozí text e-mailu s odkazem? Projeví se to až po uložení tlačítkem „Uložit nastavení".')) return;
+    state.settingsDraft.linkEmailTemplate = {...DEFAULT_LINK_EMAIL_TEMPLATE};
+    render();
+  });
+
   app.querySelectorAll('[data-department-input]').forEach(el => {
     el.addEventListener('change', () => { state.settingsDraft.departments[el.getAttribute('data-department-input')] = el.value; });
   });
@@ -3036,8 +3071,10 @@ function attachHandlers(){
     const existingEmail = r.personal.email_stavajici;
     if(!existingEmail) return;
     const url = location.href.split('#')[0] + '#z/' + state.currentId;
-    const subject = `Vyplnění údajů pro nástup — ${r.personal.jmeno} ${r.personal.prijmeni}`;
-    const body = `Dobrý den,\n\npro vyplnění údajů k Vašemu nástupu prosím použijte následující odkaz:\n${url}\n\nS pozdravem`;
+    const tpl = state.settings.linkEmailTemplate || DEFAULT_LINK_EMAIL_TEMPLATE;
+    const fill = (s) => (s||'').replaceAll('{jmeno}', r.personal.jmeno||'').replaceAll('{prijmeni}', r.personal.prijmeni||'').replaceAll('{odkaz}', url);
+    const subject = fill(tpl.subject || DEFAULT_LINK_EMAIL_TEMPLATE.subject);
+    const body = fill(tpl.body || DEFAULT_LINK_EMAIL_TEMPLATE.body);
     window.location.href = `mailto:${encodeURIComponent(existingEmail)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
     if(!state.currentRecord.linkGeneratedAt){
       state.currentRecord.linkGeneratedAt = new Date().toISOString();

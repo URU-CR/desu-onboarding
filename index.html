@@ -4,6 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Onboarding — DESÚ</title>
+<link rel="icon" href="favicon.ico?v=1" sizes="any">
+<link rel="icon" type="image/png" sizes="64x64" href="favicon.png?v=1">
+<link rel="icon" type="image/svg+xml" href="favicon.svg?v=1">
+<link rel="apple-touch-icon" href="apple-touch-icon.png?v=1">
+<link rel="mask-icon" href="safari-pinned-tab.svg?v=1" color="#C8900F">
+<meta name="theme-color" content="#C8900F">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@100;300;400;500;700&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
@@ -35,6 +41,9 @@
 }
 *{box-sizing:border-box;}
 body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--font-body);font-size:1rem;}
+input::placeholder,textarea::placeholder{color:var(--line-strong);opacity:1;}
+input::-webkit-input-placeholder,textarea::-webkit-input-placeholder{color:var(--line-strong);opacity:1;}
+input:-ms-input-placeholder,textarea:-ms-input-placeholder{color:var(--line-strong);}
 #app{max-width:1080px;margin:0 auto;padding:32px 24px 80px;}
 .masthead{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:3px solid var(--blue);padding-bottom:14px;margin-bottom:20px;flex-wrap:wrap;gap:14px;}
 .print-doc{font-size:13.5px;line-height:1.55;}
