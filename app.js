@@ -1,4 +1,4 @@
-const APP_VERSION = '2026-10-12.5';
+const APP_VERSION = '2026-10-12.6';
 const STORAGE_INDEX_KEY = 'onboarding:index';
 const STORAGE_INFO_KEY = 'onboarding:info-content';
 const STORAGE_SETTINGS_KEY = 'onboarding:settings';
@@ -1985,7 +1985,7 @@ function renderSettingsPage(){
 
     <div class="panel" style="margin-top:28px;">
       <h4 style="font-family:var(--font-display);font-size:1.125rem;margin:0 0 8px;">Záloha dat</h4>
-      <p style="font-size:13px;color:var(--ink-soft);margin:0 0 12px;">Stáhne kompletní zálohu — rejstřík, všechny spisy, nastavení i obsah pro zaměstnance — jako jeden soubor. Obnova ze zálohy přepíše úplně vše aktuální tím, co je v souboru. Doporučujeme stáhnout zálohu před hromadným importem nebo jinou rizikovou akcí.</p>
+      <p style="font-size:13px;color:var(--ink-soft);margin:0 0 12px;"><strong>Pozor: záloha obsahuje osobní údaje (rodná čísla, čísla účtů). Uložte ji jen na zabezpečené místo a po použití ji smažte.</strong> Stáhne kompletní zálohu — rejstřík, všechny spisy, nastavení i obsah pro zaměstnance — jako jeden soubor. Obnova ze zálohy přepíše úplně vše aktuální tím, co je v souboru. Doporučujeme stáhnout zálohu před hromadným importem nebo jinou rizikovou akcí.</p>
       <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
         <button class="btn btn-ghost" id="btn-backup-download">Stáhnout zálohu (json)</button>
         <button class="btn btn-ghost" id="btn-backup-restore">Obnovit ze zálohy (json)</button>
@@ -2186,7 +2186,8 @@ function renderHrStatusPanel(r){
   const status = r.personalStatus || 'draft';
   const statusLabel = status === 'draft' ? draftStageInfo(missingHrRequiredFields(r).length, r.linkGeneratedAt).label : STATUS_LABEL[status];
   const flagCount = Object.keys(r.fieldFlags||{}).length;
-  let html = `<div class="review-row ${status==='reviewed'?'done':''}">
+  let html = r.personalPurgedAt ? `<div class="readonly-note">Osobní údaje zaměstnance byly z bezpečnostních důvodů smazány (${esc(formatDate(String(r.personalPurgedAt).slice(0,10)))}) — po uplynutí lhůty od vygenerování tabulek pro VEMU. Zůstalo jméno, pozice a stavy.</div>` : '';
+  html += `<div class="review-row ${status==='reviewed'?'done':''}">
     <span>Stav: <strong>${esc(statusLabel)}</strong></span>
   </div>`;
   html += `<div class="review-row" style="margin-top:-6px;">
@@ -3120,11 +3121,12 @@ function attachHandlers(){
 
   const copyBtn = document.getElementById('btn-copy-link');
   if(copyBtn) copyBtn.addEventListener('click', async () => {
-    const url = location.href.split('#')[0] + '#z/' + state.currentId;
+    const tokenChanged = ensureAccessToken(state.currentRecord);
+    const url = employeeLinkUrl(state.currentRecord, state.currentId);
     try{ await navigator.clipboard.writeText(url); }catch(e){}
     state.linkCopied = true;
-    if(!state.currentRecord.linkGeneratedAt){
-      state.currentRecord.linkGeneratedAt = new Date().toISOString();
+    if(!state.currentRecord.linkGeneratedAt || tokenChanged){
+      if(!state.currentRecord.linkGeneratedAt) state.currentRecord.linkGeneratedAt = new Date().toISOString();
       persistCurrentRecord();
     }
     render();
@@ -3136,14 +3138,15 @@ function attachHandlers(){
     const r = state.currentRecord;
     const existingEmail = r.personal.email_stavajici;
     if(!existingEmail) return;
-    const url = location.href.split('#')[0] + '#z/' + state.currentId;
+    const tokenChanged = ensureAccessToken(r);
+    const url = employeeLinkUrl(r, state.currentId);
     const tpl = state.settings.linkEmailTemplate || DEFAULT_LINK_EMAIL_TEMPLATE;
     const fill = (s) => (s||'').replaceAll('{jmeno}', r.personal.jmeno||'').replaceAll('{prijmeni}', r.personal.prijmeni||'').replaceAll('{odkaz}', url);
     const subject = fill(tpl.subject || DEFAULT_LINK_EMAIL_TEMPLATE.subject);
     const body = fill(tpl.body || DEFAULT_LINK_EMAIL_TEMPLATE.body);
     window.location.href = `mailto:${encodeURIComponent(existingEmail)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-    if(!state.currentRecord.linkGeneratedAt){
-      state.currentRecord.linkGeneratedAt = new Date().toISOString();
+    if(!state.currentRecord.linkGeneratedAt || tokenChanged){
+      if(!state.currentRecord.linkGeneratedAt) state.currentRecord.linkGeneratedAt = new Date().toISOString();
       persistCurrentRecord();
       render();
     }
@@ -3175,10 +3178,14 @@ function attachHandlers(){
   const returnBtn = document.getElementById('btn-return');
   if(returnBtn) returnBtn.addEventListener('click', openReturnModal);
   const emailReturnBtn = document.getElementById('btn-email-return');
-  if(emailReturnBtn) emailReturnBtn.addEventListener('click', () => sendReturnEmail(state.currentRecord, state.currentId));
+  if(emailReturnBtn) emailReturnBtn.addEventListener('click', () => {
+    if(ensureAccessToken(state.currentRecord)) persistCurrentRecord();
+    sendReturnEmail(state.currentRecord, state.currentId);
+  });
   const copyMsgBtn = document.getElementById('btn-copy-return-message');
   if(copyMsgBtn) copyMsgBtn.addEventListener('click', async () => {
     const r = state.currentRecord;
+    if(ensureAccessToken(r)) persistCurrentRecord();
     const msg = returnMessageText(r, state.currentId).body;
     try{ await navigator.clipboard.writeText(msg); }catch(e){}
     state.returnMsgCopied = true;
@@ -3759,10 +3766,28 @@ function flagLabelFor(key){
 }
 
 
+// ---- Zabezpečení odkazu pro zaměstnance (viz security.sql) ----
+const LINK_VALID_DAYS = 30;
+function randomToken(){
+  const b = new Uint8Array(24); crypto.getRandomValues(b);
+  return btoa(String.fromCharCode(...b)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+}
+// Zajistí tajný token a platnost odkazu; vrací true, pokud se spis změnil (a je třeba ho uložit).
+function ensureAccessToken(r, refreshExpiry){
+  let changed = false;
+  if(!r.accessToken){ r.accessToken = randomToken(); changed = true; }
+  const exp = r.linkExpiresAt ? new Date(r.linkExpiresAt) : null;
+  if(!exp || exp < new Date() || refreshExpiry){
+    r.linkExpiresAt = new Date(Date.now() + LINK_VALID_DAYS*86400000).toISOString(); changed = true;
+  }
+  return changed;
+}
+function employeeLinkUrl(r, id){ return location.href.split('#')[0] + '#z/' + id + '/' + (r.accessToken || ''); }
+
 // Text zprávy zaměstnanci při vrácení k doplnění (kopírování i e-mail)
 function returnMessageText(r, id, tplOverride){
   const flagged = Object.entries(r.fieldFlags || {}).filter(([,v]) => v !== undefined);
-  const url = location.href.split('#')[0] + '#z/' + id;
+  const url = employeeLinkUrl(r, id);
   const tpl = tplOverride || (state.settings && state.settings.returnEmailTemplate) || DEFAULT_RETURN_EMAIL_TEMPLATE;
   const vzkaz = r.returnNote ? `\n${r.returnNote}\n` : '';
   let pole = '';
@@ -3806,6 +3831,7 @@ function openReturnModal(){
   const doReturn = (mail) => {
     state.currentRecord.returnNote = document.getElementById('rm-note').value.trim();
     state.currentRecord.personalStatus = 'returned';
+    ensureAccessToken(state.currentRecord, true);
     persistCurrentRecord();
     backdrop.remove();
     render();
@@ -4902,12 +4928,55 @@ async function openDetail(id){
     openLeaveConfirmModal();
   });
   state.standaloneMode = false;
+  if(isEmployeeLink){
+    // Zaměstnanec nemá přihlášení: přes funkci emp_open dostane jen SVŮJ spis (+ nastavení a informační obsah).
+    // Zbytek aplikace pak běží beze změny nad touto „fasádou“ úložiště.
+    const [empId, empToken] = hash.slice(3).split('/');
+    let opened = null;
+    try{
+      const { data, error } = await sb.rpc('emp_open', { p_id: empId || '', p_token: empToken || '' });
+      if(error) throw error;
+      opened = data;
+    }catch(e){ console.error('emp_open failed:', e); }
+    const failScreen = (title, text) => {
+      state.loading = false;
+      document.getElementById('app').innerHTML = `<div style="max-width:480px;margin:80px auto;text-align:center;font-family:var(--font-body);">
+        <h2 style="font-family:var(--font-display);">${title}</h2>
+        <p style="color:var(--ink-faint);font-size:13px;">${text}</p>
+      </div>`;
+    };
+    if(!opened) return failScreen('Odkaz nebyl nalezen', 'Zkontrolujte prosím, že jste odkaz zkopíroval/a celý. Pokud problém trvá, kontaktujte personální oddělení.');
+    if(opened.expired) return failScreen('Platnost odkazu vypršela', 'Z bezpečnostních důvodů odkaz platí omezenou dobu. Požádejte prosím personální oddělení o nový.');
+    const cache = {};
+    cache[recordKey(empId)] = JSON.stringify(opened.record);
+    if(opened.settings) cache[STORAGE_SETTINGS_KEY] = opened.settings;
+    if(opened.info) cache[STORAGE_INFO_KEY] = opened.info;
+    window.storage = {
+      async get(key){
+        if(key in cache) return { key, value: cache[key], shared: true };
+        throw new Error('not found: ' + key);
+      },
+      async set(key, value){
+        if(key !== recordKey(empId)) return { key, value, shared: true };   // zaměstnanec smí uložit jen svůj spis
+        const rec = JSON.parse(value);
+        const patch = { personal: rec.personal, personalStatus: rec.personalStatus, consentGiven: !!rec.consentGiven, consentAt: rec.consentAt || null, firstDayDismissed: !!rec.firstDayDismissed };
+        const { data, error } = await sb.rpc('emp_save', { p_id: empId, p_token: empToken, p_patch: patch });
+        if(error) throw error;
+        if(!data) throw new Error('Uložení bylo zamítnuto (odkaz vypršel nebo je spis již uzamčen).');
+        cache[key] = value;
+        return { key, value, shared: true };
+      },
+      async delete(){ throw new Error('not allowed'); },
+      async listAll(){ throw new Error('not allowed'); },
+      async replaceAll(){ throw new Error('not allowed'); },
+    };
+  }
   await loadSettings();
   await loadIndex();
   await loadInfoContent();
   state.loading = false;
   if(isEmployeeLink){
-    const id = hash.slice(3);
+    const id = hash.slice(3).split('/')[0];
     state.employeeMode = true;
     state.role = 'employee';
     try{
@@ -4933,7 +5002,7 @@ async function openDetail(id){
 const HELP_EMP = [
  {g:'Na úvod',items:[
   ['👋','K čemu dotazník slouží','Údaje, které zde vyplníte, potřebuje personální oddělení k vaší smlouvě, mzdám a přihlášení k pojištění. Nic jiného se s nimi nedělá.'],
-  ['💾','Nemusíte to stihnout najednou','Vyplněné se ukládá samo. Dotazník můžete kdykoli zavřít a později se k němu vrátit <b>stejným odkazem</b> – nic se neztratí. Odkaz nikomu nepřeposílejte, je osobní.'],
+  ['💾','Nemusíte to stihnout najednou','Vyplněné se ukládá samo. Dotazník můžete kdykoli zavřít a později se k němu vrátit <b>stejným odkazem</b> – nic se neztratí. Odkaz nikomu nepřeposílejte, je osobní a platí omezenou dobu (zhruba měsíc). Po vypršení vám personální oddělení pošle nový.'],
   ['⭐','Co je povinné','Povinné údaje jsou označeny <b style="color:#C62828">červenou hvězdičkou *</b>. Bez nich dotazník nepůjde odeslat. Ostatní údaje jsou doplňkové – vyplňte je, pokud se vás týkají.'],
   ['➡️','Jak se pohybovat','Dotazník je rozdělen do kroků. Tlačítky <b>Pokračovat</b> a <b>Zpět</b> se posouváte mezi kroky, nahoře můžete kliknutím přeskočit na libovolný krok. Červeně podtržený krok znamená, že tam něco povinného chybí.']]},
  {g:'Jednotlivé kroky',items:[
@@ -4975,7 +5044,7 @@ const HELP = [
   ['🪪','Rodné číslo','Aplikace kontroluje rodné číslo a z něj dopočítá datum narození; nesrovnalosti zobrazí jako upozornění u pole.'],
   ['✉️','Stávající e-mail','Navrhuje se podle pravidel z Nastavení (zdrojový úřad, jméno, příjmení). Je potřeba pro odeslání odkazu e-mailem.']]},
  {g:'Odkaz pro zaměstnance',items:[
-  ['🔗','Vygenerovat a zkopírovat odkaz','Tlačítko je aktivní, až když jsou doplněny povinné údaje personálního oddělení. Odkaz otevírá osobní prostor zaměstnance (první záložka <b>Vaše údaje</b>, druhá <b>Co potřebujete vědět</b>).'],
+  ['🔗','Vygenerovat a zkopírovat odkaz','Tlačítko je aktivní, až když jsou doplněny povinné údaje personálního oddělení. Odkaz je <b>osobní a tajný</b> (obsahuje dlouhý náhodný kód) a platí <b>30 dní</b>; vrácením k doplnění se platnost prodlouží. Po vypršení nebo ztrátě odkaz vygenerujte znovu; odkazy rozeslané před zavedením tajného kódu už nefungují. Odkaz otevírá osobní prostor zaměstnance (první záložka <b>Vaše údaje</b>, druhá <b>Co potřebujete vědět</b>).'],
   ['📧','Poslat odkaz e-mailem','Otevře e-mail s odkazem. Text si upravíte v Nastavení → <b>Text e-mailu s odkazem pro zaměstnance</b>. Vyžaduje stávající e-mail zaměstnance.'],
   ['ℹ️','Co potřebujete vědět','Informační záložka pro zaměstnance (kontakty, informace k pracovištím, obecné karty). Obsah se upravuje v Nastavení → Obsah pro zaměstnance.']]},
  {g:'Kontrola a schválení',items:[
@@ -4991,6 +5060,7 @@ const HELP = [
  {g:'Nastavení (⚙)',items:[
   ['⚙️','Přehled sekcí','Pracoviště, pozice, administrátoři systémů, nadřízení, pravidla pro stávající e-mail, <b>text e-mailu s odkazem</b>, <b>text e-mailu při vrácení k doplnění</b>, odbory/oddělení, pracovníci provozu, kód pracoviště pro Vemu, pevné hodnoty pro Vemu, kanceláře podle budovy, adresy systémů, kategorie a přiřazené systémy, <b>povinné položky personálního oddělení</b>. Sekce lze sbalit; změny se uloží tlačítkem Uložit.'],
   ['💾','Záloha a obnova','Stažení zálohy všech dat do souboru a její obnovení najdete v Nastavení. Zálohu doporučuji stáhnout před hromadným mazáním.'],
+  ['🛡️','Ochrana osobních údajů','Data vidí jen přihlášení zaměstnanci ze seznamu oprávněných (databázová tabulka <code>staff</code>). Zaměstnanec se přes svůj odkaz dostane jen ke svému spisu. Po uplynutí lhůty od <b>Generovat tabulky pro VEMU</b> (výchozí 60 dní, nastavuje se v <code>security.sql</code>) se osobní údaje ze spisu automaticky smažou — proto si tabulky a podklady uložte včas na řádné místo.'],
   ['🧹','Smazat všechny spisy','Nevratná operace v Nastavení; před ní stáhněte zálohu.']]}
 ];
 (function(){
