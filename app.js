@@ -1,3 +1,4 @@
+const APP_VERSION = '2026-10-12.1';
 const STORAGE_INDEX_KEY = 'onboarding:index';
 const STORAGE_INFO_KEY = 'onboarding:info-content';
 const STORAGE_SETTINGS_KEY = 'onboarding:settings';
@@ -1120,7 +1121,7 @@ function render(){
         <h1>Onboarding</h1>
         <p>${esc(currentOrgName())} — evidence nových zaměstnanců${!isAfterOrgTransition() ? ' <span style="color:var(--ink-faint);">(od 1.&nbsp;1.&nbsp;2027 Úřad rozvoje území ČR)</span>' : ''}</p>
       </div>
-      <div class="masthead-right">${esc(currentOrgAbbrev())} · interní evidence
+      <div class="masthead-right">${esc(currentOrgAbbrev())} · interní evidence${state.employeeMode ? '' : ' · <a href="#" id="btn-help" class="help-link" title="Nápověda (klávesa ?)">? Nápověda</a>'}
         ${state.userEmail ? `<div style="margin-top:4px;text-transform:none;letter-spacing:normal;">${esc(state.userEmail)} · <a href="#" id="btn-logout" style="color:var(--blue);">Odhlásit se</a></div>` : ''}
       </div>
     </div>
@@ -4866,4 +4867,72 @@ async function openDetail(id){
   }
   render();
   }
+})();
+
+/* ====== NÁPOVĚDA (pohled personálního oddělení) ======
+   Vysouvá se zleva (odkaz „? Nápověda“ v záhlaví nebo klávesa ?). Obsah je ručně udržovaný v poli HELP.
+   KAŽDOU NOVOU FUNKCI NEBO ZMĚNU CHOVÁNÍ DOPLNIT SEM (a zvýšit APP_VERSION + ?v= v index.html). */
+const HELP = [
+ {g:'Jak to celé funguje',items:[
+  ['🧭','Postup od nástupu po VEMU','1) Založíte spis (ručně, z organigramu nebo z Excelu). 2) Doplníte údaje personálního oddělení. 3) Vygenerujete odkaz a pošlete ho zaměstnanci. 4) Zaměstnanec vyplní a odešle. 5) Údaje zkontrolujete a <b>schválíte</b> (nebo vrátíte k doplnění). 6) Vygenerujete tabulky pro VEMU a případně tištěné podklady. IT a provoz si mezitím plní své záložky.'],
+  ['🔐','Přihlášení a pohled','Přihlášení je e-mailem. Přepínač <b>Zobrazit jako</b> přepíná mezi pohledem <b>Personální oddělení</b> a <b>IT a provoz</b>. Nastavení (⚙) je jen v pohledu personálního oddělení.'],
+  ['❓','Nápověda','Otevře se odkazem <b>? Nápověda</b> v záhlaví nebo klávesou <kbd>?</kbd>, zavře <kbd>Esc</kbd>. Políčko nahoře filtruje témata.']]},
+ {g:'Rejstřík (seznam spisů)',items:[
+  ['➕','Nový nástup','Ručně založí spis. Pozice a pracoviště se nabízejí z Nastavení; u ručně zadané pozice zůstává vedoucí pozice a platová třída nevyplněná.'],
+  ['🏛️','Stáhnout nové z organigramu','Načte obsazené osoby publikované z aplikace Organigram. Už dříve převzaté osoby se nenabízejí znovu. Přenáší se jméno, pozice, odbor, vedoucí pozice, platová třída a stupeň řízení. Pokud hlásí, že nejsou žádné osoby, zkuste v Organigramu <b>Publikovat seznam osob</b>.'],
+  ['📄','Vytěžit podklady','Hromadný import z Excelu/JSON. Sloupce se namapují na údaje (zkontrolujte odhad) a lze nastavit <b>společné hodnoty</b> pro celou dávku – pracoviště, důvod vzniku pracovního poměru, typ poměru apod. Hodnota ze sloupce má vždy přednost.'],
+  ['🔎','Hledání, filtry a řazení','Vyhledávání funguje na jméno, pozici, pracoviště, zdrojový úřad, administrátora i referenci. Filtry jsou pod záhlavím sloupců, řadit lze kliknutím na název sloupce.'],
+  ['🏷️','Stavy spisu','<b>K doplnění personálním oddělením</b> (chybí povinné údaje) → <b>Připraveno – vygenerujte odkaz</b> → <b>Čeká na zaměstnance</b> → <b>Odesláno zaměstnancem</b> → <b>Zkontrolováno</b>; případně <b>Vráceno k doplnění</b>.'],
+  ['✎','Rychlé doplnění','Tužka v řádku otevře okno pro rychlé doplnění základních údajů bez otevírání celého spisu.'],
+  ['🗑️','Smazání spisu','Tlačítko Smazat v řádku (po potvrzení) odstraní jeden spis. Hromadné smazání všech spisů je v Nastavení.']]},
+ {g:'Spis – údaje personálního oddělení',items:[
+  ['📝','Osobní údaje','Formulář je rozdělen do sekcí. Povinné údaje jsou označeny <b style="color:#C62828">*</b>; chybějící jsou po pokusu o schválení zvýrazněny červeně a nad formulářem je výpis sekcí, kde ještě něco chybí.'],
+  ['👔','Pracovní poměr','Typ poměru je předvyplněn jako <b>HPP</b> (lze změnit). <b>Zkušební doba:</b> u služebního poměru 6 nebo 8 měsíců – správná hodnota se předvyplní podle toho, zda je pozice vedoucí; u pracovního poměru se počet měsíců vybírá po jednom. Vedoucí pozice a platová třída se berou z Organigramu.'],
+  ['🪪','Rodné číslo','Aplikace kontroluje rodné číslo a z něj dopočítá datum narození; nesrovnalosti zobrazí jako upozornění u pole.'],
+  ['✉️','Stávající e-mail','Navrhuje se podle pravidel z Nastavení (zdrojový úřad, jméno, příjmení). Je potřeba pro odeslání odkazu e-mailem.']]},
+ {g:'Odkaz pro zaměstnance',items:[
+  ['🔗','Vygenerovat a zkopírovat odkaz','Tlačítko je aktivní, až když jsou doplněny povinné údaje personálního oddělení. Odkaz otevírá osobní prostor zaměstnance (první záložka <b>Vaše údaje</b>, druhá <b>Co potřebujete vědět</b>).'],
+  ['📧','Poslat odkaz e-mailem','Otevře e-mail s odkazem. Text si upravíte v Nastavení → <b>Text e-mailu s odkazem pro zaměstnance</b>. Vyžaduje stávající e-mail zaměstnance.'],
+  ['ℹ️','Co potřebujete vědět','Informační záložka pro zaměstnance (kontakty, informace k pracovištím, obecné karty). Obsah se upravuje v Nastavení → Obsah pro zaměstnance.']]},
+ {g:'Kontrola a schválení',items:[
+  ['⚑','Vlajky u polí','Nejasné nebo chybějící položky označte vlajkou ⚑ u pole či sekce. Zaměstnanec je uvidí zvýrazněné i s vaší poznámkou.'],
+  ['↩️','Vrátit k doplnění','Vrátí spis zaměstnanci s volitelným vzkazem. Tlačítko <b>Zkopírovat zprávu pro zaměstnance</b> připraví text k odeslání vlastním kanálem.'],
+  ['✅','Schválit údaje','Dostupné ve stavu Odesláno / Vráceno, pokud jsou vyplněna všechna povinná pole. Po schválení má spis stav Zkontrolováno.'],
+  ['🙋','Co dělá zaměstnanec','Vyplní průvodce, potvrdí souhlas se zpracováním osobních údajů a odešle. Po odeslání je formulář zamčen; zaměstnanec ho může sám stáhnout zpět a opravit, pokud ho ještě nezkontrolujete.']]},
+ {g:'Výstupy',items:[
+  ['📊','Generovat tabulky pro VEMU','V rejstříku zaškrtněte zkontrolované spisy (výběr lze udělat hromadně v záhlaví) a použijte <b>Generovat tabulky pro VEMU</b>. Stav „Vygenerováno“ se u spisu zapamatuje. Pevné hodnoty a kódy pracovišť se nastavují v Nastavení.'],
+  ['🖨️','Tištěné podklady','Ve spisu <b>Tisk podkladů</b>: A – Osobní dotazník, B – Prohlášení o předchozích zaměstnáních, C – Souhlas se zasíláním platu na účet. Předvyplněno z formuláře; lze tisknout/uložit jako PDF nebo odeslat e-mailem (potřebuje přidělený e-mail zaměstnance).']]},
+ {g:'IT a provoz (stručně)',items:[
+  ['💻','Přiřazení administrátora','V pohledu IT a provoz lze spisy hromadně přiřadit administrátorovi systémů. Záložky <b>IT a přístupy</b> a <b>Provoz</b> obsahují checklisty podle kategorie zaměstnance.']]},
+ {g:'Nastavení (⚙)',items:[
+  ['⚙️','Přehled sekcí','Pracoviště, pozice, administrátoři systémů, nadřízení, pravidla pro stávající e-mail, <b>text e-mailu s odkazem</b>, odbory/oddělení, pracovníci provozu, kód pracoviště pro Vemu, pevné hodnoty pro Vemu, kanceláře podle budovy, adresy systémů, kategorie a přiřazené systémy, <b>povinné položky personálního oddělení</b>. Sekce lze sbalit; změny se uloží tlačítkem Uložit.'],
+  ['💾','Záloha a obnova','Stažení zálohy všech dat do souboru a její obnovení najdete v Nastavení. Zálohu doporučuji stáhnout před hromadným mazáním.'],
+  ['🧹','Smazat všechny spisy','Nevratná operace v Nastavení; před ní stáhněte zálohu.']]}
+];
+(function(){
+  const q = s => document.querySelector(s);
+  const hd = document.createElement('div'); hd.id = 'help'; document.body.appendChild(hd);
+  function openHelp(){ hd.classList.toggle('open'); if(hd.classList.contains('open')){ renderHelp(''); setTimeout(()=>{ const i=q('#hq'); if(i) i.focus(); },0); } }
+  function renderHelp(qs){
+    qs = (qs||'').trim().toLowerCase();
+    const strip = t => t.replace(/<[^>]+>/g,' ').toLowerCase();
+    let h = `<div class="hh"><b>Nápověda – personální oddělení</b><span class="hint">verze ${APP_VERSION}</span><span class="sp"></span><button data-hx title="Zavřít">✕</button></div><div class="hs"><input id="hq" placeholder="Hledat… (název funkce, slovo)" value="${esc(qs)}" autocomplete="off"></div><div class="hb">`;
+    for(const g of HELP){
+      const items = g.items.filter(([i,t,d]) => !qs || (t+' '+strip(d)).toLowerCase().includes(qs));
+      if(!items.length) continue;
+      h += `<details ${qs?'open':''}><summary>${esc(g.g)} <span class="hint">${items.length}</span></summary>${items.map(([i,t,d])=>`<div class="hi"><span class="ic">${i}</span><div><b>${esc(t)}</b><p>${d}</p></div></div>`).join('')}</details>`;
+    }
+    h += `</div>`;
+    hd.innerHTML = h;
+    const inp = q('#hq');
+    inp.addEventListener('input', () => { const v=inp.value, pos=inp.selectionStart; renderHelp(v); const i2=q('#hq'); i2.focus(); i2.setSelectionRange(pos,pos); });
+  }
+  hd.addEventListener('click', e => { if(e.target.closest('[data-hx]')) hd.classList.remove('open'); });
+  document.addEventListener('click', e => { if(e.target.closest('#btn-help')){ e.preventDefault(); openHelp(); } });
+  document.addEventListener('keydown', e => {
+    if(state.employeeMode) return;
+    const typing = /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
+    if(e.key === '?' && !typing && !q('.modal-backdrop')){ e.preventDefault(); openHelp(); }
+    if(e.key === 'Escape' && hd.classList.contains('open') && !q('.modal-backdrop')) hd.classList.remove('open');
+  });
 })();
