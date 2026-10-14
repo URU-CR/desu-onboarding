@@ -1,4 +1,4 @@
-const APP_VERSION = '2026-10-14.20';
+const APP_VERSION = '2026-10-15.1';
 const STORAGE_INDEX_KEY = 'onboarding:index';
 const STORAGE_INFO_KEY = 'onboarding:info-content';
 const STORAGE_SETTINGS_KEY = 'onboarding:settings';
@@ -1380,7 +1380,8 @@ function renderList(){
   const rows = getFilteredSortedRows();
   const reviewedRows = rows.filter(r => (r.personalStatus||'draft') === 'reviewed');
   const selectedCount = reviewedRows.filter(r => state.selectedExport[r.id]).length;
-  const purgeableCount = reviewedRows.filter(r => state.selectedExport[r.id] && r.vemaExportedAt && !r.personalPurgedAt).length;
+  const purgeableCount = reviewedRows.filter(r => state.selectedExport[r.id] && r.vemaUploadedAt && !r.personalPurgedAt).length;
+  const uploadableCount = reviewedRows.filter(r => state.selectedExport[r.id] && r.vemaExportedAt && !r.vemaUploadedAt && !r.personalPurgedAt).length;
   const allReviewedSelected = reviewedRows.length > 0 && reviewedRows.every(r => state.selectedExport[r.id]);
   const assignSelectedCount = rows.filter(r => state.selectedAssign[r.id]).length;
   const allAssignSelected = rows.length > 0 && rows.every(r => state.selectedAssign[r.id]);
@@ -1415,7 +1416,8 @@ function renderList(){
       <div class="export-bar">
         <span style="font-size:13px;color:var(--ink-soft);">${selectedCount ? `Vybráno ${selectedCount} ke exportu` : 'Export do VEMY — vyberte zkontrolované spisy'}</span>
         <button class="btn btn-primary btn-sm" id="btn-generate-vema" ${selectedCount===0 || state.exporting ? 'disabled':''}>${state.exporting ? 'Generuji…' : `Generovat tabulky pro VEMU${selectedCount?' ('+selectedCount+')':''}`}</button>
-        <button class="btn btn-ghost btn-sm" id="btn-purge-selected" ${purgeableCount===0 ? 'disabled':''} title="Smaže osobní údaje zaměstnanců u vybraných spisů, u kterých už byly vygenerovány tabulky pro VEMU. Použijte až po ověření, že se vše ve Vemě nahrálo.">Smazat osobní údaje${purgeableCount?' ('+purgeableCount+')':''}</button>
+        <button class="btn btn-ghost btn-sm" id="btn-confirm-upload" ${uploadableCount===0 ? 'disabled':''} title="Potvrdí, že tabulky byly nahrány do Vemy a ve Vemě zkontrolovány. Spis pak získá stav Nahráno a půjde u něj generovat dokumenty. Dostupné u spisů se stavem Vygenerováno.">Potvrdit nahrání do Vemy${uploadableCount?' ('+uploadableCount+')':''}</button>
+        <button class="btn btn-ghost btn-sm" id="btn-purge-selected" ${purgeableCount===0 ? 'disabled':''} title="Smaže osobní údaje zaměstnanců u vybraných spisů se stavem Nahráno. Smažte až po vygenerování dokumentů – z nich pak už nejdou znovu vytvořit.">Smazat osobní údaje${purgeableCount?' ('+purgeableCount+')':''}</button>
       </div>
       ` : ''}
       ${isAdmin ? `
@@ -1480,7 +1482,7 @@ function renderList(){
               ${state.role==='hr'?`<td>${personalChip(r)}</td>`:''}
               <td>${chip(r.itDone === r.itTotal && r.itTotal>0, `${r.itDone||0}/${r.itTotal||0}`)}</td>
               ${state.role==='admin'?`<td>${urgencyChip(r)}</td><td>${adminList().length ? `<select data-list-assign="${r.id}"><option value="">— nepřiřazeno —</option>${adminList().map(a => `<option value="${esc(a)}" ${r.assignedAdmin===a?'selected':''}>${esc(a)}</option>`).join('')}</select>` : (r.assignedAdmin ? esc(r.assignedAdmin) : '<span style="color:var(--ink-faint);">—</span>')}</td>`:''}
-              ${canCreate?`<td>${r.personalPurgedAt ? `<span class="chip chip-done" title="Osobní údaje byly smazány">Údaje smazány</span>` : r.vemaExportedAt ? `<span class="chip chip-done" title="${esc(new Date(r.vemaExportedAt).toLocaleString('cs-CZ'))}">Vygenerováno</span>` : `<span class="chip chip-progress-bg">Negenerováno</span>`}</td>
+              ${canCreate?`<td>${vemaCellHtml(r)}</td>
               <td style="text-align:right;"><button class="btn-delete-tiny" data-delete="${r.id}" title="Smazat spis">Smazat</button></td>`:''}
             </tr>
           `;
@@ -2336,7 +2338,7 @@ async function downloadAttachment(id){
   try{
     const url = URL.createObjectURL(await fetchAttachmentBlob(id));
     const a = document.createElement('a');
-    a.href = url; a.download = item ? attachDisplayName(state.currentRecord, item) : 'doklad';
+    a.href = url; a.download = asciiName(item ? attachDisplayName(state.currentRecord, item) : 'doklad');
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 60000);
   }catch(e){ console.error('download attachment failed', e); state.error = 'Soubor se nepodařilo stáhnout.'; render(); }
@@ -3025,6 +3027,7 @@ function renderPersonalForm(r){
     const isReviewed = (r.personalStatus || 'draft') === 'reviewed';
     out += `<div style="margin-bottom:16px;">
       <button class="btn btn-ghost btn-sm" id="btn-generate-print-docs" ${isReviewed ? '' : 'disabled title="Nejdřív schvalte údaje (tlačítko Schválit údaje výše)"'}>Vygenerovat podklady k podpisu (A, B, C) →</button>
+      <button class="btn btn-ghost btn-sm" id="btn-open-docs-detail" ${r.vemaUploadedAt && !r.personalPurgedAt ? '' : 'disabled title="Dostupné po potvrzení nahrání do Vemy (stav Nahráno)."'}>📄 Dokumenty podle vzorů (Word, PDF) →</button>
       ${!isReviewed ? '<p style="font-size:12px;color:var(--ink-faint);margin:4px 0 0;">Dostupné až po schválení údajů.</p>' : ''}
     </div>`;
     out += `<div class="owner-legend">
@@ -3498,9 +3501,15 @@ function attachHandlers(){
     render();
   });
 
+  const confirmUploadBtn = document.getElementById('btn-confirm-upload');
+  if(confirmUploadBtn) confirmUploadBtn.addEventListener('click', () => {
+    const ids = state.index.filter(r => state.selectedExport[r.id] && r.vemaExportedAt && !r.vemaUploadedAt && !r.personalPurgedAt).map(r => r.id);
+    if(ids.length) openConfirmUploadModal(ids);
+  });
+  app.querySelectorAll('[data-open-docs]').forEach(el => el.addEventListener('click', (ev) => { ev.stopPropagation(); openDocsModal(el.getAttribute('data-open-docs')); }));
   const purgeSelBtn = document.getElementById('btn-purge-selected');
   if(purgeSelBtn) purgeSelBtn.addEventListener('click', () => {
-    const ids = state.index.filter(r => state.selectedExport[r.id] && r.vemaExportedAt && !r.personalPurgedAt).map(r => r.id);
+    const ids = state.index.filter(r => state.selectedExport[r.id] && r.vemaUploadedAt && !r.personalPurgedAt).map(r => r.id);
     if(ids.length) openPurgeModal(ids);
   });
 
@@ -3652,6 +3661,8 @@ function attachHandlers(){
   const backBtn = document.getElementById('btn-back');
   if(backBtn) backBtn.addEventListener('click', () => { state.view='list'; state.error=null; render(); });
 
+  const openDocsDetailBtn = document.getElementById('btn-open-docs-detail');
+  if(openDocsDetailBtn) openDocsDetailBtn.addEventListener('click', () => openDocsModal(state.currentId));
   const genPrintDocsBtn = document.getElementById('btn-generate-print-docs');
   if(genPrintDocsBtn) genPrintDocsBtn.addEventListener('click', () => { state.view='print-docs'; render(); });
   const backPrintDocsBtn = document.getElementById('btn-back-print-docs');
@@ -5101,11 +5112,268 @@ async function generateVemaExport(ids){
   const nowIso = now.toISOString();
   for(const {id, record} of records){
     record.vemaExportedAt = nowIso;
+    record.vemaUploadedAt = null;   // nové tabulky je třeba znovu nahrát a potvrdit
     await saveRecord(id, record);
     const idxEntry = state.index.find(e => e.id === id);
-    if(idxEntry) idxEntry.vemaExportedAt = nowIso;
+    if(idxEntry){ idxEntry.vemaExportedAt = nowIso; idxEntry.vemaUploadedAt = null; }
   }
   await saveIndex();
+}
+
+// ---------------- Dokumenty podle vzorů (Word + PDF) ----------------
+// Vzory jsou ve složce templates/ jako .docx se zástupnými poli {{pole}} (viz tools/build_templates.py).
+// when: both = všichni, pracovni / sluzebni = podle typu poměru, optional = dle potřeby (nezaškrtnuté předem).
+const DOC_TEMPLATES = [
+  { id:'vymer',    base:'01_Platový_výměr',                       title:'Platový výměr',                                             file:'templates/01_platovy_vymer.docx',                      when:'pracovni' },
+  { id:'smlouva',  base:'02_Pracovní_smlouva',                    title:'Pracovní smlouva',                                          file:'templates/02_pracovni_smlouva.docx',                   when:'pracovni' },
+  { id:'hodnoceni',base:'03_Kritéria_hodnocení',                  title:'Prohlášení o seznámení s kritérii hodnocení',               file:'templates/03_hodnotici_kriteria.docx',                 when:'both' },
+  { id:'foto',     base:'04_Portrétní_fotografie',                title:'Informace – pořízení portrétní fotografie',                 file:'templates/04_portretni_fotografie.docx',               when:'both' },
+  { id:'bozp',     base:'05_Poučení_BOZP_PO',                     title:'Vstupní školení BOZP a požární ochrany',                    file:'templates/05_pouceni_BOZP_PO.docx',                    when:'both' },
+  { id:'info',     base:'07_Informace_o_pracovním_poměru',        title:'Informace o pracovním poměru státního zaměstnance',         file:'templates/07_informace_o_pracovnim_pomeru.docx',       when:'sluzebni' },
+  { id:'predpisy', base:'08_Prohlášení_interní_předpisy',         title:'Prohlášení o seznámení s interními předpisy (BOZP, etický kodex)', file:'templates/08_prohlaseni_interni_predpisy.docx',  when:'both' },
+  { id:'osv_oc',   base:'Osvědčení_obecná_část',                  title:'Osvědčení o rovnocennosti obecné části úřednické zkoušky',  file:'templates/osvedceni_obecna_cast.docx',                 when:'optional' },
+  { id:'osv_zc',   base:'Osvědčení_zvláštní_část',                title:'Osvědčení o rovnocennosti zvláštní části úřednické zkoušky',file:'templates/osvedceni_zvlastni_cast.docx',               when:'optional' },
+  { id:'dohoda',   base:'Dohoda_o_výkonu_služby_z_jiného_místa',  title:'Dohoda o výkonu služby z jiného místa',                     file:'templates/dohoda_o_vykonu_sluzby_z_jineho_mista.docx', when:'optional' },
+  { id:'priloha',  base:'Příloha_1_Prohlášení_BOZP',              title:'Příloha č. 1 – Prohlášení k dodržování BOZP (služba z jiného místa)', file:'templates/priloha_1_prohlaseni_BOZP.docx',   when:'optional' },
+];
+const DOC_WHEN_LABEL = { both:'všichni', pracovni:'pracovní poměr', sluzebni:'služební poměr', optional:'dle potřeby' };
+
+function csDate(iso){
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || '');
+  return m ? `${parseInt(m[3], 10)}. ${parseInt(m[2], 10)}. ${m[1]}` : (iso || '');
+}
+// pohlaví podle rodného čísla (měsíc +50 u žen), jinak podle koncovky příjmení; neznámé → null
+function personSex(p){
+  const rc = String(p.rodne_cislo || '').replace(/\D/g, '');
+  if(rc.length >= 6){ const mm = parseInt(rc.slice(2, 4), 10); if((mm >= 51 && mm <= 62) || (mm >= 71 && mm <= 82)) return 'z'; if((mm >= 1 && mm <= 12) || (mm >= 21 && mm <= 32)) return 'm'; }
+  const pr = String(p.prijmeni || '').trim().toLowerCase();
+  if(/(ová|á)$/.test(pr)) return 'z';
+  if(/(ý|ík|ek|el|ec|[bcdfghjklmnprstvz])$/.test(pr) && !/á$/.test(pr)) return pr.length ? 'm' : null;
+  return null;
+}
+function docAddress(p){
+  const street = (p.trvale_ulice || p.trvale_obec || '').trim();
+  const l1 = [street, `${p.trvale_cp || ''}${p.trvale_co ? '/' + p.trvale_co : ''}`.trim()].filter(Boolean).join(' ');
+  const l2 = [p.trvale_psc, p.trvale_obec].filter(Boolean).join(' ');
+  return [l1, l2].filter(Boolean).join(', ');
+}
+function fmtMoney(n){ return n ? String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ' ') : ''; }
+// hodnoty do zástupných polí šablon
+function docValues(r){
+  const p = r.personal || {};
+  const sex = personSex(p);
+  const titulyPred = (p.titul_pred || '').trim(), titulZa = (p.titul_za || '').trim();
+  const jmenoCele = [titulyPred, (p.jmeno || '').trim(), (p.prijmeni || '').trim()].filter(Boolean).join(' ') + (titulZa ? ', ' + titulZa : '');
+  const adr = docAddress(p);
+  const stupen = parseInt(p.platovy_stupen, 10) || 1;
+  const tarif = fmtMoney(tarifniPlat(p, stupen));
+  let hodiny = '40';
+  if(p.rozsah_uvazku === 'Zkrácený úvazek'){
+    const h = parseFloat(String(p.zkraceny_uvazek_hodiny || '').replace(',', '.')), pct = parseFloat(String(p.zkraceny_uvazek_procenta || '').replace(',', '.'));
+    const v = h > 0 ? h : (pct > 0 ? Math.round(40 * pct / 100 * 2) / 2 : 40);
+    hodiny = String(v).replace('.', ',');
+  }
+  const misto = [p.misto_narozeni, p.okres_narozeni ? 'okres ' + p.okres_narozeni : ''].filter(Boolean).join(', ');
+  const dots = '……………………';
+  return {
+    jmeno_cele: jmenoCele,
+    prijmeni_jmeno_titul: [[(p.prijmeni || '').trim(), (p.jmeno || '').trim()].filter(Boolean).join(' '), titulyPred, titulZa].filter(Boolean).join(', '),
+    osobni_cislo: p.osobni_cislo || dots,
+    pan_pani: sex === 'z' ? 'paní' : sex === 'm' ? 'pan' : 'pan/paní',
+    narozen_a: sex === 'z' ? 'Narozena' : sex === 'm' ? 'Narozen' : 'Narozen/a',
+    pozice: p.pozice || '',
+    utvar: p.odbor_oddeleni || '',
+    pracoviste: p.pracoviste || '',
+    datum_nastupu: csDate(p.datum_nastupu),
+    datum_narozeni: csDate(p.datum_narozeni),
+    datum_misto_narozeni: [csDate(p.datum_narozeni), misto].filter(Boolean).join(', '),
+    adresa_trvala: adr,
+    adresa_jine_misto: (p.dorucovaci_adresa || '').trim() || adr,
+    platova_trida: p.platova_trida || '',
+    platovy_stupen: String(stupen),
+    tarif: tarif || dots,
+    celkem: tarif || dots,
+    doba_trvani: p.doba_trvani_pomeru === 'Na dobu určitou' ? 'Určitou' : 'Neurčitou',
+    zkusebni_doba: p.zkusebni_doba || '',
+    tydenni_hodiny: hodiny,
+  };
+}
+function docFileName(r, tpl, ext){
+  const p = r.personal || {};
+  const who = [slugName(p.prijmeni), slugName(p.jmeno)].filter(Boolean).join('_') || 'zaměstnanec';
+  return asciiName(`${who}_${tpl.base}.${ext}`);
+}
+// názvy souborů ke stažení bez diakritiky (prohlížeče a ZIP nástroje si s háčky a čárkami ve jménech souborů nerozumí vždy)
+function asciiName(n){ return String(n || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9._-]+/g, '_'); }
+function downloadBlob(blob, name){
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = asciiName(name);
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
+function vemaCellHtml(r){
+  if(r.personalPurgedAt) return `<span class="chip chip-done" title="Osobní údaje byly smazány">Údaje smazány</span>`;
+  if(r.vemaUploadedAt) return `<span class="chip chip-done" title="Nahráno do Vemy: ${esc(new Date(r.vemaUploadedAt).toLocaleString('cs-CZ'))}"><i>✓</i> Nahráno</span> <button class="btn btn-ghost btn-sm" type="button" data-open-docs="${esc(r.id)}" title="Vygenerovat dokumenty podle vzorů (Word, PDF)">📄 Dokumenty</button>`;
+  if(r.vemaExportedAt) return `<span class="chip chip-blue" title="Tabulky vygenerovány: ${esc(new Date(r.vemaExportedAt).toLocaleString('cs-CZ'))}. Po nahrání do Vemy a kontrole potvrďte tlačítkem Potvrdit nahrání do Vemy.">Vygenerováno</span>`;
+  return `<span class="chip chip-progress-bg">Negenerováno</span>`;
+}
+
+function openConfirmUploadModal(ids){
+  const backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+  backdrop.innerHTML = `
+    <div class="modal">
+      <h3>Potvrdit nahrání do Vemy (${ids.length})?</h3>
+      <p style="font-size:13.5px;color:var(--ink-soft);">Potvrzujete, že tabulky pro vybrané spisy byly <strong>nahrány do Vemy a ve Vemě zkontrolovány</strong>. Spisy získají stav <strong>Nahráno</strong> a půjde u nich generovat dokumenty (Word, PDF).</p>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="cu-cancel">Zrušit</button>
+        <button class="btn btn-primary" id="cu-confirm">Ano, je nahráno</button>
+      </div>
+    </div>`;
+  document.body.appendChild(backdrop);
+  document.getElementById('cu-cancel').addEventListener('click', () => backdrop.remove());
+  backdrop.addEventListener('click', (ev) => { if(ev.target === backdrop) backdrop.remove(); });
+  document.getElementById('cu-confirm').addEventListener('click', async () => {
+    const btn = document.getElementById('cu-confirm');
+    btn.disabled = true; btn.textContent = 'Ukládám…';
+    let failed = 0;
+    const nowIso = new Date().toISOString();
+    for(const id of ids){
+      try{
+        const rec = await loadRecord(id);
+        rec.vemaUploadedAt = nowIso;
+        if(!(await saveRecord(id, rec))) throw new Error('save');
+        const entry = state.index.find(e => e.id === id);
+        if(entry) entry.vemaUploadedAt = nowIso;
+      }catch(e){ console.error('confirm upload failed', id, e); failed++; }
+    }
+    try{ await saveIndex(); }catch(e){ failed++; }
+    state.selectedExport = {};
+    backdrop.remove();
+    if(failed) state.error = `Potvrzení se nepodařilo uložit u ${failed} spisů. Zkuste to prosím znovu.`;
+    else showToast(`Označeno jako nahráno do Vemy (${ids.length}).`);
+    render();
+  });
+}
+
+async function openDocsModal(id){
+  let rec;
+  try{ rec = (state.currentRecord && state.currentId === id) ? state.currentRecord : await loadRecord(id); }
+  catch(e){ state.error = 'Spis se nepodařilo načíst.'; render(); return; }
+  if(rec.personalPurgedAt){ showToast('Osobní údaje byly smazány – dokumenty už nejde vygenerovat.', true); return; }
+  const p = rec.personal || {};
+  const regime = p.rezim_zamestnani;
+  const preset = t => t.when === 'both' || (t.when === 'pracovni' && regime === 'Pracovní poměr') || (t.when === 'sluzebni' && regime === 'Služební poměr');
+  const name = [p.jmeno, p.prijmeni].filter(Boolean).join(' ') || 'zaměstnanec';
+  const backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+  const results = {};          // id -> { docx, pdf, err }
+  const urls = [];
+  const rowsHtml = DOC_TEMPLATES.map(t => `<label class="docs-row"><input type="checkbox" data-doc="${t.id}" ${preset(t) ? 'checked' : ''}><span class="docs-row-main"><span class="docs-row-title">${esc(t.title)}</span><span class="docs-row-hint">${esc(DOC_WHEN_LABEL[t.when])}</span></span></label>`).join('');
+  backdrop.innerHTML = `
+    <div class="modal docs-modal">
+      <h3>Dokumenty – ${esc(name)}</h3>
+      <div id="docs-pick">
+        <p class="docs-intro">Dokumenty se vyplní z údajů ve spisu podle aktuálních vzorů. Předem jsou zaškrtnuté ty, které odpovídají typu poměru${regime ? ' (' + esc(regime.toLowerCase()) + ')' : ''}.</p>
+        <label class="docs-row docs-all"><input type="checkbox" id="docs-all"><span class="docs-row-main"><span class="docs-row-title">Označit vše</span></span></label>
+        <div class="docs-list">${rowsHtml}</div>
+      </div>
+      <div id="docs-out" style="display:none;"></div>
+      <p id="docs-status" class="docs-status"></p>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="docs-close">Zavřít</button>
+        <button class="btn btn-ghost" id="docs-back" style="display:none;">← Změnit výběr</button>
+        <button class="btn btn-primary" id="docs-run">Vygenerovat</button>
+      </div>
+    </div>`;
+  document.body.appendChild(backdrop);
+  const $ = sel => backdrop.querySelector(sel);
+  const boxes = () => [...backdrop.querySelectorAll('[data-doc]')];
+  const close = () => { urls.forEach(u => URL.revokeObjectURL(u)); backdrop.remove(); };
+  const refreshPick = () => {
+    const sel = boxes().filter(b => b.checked).length;
+    $('#docs-all').checked = sel === boxes().length;
+    $('#docs-run').disabled = sel === 0;
+    $('#docs-run').textContent = sel ? `Vygenerovat (${sel})` : 'Vygenerovat';
+  };
+  $('#docs-close').addEventListener('click', close);
+  backdrop.addEventListener('click', (ev) => { if(ev.target === backdrop) close(); });
+  $('#docs-all').addEventListener('change', () => { boxes().forEach(b => { b.checked = $('#docs-all').checked; }); refreshPick(); });
+  boxes().forEach(b => b.addEventListener('change', refreshPick));
+  refreshPick();
+
+  const showPick = () => { $('#docs-pick').style.display = ''; $('#docs-out').style.display = 'none'; $('#docs-back').style.display = 'none'; $('#docs-run').style.display = ''; $('#docs-status').textContent = ''; };
+  $('#docs-back').addEventListener('click', showPick);
+
+  function renderOut(){
+    const rows = DOC_TEMPLATES.filter(t => results[t.id]).map(t => {
+      const x = results[t.id];
+      if(x.err) return `<div class="docs-out-row"><span class="docs-row-title">${esc(t.title)}</span><span class="docs-err">Nepodařilo se vytvořit: ${esc(x.err)}</span></div>`;
+      return `<div class="docs-out-row"><span class="docs-row-title">${esc(t.title)}</span>
+        <span class="docs-out-btns">
+          <button class="btn btn-ghost btn-sm" type="button" data-dact="view" data-did="${t.id}">Zobrazit PDF</button>
+          <button class="btn btn-ghost btn-sm" type="button" data-dact="pdf" data-did="${t.id}">⬇ PDF</button>
+          <button class="btn btn-ghost btn-sm" type="button" data-dact="docx" data-did="${t.id}">⬇ Word</button>
+        </span></div>`;
+    }).join('');
+    const okCount = Object.values(results).filter(x => !x.err).length;
+    $('#docs-out').innerHTML = `
+      <p class="docs-intro">Hotovo: ${okCount} ${okCount === 1 ? 'dokument' : okCount >= 2 && okCount <= 4 ? 'dokumenty' : 'dokumentů'}. Před podpisem je prosím zkontrolujte.</p>
+      <div class="docs-zip-bar">
+        <button class="btn btn-primary btn-sm" type="button" data-dzip="all" ${okCount ? '' : 'disabled'}>⬇ ZIP – Word i PDF</button>
+        <button class="btn btn-ghost btn-sm" type="button" data-dzip="pdf" ${okCount ? '' : 'disabled'}>⬇ ZIP – jen PDF</button>
+        <button class="btn btn-ghost btn-sm" type="button" data-dzip="docx" ${okCount ? '' : 'disabled'}>⬇ ZIP – jen Word</button>
+      </div>
+      <div class="docs-out-list">${rows}</div>`;
+    $('#docs-out').querySelectorAll('[data-dact]').forEach(b => b.addEventListener('click', () => {
+      const t = DOC_TEMPLATES.find(x => x.id === b.getAttribute('data-did')); const x = results[t.id];
+      const act = b.getAttribute('data-dact');
+      if(act === 'view'){ const u = URL.createObjectURL(x.pdf); urls.push(u); window.open(u, '_blank'); }
+      else if(act === 'pdf') downloadBlob(x.pdf, docFileName(rec, t, 'pdf'));
+      else downloadBlob(x.docx, docFileName(rec, t, 'docx'));
+    }));
+    $('#docs-out').querySelectorAll('[data-dzip]').forEach(b => b.addEventListener('click', async () => {
+      const kind = b.getAttribute('data-dzip'); const files = [];
+      DOC_TEMPLATES.forEach(t => { const x = results[t.id]; if(!x || x.err) return;
+        if(kind !== 'docx') files.push({ name: docFileName(rec, t, 'pdf'), blob: x.pdf });
+        if(kind !== 'pdf') files.push({ name: docFileName(rec, t, 'docx'), blob: x.docx }); });
+      try{
+        $('#docs-status').textContent = 'Balím ZIP…';
+        const zip = await DocGen.zipFiles(files);
+        const who = [slugName(p.prijmeni), slugName(p.jmeno)].filter(Boolean).join('_') || 'zaměstnanec';
+        downloadBlob(zip, `${who}_dokumenty${kind === 'all' ? '' : kind === 'pdf' ? '_PDF' : '_Word'}.zip`);
+        $('#docs-status').textContent = '';
+      }catch(e){ console.error(e); $('#docs-status').textContent = 'ZIP se nepodařilo vytvořit.'; }
+    }));
+  }
+
+  $('#docs-run').addEventListener('click', async () => {
+    const chosen = DOC_TEMPLATES.filter(t => boxes().some(b => b.checked && b.getAttribute('data-doc') === t.id));
+    if(!chosen.length) return;
+    if(typeof DocGen === 'undefined'){ $('#docs-status').textContent = 'Modul pro dokumenty se nenačetl. Obnovte prosím stránku.'; return; }
+    DocGen.init({ version: APP_VERSION });
+    $('#docs-run').disabled = true; $('#docs-close').disabled = true;
+    Object.keys(results).forEach(k => delete results[k]);
+    const values = docValues(rec);
+    let n = 0;
+    for(const t of chosen){
+      n++;
+      $('#docs-status').textContent = `Generuji ${n} / ${chosen.length}: ${t.title}…`;
+      try{
+        const docx = await DocGen.fillTemplate(t.file, values);
+        const pdf = await DocGen.docxToPdf(docx, t.title);
+        results[t.id] = { docx, pdf };
+      }catch(e){
+        console.error('doc generation failed', t.id, e);
+        results[t.id] = { err: (e && e.message) || 'neznámá chyba' };
+      }
+    }
+    $('#docs-status').textContent = '';
+    $('#docs-close').disabled = false; $('#docs-run').disabled = false;
+    $('#docs-pick').style.display = 'none'; $('#docs-out').style.display = ''; $('#docs-back').style.display = ''; $('#docs-run').style.display = 'none';
+    renderOut();
+  });
 }
 
 function openNewModal(){
@@ -5776,7 +6044,7 @@ const HELP_EMP = [
    KAŽDOU NOVOU FUNKCI NEBO ZMĚNU CHOVÁNÍ DOPLNIT SEM (a zvýšit APP_VERSION + ?v= v index.html). */
 const HELP = [
  {g:'Jak to celé funguje',items:[
-  ['🧭','Postup od nástupu po VEMU','1) Založíte spis (ručně, z organigramu nebo z Excelu). 2) Doplníte údaje personálního oddělení. 3) Vygenerujete odkaz a pošlete ho zaměstnanci. 4) Zaměstnanec vyplní a odešle. 5) Údaje zkontrolujete a <b>schválíte</b> (nebo vrátíte k doplnění). 6) Vygenerujete tabulky pro VEMU a případně tištěné podklady. IT a provoz si mezitím plní své záložky.'],
+  ['🧭','Postup od nástupu po VEMU','1) Založíte spis (ručně, z organigramu nebo z Excelu). 2) Doplníte údaje personálního oddělení. 3) Vygenerujete odkaz a pošlete ho zaměstnanci. 4) Zaměstnanec vyplní a odešle. 5) Údaje zkontrolujete a <b>schválíte</b> (nebo vrátíte k doplnění). 6) Vygenerujete tabulky pro VEMU, nahrajete je do Vemy a po kontrole <b>potvrdíte nahrání</b> (stav Nahráno). 7) U spisu ve stavu Nahráno vygenerujete <b>dokumenty podle vzorů</b> (Word, PDF). IT a provoz si mezitím plní své záložky.'],
   ['🔐','Přihlášení a pohled','Přihlášení je e-mailem. Přepínač <b>Zobrazit jako</b> přepíná mezi pohledem <b>Personální oddělení</b> a <b>IT a provoz</b>. Nastavení (⚙) je jen v pohledu personálního oddělení.'],
   ['❓','Nápověda','Otevře se odkazem <b>? Nápověda</b> v záhlaví nebo klávesou <kbd>?</kbd>, zavře <kbd>Esc</kbd>. Políčko nahoře filtruje témata.']]},
  {g:'Rejstřík (seznam spisů)',items:[
@@ -5804,8 +6072,9 @@ const HELP = [
   ['✅','Schválit údaje','Dostupné ve stavu Odesláno / Vráceno, pokud jsou vyplněna všechna povinná pole. Po schválení má spis stav Zkontrolováno.'],
   ['🙋','Co dělá zaměstnanec','Vyplní průvodce, potvrdí souhlas se zpracováním osobních údajů a odešle. Po odeslání je formulář zamčen; zaměstnanec ho může sám stáhnout zpět a opravit, pokud ho ještě nezkontrolujete.']]},
  {g:'Výstupy',items:[
-  ['📊','Generovat tabulky pro VEMU','V rejstříku zaškrtněte zkontrolované spisy (výběr lze udělat hromadně v záhlaví) a použijte <b>Generovat tabulky pro VEMU</b>. Stav „Vygenerováno“ se u spisu zapamatuje. Pevné hodnoty a kódy pracovišť se nastavují v Nastavení.'],
-  ['🧹','Smazání osobních údajů','Po nahrání do Vemy a ověření, že je vše správně, vyberte ve rejstříku zkontrolované spisy a klikněte na <b>Smazat osobní údaje</b>. Tlačítko je aktivní jen u spisů, pro které už byly vygenerovány tabulky pro VEMU. Nevratně se smažou osobní údaje zaměstnance (zůstane jméno, pozice, pracoviště, datum nástupu a stavy) a jeho odkaz dál otevře jen záložku „Co potřebujete vědět“. Pokud smazání zapomenete, proběhne automaticky 60 dní po vygenerování tabulek.'],
+  ['📊','Generovat tabulky pro VEMU','V rejstříku zaškrtněte zkontrolované spisy (výběr lze udělat hromadně v záhlaví) a použijte <b>Generovat tabulky pro VEMU</b>. Stav „Vygenerováno“ se u spisu zapamatuje; po nahrání do Vemy a kontrole tlačítkem <b>Potvrdit nahrání do Vemy</b> (vedle Generovat) přejde na „Nahráno“. Když tabulky vygenerujete znovu, stav se vrátí na „Vygenerováno“. Pevné hodnoty a kódy pracovišť se nastavují v Nastavení.'],
+  ['📄','Dokumenty podle vzorů','U spisu ve stavu <b>Nahráno</b> je v rejstříku (sloupec Export VEMA) i ve spisu tlačítko <b>Dokumenty</b>. Otevře se seznam všech vzorů se zaškrtávátky a volbou <b>Označit vše</b>; předem jsou zaškrtnuté ty, které odpovídají typu poměru (pracovní: platový výměr, pracovní smlouva; služební: informace o pracovním poměru; všichni: kritéria hodnocení, portrétní fotografie, školení BOZP, interní předpisy; dle potřeby: osvědčení o rovnocennosti zkoušek, dohoda o výkonu služby z jiného místa a její příloha). Tlačítkem <b>Vygenerovat</b> se každý dokument vyplní z údajů ve spisu a vytvoří se Word i PDF. U každého je <b>Zobrazit PDF</b>, <b>⬇ PDF</b> a <b>⬇ Word</b>; všechno najednou stáhnete jako <b>ZIP</b>. Názvy souborů jsou ve tvaru <b>Příjmení_Jméno_název.docx / .pdf</b>. Údaje, které ve spisu nejsou (č. j., datum podpisu, osobní číslo, které se nevyplnilo), zůstanou k ručnímu doplnění. PDF se vytváří přímo v prohlížeči, takže se může od Wordu lehce lišit zalomením stránek – Word je přesný. Vzory jsou ve složce <code>templates</code> a po změně vzoru se nahradí příslušný soubor. Dokumenty se generují z osobních údajů, proto je vytvořte před smazáním údajů.'],
+  ['🧹','Smazání osobních údajů','Po nahrání do Vemy a ověření, že je vše správně, vyberte v rejstříku spisy a klikněte na <b>Smazat osobní údaje</b>. Tlačítko je aktivní jen u spisů ve stavu <b>Nahráno</b>. Smažte až po vygenerování dokumentů (z údajů se pak už znovu vytvořit nedají). Nevratně se smažou osobní údaje zaměstnance (zůstane jméno, pozice, pracoviště, datum nástupu a stavy) a jeho odkaz dál otevře jen záložku „Co potřebujete vědět“. Pokud smazání zapomenete, proběhne automaticky 60 dní po vygenerování tabulek.'],
   ['🖨️','Tištěné podklady','Ve spisu <b>Tisk podkladů</b>: A – Osobní dotazník, B – Prohlášení o předchozích zaměstnáních, C – Souhlas se zasíláním platu na účet. Předvyplněno z formuláře; lze tisknout/uložit jako PDF nebo odeslat e-mailem (potřebuje přidělený e-mail zaměstnance).']]},
  {g:'IT a provoz (stručně)',items:[
   ['💻','Přiřazení administrátora','V pohledu IT a provoz lze spisy hromadně přiřadit administrátorovi systémů. Záložky <b>IT a přístupy</b> a <b>Provoz</b> obsahují checklisty podle kategorie zaměstnance.']]},
