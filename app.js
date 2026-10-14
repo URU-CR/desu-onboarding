@@ -1,4 +1,4 @@
-const APP_VERSION = '2026-10-14.10';
+const APP_VERSION = '2026-10-14.11';
 const STORAGE_INDEX_KEY = 'onboarding:index';
 const STORAGE_INFO_KEY = 'onboarding:info-content';
 const STORAGE_SETTINGS_KEY = 'onboarding:settings';
@@ -328,7 +328,7 @@ const PERSONAL_SECTIONS = [
     {id:'bydliste_manzela', label:'Bydliště manžela/manželky', full:true, showIf:p=>['Ženatý/vdaná','Registrované partnerství'].includes(p.rodinny_stav)},
     {id:'manzel_ztpp', label:'Manžel/ka je držitel/ka průkazu ZTP/P', essential:true, type:'select', options:['','Ne','Ano'], showIf:p=>['Ženatý/vdaná','Registrované partnerství'].includes(p.rodinny_stav)},
   ]},
-  { id:'deti', label:'Děti', navLabel:'Děti', owner:'employee', type:'repeat', optional:true, addLabel:'+ Přidat dítě', fields:[
+  { id:'deti', label:'Děti', navLabel:'Děti', owner:'employee', itemLabel:'Dítě', type:'repeat', optional:true, addLabel:'+ Přidat dítě', fields:[
     {id:'jmeno', label:'Jméno'},
     {id:'prijmeni', label:'Příjmení'},
     {id:'rodne_cislo', label:'Rodné číslo (bez lomítka)', placeholder:'1201011234', validate:'rodneCislo'},
@@ -351,7 +351,7 @@ const PERSONAL_SECTIONS = [
     {id:'sidlo_skoly', label:'Sídlo školy'},
     {id:'druh_zkousky', label:'Druh zkoušky (maturita, státní zkouška, certifikát…)', showIf:p=>p.stav_vzdelani==='Dokončené'},
   ]},
-  { id:'praxe', label:'Praxe, započitatelné doby a ZOZ', navLabel:'Praxe a ZOZ', owner:'employee', type:'repeat', optional:true, addLabel:'+ Přidat období',
+  { id:'praxe', label:'Praxe, započitatelné doby a ZOZ', navLabel:'Praxe a ZOZ', owner:'employee', itemLabel:'Období', type:'repeat', optional:true, addLabel:'+ Přidat období',
     emptyHint:'Pokud žádnou praxi ani započitatelnou dobu nemáte (např. absolvent), tento krok prostě přeskočte.',
     intro:['PŘEHLED PRŮBĚHU PŘEDCHOZÍCH ZAMĚSTNÁNÍ, VOJENSKÉ SLUŽBY, MATEŘSKÉ/RODIČOVSKÉ DOVOLENÉ, ÚŘADU PRÁCE apod.',
       'Této části dotazníku prosím věnujte zvýšenou pozornost. Jednotlivé položky uvádějte s přesnými daty (tj. den.měsíc.rok). Nesprávně uvedené údaje mohou vést např. k zařazení do nižšího platového stupně, případně mohou vést k pracovně právním postihům podle příslušných ustanovení zákoníku práce a zákona o státních zaměstnancích v případě nepravdivých údajů.',
@@ -365,7 +365,7 @@ const PERSONAL_SECTIONS = [
     {id:'sidlo', label:'Sídlo organizace'},
     {id:'pracovni_zarazeni', label:'Pracovní zařazení / vykonávaná činnost', full:true, placeholder:'u mateřské a rodičovské dovolené nevyplňujte'},
   ]},
-  { id:'jazyky', label:'Jazykové znalosti', navLabel:'Jazyky', owner:'employee', type:'repeat', optional:true, addLabel:'+ Přidat jazyk', fields:[
+  { id:'jazyky', label:'Jazykové znalosti', navLabel:'Jazyky', owner:'employee', itemLabel:'Jazyk', type:'repeat', optional:true, addLabel:'+ Přidat jazyk', fields:[
     {id:'jazyk', label:'Jazyk', datalist:'jazyky'},
     {id:'stupen_znalosti', label:'Stupeň znalosti', essential:true, type:'select', options:['','Základní (začátečník)','Střední (pokročilý)','Odborný']},
     {id:'stupen_osvedceni', label:'Stupeň osvědčení', placeholder:'maturita, státní zkouška, certifikát…'},
@@ -2468,7 +2468,9 @@ function sectionFieldsHtmlCore(sec, r, editable){
     }
     if(rows.length === 0) html += `<p class="repeat-empty" ${missingSet.has('null:_atLeastOne')?'style="color:var(--red);"':''}>Zatím nevyplněno.${sec.requireAtLeastOne?' Je potřeba doplnit alespoň jednu položku.':''}${sec.emptyHint ? ' ' + esc(sec.emptyHint) : ''}</p>`;
     rows.forEach((row, i) => {
-      html += `<div class="repeat-row ${(showFlagInfo || hrFlagMode) && flagged ? 'flagged':''}"><div class="form-grid">`;
+      html += `<div class="repeat-row ${(showFlagInfo || hrFlagMode) && flagged ? 'flagged':''}">
+        <div class="repeat-head"><strong>${esc(sec.itemLabel || 'Položka')} ${i+1}</strong>${editable ? `<button class="btn btn-ghost btn-sm" type="button" data-repeat-remove="${sec.id}:${i}" title="Zrušit tuto položku">✕ Zrušit / odebrat</button>` : ''}</div>
+        <div class="form-grid">`;
       html += sec.fields.map(f => {
         const pKey = sec.id+':'+i+':'+f.id;
         const pending = state.pendingEdit && state.pendingEdit.key === pKey ? state.pendingEdit : null;
@@ -2482,9 +2484,7 @@ function sectionFieldsHtmlCore(sec, r, editable){
         ${pending ? `<div class="pending-save-bar">Uložit „${esc(f.label)}“: <strong>${esc(pending.oldValue||'—')} → ${esc(pending.newValue||'—')}</strong><button type="button" class="btn btn-primary btn-sm" data-pending-confirm>Uložit</button><button type="button" class="btn btn-ghost btn-sm" data-pending-cancel>Zrušit</button></div>` : ''}
         </div>`;
       }).join('');
-      html += `</div>`;
-      if(editable) html += `<button class="btn btn-ghost btn-sm" type="button" data-repeat-remove="${sec.id}:${i}">Odebrat</button>`;
-      html += `</div>`;
+      html += `</div></div>`;
     });
     if(editable) html += `<button class="btn btn-ghost btn-sm" type="button" data-repeat-add="${sec.id}">${esc(sec.addLabel || '+ Přidat')}</button>`;
     return html;
@@ -2545,6 +2545,19 @@ function sectionHasHardError(sec, r){
   });
 }
 
+// Úplně prázdné (omylem přidané) položky v nepovinných opakovaných sekcích se nepočítají a při pohybu v dotazníku se odstraní.
+function isRowEmpty(sec, row){
+  return sec.fields.every(f => { const v = row && row[f.id] != null ? String(row[f.id]).trim() : ''; return v === '' || v === (f.default || ''); });
+}
+function pruneEmptyRows(record){
+  let changed = false;
+  PERSONAL_SECTIONS.forEach(sec => {
+    if(sec.type !== 'repeat' || !sec.optional || !Array.isArray(record.personal[sec.id])) return;
+    const kept = record.personal[sec.id].filter(row => !isRowEmpty(sec, row));
+    if(kept.length !== record.personal[sec.id].length){ record.personal[sec.id] = kept; changed = true; }
+  });
+  return changed;
+}
 function missingRequiredFields(record, includeHr){
   const overrides = (state.settings && state.settings.hrRequiredOverrides) || {};
   const missing = [];
@@ -2560,6 +2573,7 @@ function missingRequiredFields(record, includeHr){
         missing.push({ sectionId: sec.id, section: sec.label, fieldId: '_atLeastOne', rowIdx: null, label: 'Alespoň jedna položka' });
       }
       rows.forEach((row, idx) => {
+        if(sec.optional && isRowEmpty(sec, row)) return;
         sec.fields.forEach(f => {
           if(!f.essential && !f.required) return;
           if(sec.owner === 'hr' && overrides[f.id] === false) return;
@@ -3845,6 +3859,7 @@ function attachHandlers(){
       const action = el.getAttribute('data-wizard');
       const steps = PERSONAL_SECTIONS.filter(s => s.owner === 'employee');
       const totalSteps = steps.length + 1;
+      if(state.role === 'employee' && state.currentRecord && pruneEmptyRows(state.currentRecord)) persistRecordOnly();
       if(action === 'next'){
         const currentSec = steps[state.wizardStep];
         if(currentSec && sectionHasHardError(currentSec, state.currentRecord)){
@@ -3877,6 +3892,7 @@ function attachHandlers(){
   });
   app.querySelectorAll('[data-wizard-goto]').forEach(el => {
     el.addEventListener('click', () => {
+      if(state.role === 'employee' && state.currentRecord && pruneEmptyRows(state.currentRecord)) persistRecordOnly();
       state.wizardStepError = false;
       state.wizardStep = parseInt(el.getAttribute('data-wizard-goto'), 10);
       window.scrollTo({top:0, behavior:'smooth'});
@@ -5561,9 +5577,9 @@ const HELP_EMP = [
   ['🪪','Základní údaje','Jméno, příjmení, tituly, rodné číslo <b>bez lomítka</b> (např. 9001011234), místo narození a státní příslušnost. Datum narození se z rodného čísla doplní samo a aplikace ho zkontroluje.'],
   ['🏠','Bydliště a kontakt','Trvalé bydliště, soukromý telefon a e-mail. Doručovací adresu vyplňte jen tehdy, pokud je jiná než trvalá. Kontakt pro mimořádnou událost je doplňkový (koho zavolat, kdyby se vám něco stalo).'],
   ['🏦','Pojišťovna a účet','Zdravotní pojišťovnu vyberte ze seznamu. <b>Nahrajte kartičku pojišťovny</b> (povinné): tlačítkem <b>📷 Vyfotit kamerou</b> ji vyfotíte kamerou počítače (prohlížeč se zeptá na povolení kamery): přiložte kartičku stranou s údaji do rámečku a držte ji klidně – aplikace ji sama rozpozná, vyfotí a ořízne (kdyby to nešlo, použijte <b>Vyfotit hned</b>). Nebo <b>📎 Nahrát soubor</b> / přetažením vložíte hotovou fotografii či sken (JPG, PNG, PDF). Fotografie se před odesláním zmenší. Nahraný soubor můžete tlačítkem <b>Smazat</b> nahradit jiným. Číslo účtu zadejte bez lomítka a kódu banky, kód banky vyplňte zvlášť (např. 0100). Po zadání čísla účtu se zobrazí tři souhlasy se zasíláním platu, cestovních náhrad a příspěvku na stravování na tento účet.'],
-  ['👪','Rodina a děti','Rodinný stav je povinný. Krok <b>Děti</b> je doplňkový – pokud děti nemáte, jen pokračujte dál. Další dítě přidáte tlačítkem <b>+ Přidat dítě</b>.'],
+  ['👪','Rodina a děti','Rodinný stav je povinný. Krok <b>Děti</b> je doplňkový – pokud děti nemáte, jen pokračujte dál. Další dítě přidáte tlačítkem <b>+ Přidat dítě</b>. Omylem přidané dítě zrušíte tlačítkem <b>✕ Zrušit / odebrat</b>.'],
   ['🎓','Vzdělání','Údaje o vašem dosaženém vzdělání – vyplňte podle pokynů u polí.'],
-  ['💼','Praxe a ZOZ','Krok je <b>nepovinný</b> – pokud praxi nemáte (např. absolvent), přeskočte ho. Uvádějte <b>přesná data</b> (den.měsíc.rok): předchozí zaměstnání, ale i <b>vojenskou službu, mateřskou a rodičovskou dovolenou, evidenci na úřadu práce</b> a další započitatelné doby – u každého období vyberte jeho <b>druh</b>. Nesprávné údaje mohou vést k zařazení do nižšího platového stupně. Další období přidáte tlačítkem <b>+ Přidat období</b>. Dole můžete nahrát sken <b>osvědčení o zkoušce odborné způsobilosti (ZOZ)</b> (tlačítko <b>+ Přidat ZOZ</b>, lze více osvědčení) – může se uznat jako část praxe.'],
+  ['💼','Praxe a ZOZ','Krok je <b>nepovinný</b> – pokud praxi nemáte (např. absolvent), přeskočte ho. Uvádějte <b>přesná data</b> (den.měsíc.rok): předchozí zaměstnání, ale i <b>vojenskou službu, mateřskou a rodičovskou dovolenou, evidenci na úřadu práce</b> a další započitatelné doby – u každého období vyberte jeho <b>druh</b>. Nesprávné údaje mohou vést k zařazení do nižšího platového stupně. Další období přidáte tlačítkem <b>+ Přidat období</b>; omylem přidanou položku zrušíte tlačítkem <b>✕ Zrušit / odebrat</b> (úplně prázdné položky se při pohybu v dotazníku odstraní samy). Dole můžete nahrát sken <b>osvědčení o zkoušce odborné způsobilosti (ZOZ)</b> (tlačítko <b>+ Přidat ZOZ</b>, lze více osvědčení) – může se uznat jako část praxe.'],
   ['🌍','Jazyky','Jazykové znalosti jsou doplňkové; další jazyk přidáte tlačítkem <b>+ Přidat jazyk</b>.'],
   ['🗂️','Další údaje','V kroku <b>Další údaje</b> jsou dodatečné údaje, které úřad ze zákona potřebuje; vyplňte je podle pokynů u polí.']]},
  {g:'Odeslání a kontrola',items:[
