@@ -1,4 +1,4 @@
-const APP_VERSION = '2026-10-12.8';
+const APP_VERSION = '2026-10-14.1';
 const STORAGE_INDEX_KEY = 'onboarding:index';
 const STORAGE_INFO_KEY = 'onboarding:info-content';
 const STORAGE_SETTINGS_KEY = 'onboarding:settings';
@@ -235,7 +235,7 @@ const PERSONAL_SECTIONS = [
     {id:'prijmeni', label:'Příjmení'},
     {id:'rodne_cislo', label:'Rodné číslo (bez lomítka)', placeholder:'1201011234', validate:'rodneCislo'},
     {id:'datum_narozeni', label:'Datum narození', type:'date', validate:'birthDateVsRC', autofillFrom:'rodne_cislo'},
-    {id:'studuje', label:'Soustavně studuje', essential:true, type:'select', options:['','Ano','Ne']},
+    {id:'studuje', label:'Soustavně studuje', type:'select', options:['','Ano','Ne']},
     {id:'danove_zvyhodneni', label:'Uplatňuji na toto dítě daňové zvýhodnění', essential:true, type:'select', options:['','Ne','Ano']},
     {id:'ztpp', label:'Dítě je držitel průkazu ZTP/P', essential:true, type:'select', options:['','Ne','Ano']},
     {id:'bydliste', label:'Bydliště (jen pokud nezaopatřené dítě žije jinde)', full:true},
@@ -248,7 +248,7 @@ const PERSONAL_SECTIONS = [
     {id:'datum_zahajeni_vzdelani', label:'Datum zahájení nejvyššího dokončeného vzdělání', type:'date', essential:true, showIf:p=>p.stav_vzdelani==='Dokončené'},
     {id:'datum_ukonceni_vzdelani', label:'Datum ukončení nejvyššího dokončeného vzdělání', type:'date', essential:true, showIf:p=>p.stav_vzdelani==='Dokončené'},
     {id:'obor', label:'Obor', essential:true},
-    {id:'ziskany_titul', label:'Získaný titul', essential:true, showIf:p=>p.stav_vzdelani==='Dokončené'},
+    {id:'ziskany_titul', label:'Získaný titul', showIf:p=>p.stav_vzdelani==='Dokončené'},
     {id:'skola', label:'Název školy'},
     {id:'sidlo_skoly', label:'Sídlo školy'},
     {id:'druh_zkousky', label:'Druh zkoušky (maturita, státní zkouška, certifikát…)', showIf:p=>p.stav_vzdelani==='Dokončené'},
@@ -312,7 +312,7 @@ const PERSONAL_SECTIONS = [
     {id:'platova_trida', label:'Platová třída', essential:true, type:'select', options:['','1','2','3','4','5','6','7','8','9','10','11','12','13','14','15','16']},
     {id:'platova_skupina', label:'Platová skupina', essential:true},
     {id:'platovy_stupen', label:'Platový stupeň', essential:true, type:'select', options:['','1','2','3','4','5','6','7','8','9','10','11','12']},
-    {id:'skupina_praci_zaruc_mzda', label:'Skupina prací pro zaručenou mzdu', essential:true, type:'select', options:['','1','2','3','4','5','6','7','8']},
+    {id:'skupina_praci_zaruc_mzda', label:'Skupina prací pro zaručenou mzdu', type:'select', options:['','1','2','3','4','5','6','7','8']},
     {id:'nastaveni_platoveho_postupu', label:'Nastavení platového postupu', essential:true, type:'select', options:['','Ano','Ne']},
     {id:'zpusob_urceni_tarifu', label:'Způsob určení platového tarifu'},
     {id:'tarifni_plat', label:'Tarifní plat (Kč/měsíc)', essential:true},
@@ -4262,10 +4262,8 @@ const ZPODM_CODES = {'Hodinová mzda':'1','Měsíční plat/mzda':'2'};
 const ROZUC_CODES = {'Neprovádět — podávám si vlastní daňové přiznání':'0','Provádět — budu u zaměstnavatele zaměstnán/a na konci roku':'1','Provádět — na konci roku už u zaměstnavatele zaměstnán/a nebudu, ale jinde nepracuji':'2'};
 const TYPPV_CODES = {'Odměňování podle § 5 NV':'1','Pásmové odměňování (§ 6 NV) s platovými postupy':'2','Pásmové odměňování (§ 6 NV) bez platových postupů':'3'};
 
-const ZHLAV_POVINNE_KODY = new Set(['oscis','upljmeno','rocis','statp','zivmi','rozuc','predvls','predvlp','predvle','predvlm','potpri','zpo','zpzpoj','danrez','stazas','ppvza','sdouvz','ppvlim','vyods','pracvz','ppvdr','stspr','pocrd','vedouci','minmzda','tarif','zpodm','zmr','rozst','rozin','rozpr','mzdza','plasku','plastu','rodpr','mistn','dovpj','dovpmt','dovup','prvpl','inval','stud','zvzda']);
-// 'ztppm' (ZTP/P manžela/manželky) záměrně mimo tento seznam — je povinné jen u
-// ženatých/vdaných (viz get() níže, který vrací '' mimo tento případ, aby se
-// u svobodných zaměstnanců nebarvilo červeně jako chybějící údaj).
+const ZHLAV_POVINNE_KODY = new Set(['oscis','upljmeno','rocis','statp','zivmi','rozuc','predvls','predvlp','predvle','predvlm','potpri','zpo','zpzpoj','danrez','stazas','ppvza','sdouvz','ppvlim','vyods','pracvz','ppvdr','stspr','pocrd','vedouci','minmzda','tarif','zpodm','zmr','rozst','rozin','rozpr','mzdza','plasku','plastu','rodpr','mistn','dovpj','dovpmt','dovup','prvpl','inval','stud','zvzda','ztppm']);
+// (ztppm je od 14. 10. v seznamu: Vema ho vyžaduje vždy; u neženatých/nevdaných se plní '0')
 
 function zhlavColumns(){
   const vc = (state.settings && state.settings.vemaConstants) || {};
@@ -4362,7 +4360,7 @@ function zhlavColumns(){
     {code:'prumt', get:p=>vc.prumt||'5'},
     {code:'prude', get:p=>''},
     {code:'pruths', get:p=>vc.pruths||'40'},
-    {code:'rodpr', get:p=>p.rodne_prijmeni},
+    {code:'rodpr', get:p=>p.rodne_prijmeni || p.prijmeni},   // povinné ve Vemě; když není vyplněno, platí současné příjmení
     {code:'prijm1', get:p=>p.prijmeni_byvale_1},
     {code:'prijm2', get:p=>p.prijmeni_byvale_2},
     {code:'statn', get:p=>countryCode(p.stat_narozeni)},
@@ -4414,7 +4412,7 @@ function zhlavColumns(){
     {code:'prijmm', get:p=>p.prijmeni_manzela},
     {code:'jmenom', get:p=>p.jmeno_manzela},
     {code:'rocism', get:p=>p.rodne_cislo_manzela},
-    {code:'ztppm', get:p=>ynCode(p.manzel_ztpp)},
+    {code:'ztppm', get:p=>['Ženatý/vdaná','Registrované partnerství'].includes(p.rodinny_stav) ? ynCode(p.manzel_ztpp) : '0'},   // povinné ve Vemě; u neženatých/nevdaných 0
     {code:'pracv', get:p=>workplaceVemaCode(p.pracoviste)},
   ];
 }
