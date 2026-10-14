@@ -101,7 +101,7 @@ language sql immutable as $$ select array[
     'druh_zkousky','praxe','jazyky','prohlaseni_poplatnika','zpusob_rocniho_zuctovani','invalidita','zdrav_postizeni_ozp',
     'prukaz_zdravotni','zdrav_rozhodnuti_platnost_do','vojak','student_pripravujici_se','student_potvrzeni_do','duchod',
     'duchod_detail','pocet_vychovanych_deti','sluzebni_pomer_drive','clenstvi_organy','vydelecna_cinnost_souhlas',
-    'soudni_rizeni','soudni_srazky','kurzy_dovednosti'] $$;
+    'soudni_rizeni','soudni_srazky','kurzy_dovednosti','prilohy'] $$;
 
 -- Odstraní z kopie spisu osobní údaje zaměstnance (zůstane jméno, příjmení a údaje personálního oddělení).
 create or replace function public._strip_personal(rec jsonb) returns jsonb
@@ -111,13 +111,35 @@ begin
   foreach k in array public._emp_fields() loop
     continue when k in ('jmeno', 'prijmeni');
     if np ? k then
-      np := jsonb_set(np, array[k], case when k in ('deti', 'praxe', 'jazyky') then '[]'::jsonb else '""'::jsonb end, true);
+      np := jsonb_set(np, array[k], case when k in ('deti', 'praxe', 'jazyky', 'prilohy') then '[]'::jsonb else '""'::jsonb end, true);
     end if;
   end loop;
   return jsonb_set(rec, '{personal}', np, true);
 end $$;
 revoke all on function public._emp_fields() from public, anon, authenticated;
 revoke all on function public._strip_personal(jsonb) from public, anon, authenticated;
+
+-- 3b) Přílohy (kartička zdravotní pojišťovny, osvědčení ZOZ) -------------------
+-- Soubory (zmenšené fotografie / PDF jako base64) leží v samostatné tabulce. Čtou je a mažou jen
+-- přihlášení zaměstnanci ze seznamu staff; zaměstnanec (bez přihlášení) přes funkce emp_file_put / emp_file_del.
+create table if not exists public.onboarding_files (
+  id text primary key,
+  rec_id text not null,
+  kind text not null,
+  name text not null,
+  mime text not null,
+  size int,
+  data text not null,
+  created_at timestamptz not null default now()
+);
+create index if not exists onboarding_files_rec_idx on public.onboarding_files (rec_id);
+alter table public.onboarding_files enable row level security;
+drop policy if exists files_staff_all on public.onboarding_files;
+create policy files_staff_all on public.onboarding_files
+  for all to authenticated
+  using (public.is_staff()) with check (public.is_staff());
+revoke all on public.onboarding_files from anon;
+grant select, insert, update, delete on public.onboarding_files to authenticated;
 
 -- 4) Funkce pro zaměstnance (bez přihlášení) ---------------------------
 create or replace function public.emp_open(p_id text, p_token text) returns jsonb
@@ -203,6 +225,51 @@ revoke all on function public.emp_save(text, text, jsonb) from public;
 grant execute on function public.emp_open(text, text) to anon, authenticated;
 grant execute on function public.emp_save(text, text, jsonb) to anon, authenticated;
 
+-- Nahrání / smazání přílohy zaměstnancem. Jen u otevřeného dotazníku (rozepsaný nebo vrácený),
+-- platný odkaz, omezená velikost a počet souborů, povolené jen JPEG / PNG / PDF.
+create or replace function public.emp_file_put(p_id text, p_token text, p_fid text, p_kind text,
+                                               p_name text, p_mime text, p_data text) returns boolean
+language plpgsql security definer set search_path = public as $$
+declare rec jsonb; st text; n int;
+begin
+  rec := public._emp_rec(p_id, p_token);
+  if rec is null then return false; end if;
+  if rec ->> 'personalPurgedAt' is not null then return false; end if;
+  if rec ->> 'linkExpiresAt' is not null and (rec ->> 'linkExpiresAt')::timestamptz < now() then return false; end if;
+  st := coalesce(rec ->> 'personalStatus', 'draft');
+  if st not in ('draft', 'returned') then return false; end if;
+  if p_fid is null or p_fid !~ '^[A-Za-z0-9_-]{8,40}$' then return false; end if;
+  if p_kind is null or p_kind not in ('zp_karta', 'zoz') then return false; end if;
+  if p_mime is null or p_mime not in ('image/jpeg', 'image/png', 'application/pdf') then return false; end if;
+  if p_data is null or length(p_data) < 100 or length(p_data) > 4200000 or p_data !~ '^[A-Za-z0-9+/=]+$' then return false; end if;
+  select count(*) into n from public.onboarding_files where rec_id = p_id and id <> p_fid;
+  if n >= 12 then return false; end if;
+  insert into public.onboarding_files (id, rec_id, kind, name, mime, size, data)
+  values (p_fid, p_id, p_kind, left(coalesce(p_name, 'soubor'), 120), p_mime, (length(p_data) * 3) / 4, p_data)
+  on conflict (id) do update
+    set kind = excluded.kind, name = excluded.name, mime = excluded.mime, size = excluded.size, data = excluded.data
+    where public.onboarding_files.rec_id = p_id;
+  return true;
+end $$;
+
+create or replace function public.emp_file_del(p_id text, p_token text, p_fid text) returns boolean
+language plpgsql security definer set search_path = public as $$
+declare rec jsonb; st text;
+begin
+  rec := public._emp_rec(p_id, p_token);
+  if rec is null then return false; end if;
+  if rec ->> 'personalPurgedAt' is not null then return false; end if;
+  st := coalesce(rec ->> 'personalStatus', 'draft');
+  if st not in ('draft', 'returned') then return false; end if;
+  delete from public.onboarding_files where id = p_fid and rec_id = p_id;
+  return true;
+end $$;
+
+revoke all on function public.emp_file_put(text, text, text, text, text, text, text) from public;
+revoke all on function public.emp_file_del(text, text, text) from public;
+grant execute on function public.emp_file_put(text, text, text, text, text, text, text) to anon, authenticated;
+grant execute on function public.emp_file_del(text, text, text) to anon, authenticated;
+
 -- 5) Mazání osobních údajů po lhůtě ---------------------------------------
 -- Pro spisy, u kterých od vygenerování tabulek pro VEMU uplynulo p_days dní,
 -- smaže osobní údaje zaměstnance (zůstane jméno, příjmení, pozice, pracoviště,
@@ -222,6 +289,7 @@ begin
       rec := jsonb_set(rec, '{personalPurgedAt}', to_jsonb(now()), true);
       rec := jsonb_set(rec, '{consentGiven}', 'false'::jsonb, true);
       rec := jsonb_set(rec, '{fieldFlags}', '{}'::jsonb, true);
+      delete from public.onboarding_files where rec_id = substr(r.key, length('onboarding:record:') + 1);
       perform public._kv_put(r.key, rec::text);   -- odkaz (accessToken) zůstává: dál otevře jen „Co potřebujete vědět“
       n := n + 1;
     exception when others then null;
