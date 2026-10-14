@@ -1,4 +1,4 @@
-const APP_VERSION = '2026-10-14.12';
+const APP_VERSION = '2026-10-14.13';
 const STORAGE_INDEX_KEY = 'onboarding:index';
 const STORAGE_INFO_KEY = 'onboarding:info-content';
 const STORAGE_SETTINGS_KEY = 'onboarding:settings';
@@ -977,7 +977,8 @@ function openDatePicker(group, hidden, dayEl, monthEl, yearEl, commit){
   if(popRect.right > window.innerWidth) popup.style.left = Math.max(8, window.scrollX + window.innerWidth - popRect.width - 12) + 'px';
   if(popRect.left < 0) popup.style.left = (window.scrollX + 8) + 'px';
 
-  function onOutsideClick(e){ if(!popup.contains(e.target) && e.target !== btn) closeDatePicker(); }
+  // Po kliknutí na šipku se obsah okna překreslí a původní tlačítko už v něm není – proto se ptáme na cestu události, ne na e.target.
+  function onOutsideClick(e){ const path = e.composedPath ? e.composedPath() : []; if(!path.includes(popup) && !popup.contains(e.target) && e.target !== btn && !path.includes(btn)) closeDatePicker(); }
   function onEscape(e){ if(e.key === 'Escape') closeDatePicker(); }
   setTimeout(() => {
     document.addEventListener('click', onOutsideClick);
