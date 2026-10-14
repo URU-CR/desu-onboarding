@@ -325,6 +325,11 @@ input:-webkit-autofill,input:-webkit-autofill:hover,input:-webkit-autofill:focus
 @media print{#help{display:none!important}body.help-open{padding-left:0!important}}
 
 .repeat-head{display:flex;justify-content:space-between;align-items:center;margin:0 0 8px;font-size:13px;color:var(--ink-soft);}
+.refresh-btn{font-size:16px;line-height:1;padding:6px 10px;}
+.refresh-btn.spin{animation:spin 1s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg);}}
+.toast-msg{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:var(--ink,#222);color:#fff;padding:10px 16px;border-radius:8px;font-size:13.5px;z-index:9999;max-width:90vw;box-shadow:0 4px 16px rgba(0,0,0,.25);}
+.toast-msg.err{background:var(--red,#C62828);}
 .attach-block{border:1px solid var(--line);border-radius:var(--radius);padding:12px 14px;margin:18px 0 6px;background:var(--paper);}
 .attach-block.missing{border-color:var(--red);background:var(--red-tint);}
 .attach-block.dragover{border-color:var(--gold, #C8900F);background:var(--paper-alt);}
@@ -345,7 +350,7 @@ input:-webkit-autofill,input:-webkit-autofill:hover,input:-webkit-autofill:focus
 <body>
 <div id="app"></div>
 
-<script src="config.js?v=62"></script>
-<script src="app.js?v=62"></script>
+<script src="config.js?v=63"></script>
+<script src="app.js?v=63"></script>
 </body>
 </html>
