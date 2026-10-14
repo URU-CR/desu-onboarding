@@ -1,4 +1,4 @@
-const APP_VERSION = '2026-10-14.18';
+const APP_VERSION = '2026-10-14.19';
 const STORAGE_INDEX_KEY = 'onboarding:index';
 const STORAGE_INFO_KEY = 'onboarding:info-content';
 const STORAGE_SETTINGS_KEY = 'onboarding:settings';
@@ -2550,7 +2550,7 @@ function sectionFieldsHtmlCore(sec, r, editable){
       </div>`;
       if(flagged) html += `<input class="flag-note-input" data-flag-note="${flagKey}" placeholder="Co u této sekce chybí nebo je nejasně vyplněné" value="${esc(flags[flagKey]||'')}" style="margin-bottom:10px;">`;
     } else if(showFlagInfo && flagged){
-      html += `<div class="field-flag-note" style="margin-bottom:10px;">⚑ Personální: ${esc(flags[flagKey] || 'zkontrolujte prosím tuto sekci')}</div>`;
+      html += `<div class="field-flag-note" style="margin-bottom:10px;">⚑ Personální: ${esc(flags[flagKey] || 'zkontrolujte prosím tuto sekci')} ${editable ? `<button class="btn btn-ghost btn-sm" type="button" data-flag-resolve="${flagKey}">✓ Vyřešeno</button>` : ''}</div>`;
     }
     if(rows.length === 0) html += `<p class="repeat-empty" ${missingSet.has('null:_atLeastOne')?'style="color:var(--red);"':''}>Zatím nevyplněno.${sec.requireAtLeastOne?' Je potřeba doplnit alespoň jednu položku.':''}${sec.emptyHint ? ' ' + esc(sec.emptyHint) : ''}</p>`;
     rows.forEach((row, i) => {
@@ -2595,7 +2595,7 @@ function sectionFieldsHtmlCore(sec, r, editable){
       ${editable ? autofillButtonHtml(f, ctxWithPending, 'field', f.id) : ''}
       ${pending ? `<div class="pending-save-bar">Uložit změnu: <strong>${esc(pending.oldValue||'—')} → ${esc(pending.newValue||'—')}</strong><button type="button" class="btn btn-primary btn-sm" data-pending-confirm>Uložit</button><button type="button" class="btn btn-ghost btn-sm" data-pending-cancel>Zrušit</button></div>` : ''}
       ${hrFlagMode && flagged ? `<input class="flag-note-input" data-flag-note="${f.id}" placeholder="Co u tohoto pole chybí nebo je nejasně vyplněné" value="${esc(flags[f.id]||'')}">` : ''}
-      ${showFlagInfo && flagged ? `<div class="field-flag-note">⚑ Personální: ${esc(flags[f.id] || 'zkontrolujte prosím toto pole')}</div>` : ''}
+      ${showFlagInfo && flagged ? `<div class="field-flag-note">⚑ Personální: ${esc(flags[f.id] || 'zkontrolujte prosím toto pole')} ${editable ? `<button class="btn btn-ghost btn-sm" type="button" data-flag-resolve="${f.id}">✓ Vyřešeno</button>` : ''}</div>` : ''}
     </div>`;
   }).join('')}</div>`;
 }
@@ -2611,6 +2611,12 @@ const SECTION_RULES = {
   },
 };
 
+function hasReturnFeedback(r){ return !!(r && (r.returnNote || Object.keys(r.fieldFlags || {}).length)); }
+function returnBannerHtml(r, fallback){
+  if(!hasReturnFeedback(r)) return '';
+  return `<div class="return-banner"><strong>Personální oddělení vás žádá o doplnění.</strong>${r.returnNote ? esc(r.returnNote) : fallback}
+    <div style="margin-top:8px;"><button class="btn btn-ghost btn-sm" type="button" data-resolve-all>✓ Mám doplněno – skrýt vzkaz a označení</button></div></div>`;
+}
 function sectionHasFlag(sec, r){
   const flags = r.fieldFlags || {};
   if(sec.type === 'repeat') return sec.id in flags;
@@ -3078,7 +3084,7 @@ function renderPersonalWizard(r){
     } else if(status === 'submitted'){
       body += `<div class="wizard-pending-msg">Děkujeme, vaše údaje jsme odeslali personálnímu oddělení ke kontrole.</div>`;
     } else if(status === 'returned'){
-      body += `<div class="return-banner"><strong>Personální oddělení vás žádá o doplnění.</strong>${r.returnNote ? esc(r.returnNote) : 'Zkontrolujte prosím zvýrazněná pole v jednotlivých krocích.'}</div>`;
+      body += returnBannerHtml(r, 'Zkontrolujte prosím zvýrazněná pole v jednotlivých krocích.');
     } else {
       body += `<div class="wizard-pending-msg">Až budete mít vše vyplněné, potvrďte tlačítkem níže — údaje odešlete personálnímu oddělení ke kontrole.</div>`;
     }
@@ -3087,11 +3093,11 @@ function renderPersonalWizard(r){
         const s = steps.find(s => s.id === m.sectionId);
         return s ? (s.navLabel || s.label) : m.section;
       }))];
-      body += `<div class="return-banner"><strong>Než budete moct odeslat, doplňte prosím povinné údaje (${submitMissing.length}) v těchto krocích:</strong> ${incompleteStepNames.map(esc).join(', ')}. Chybějící pole jsou červeně označená přímo v daném kroku i v navigaci nahoře.</div>`;
+      body += `<div class="return-banner"><strong>Než budete moct odeslat, doplňte prosím povinné údaje (${submitMissing.length}) v těchto krocích:</strong> ${incompleteStepNames.map(esc).join(', ')}. Chybí: ${submitMissing.slice(0,8).map(m => esc(m.section + ' – ' + m.label)).join('; ')}${submitMissing.length > 8 ? '…' : ''}. Chybějící pole jsou červeně označená přímo v daném kroku i v navigaci nahoře.</div>`;
     }
   }
   const returnBanner = (status === 'returned' && idx < steps.length)
-    ? `<div class="return-banner"><strong>Personální oddělení vás žádá o doplnění.</strong>${r.returnNote ? esc(r.returnNote) : 'Zkontrolujte prosím zvýrazněná pole níže.'}</div>`
+    ? returnBannerHtml(r, 'Zkontrolujte prosím zvýrazněná pole níže.')
     : '';
   const stepErrorBanner = (state.wizardStepError && idx < steps.length)
     ? `<div class="return-banner"><strong>Než budete pokračovat, opravte prosím zvýrazněné údaje.</strong></div>`
@@ -3759,6 +3765,20 @@ function attachHandlers(){
       render();
     });
   });
+  app.querySelectorAll('[data-flag-resolve]').forEach(el => {
+    el.addEventListener('click', () => {
+      const flags = state.currentRecord.fieldFlags || {};
+      delete flags[el.getAttribute('data-flag-resolve')];
+      persistRecordOnly(); render();
+    });
+  });
+  app.querySelectorAll('[data-resolve-all]').forEach(el => {
+    el.addEventListener('click', () => {
+      state.currentRecord.fieldFlags = {};
+      state.currentRecord.returnNote = '';
+      persistRecordOnly(); render();
+    });
+  });
   app.querySelectorAll('[data-flag-note]').forEach(el => {
     el.addEventListener('change', () => {
       const key = el.getAttribute('data-flag-note');
@@ -3790,6 +3810,7 @@ function attachHandlers(){
         return;
       }
       state.currentRecord.personal[fieldId] = newValue;
+      if(state.role === 'employee' && state.currentRecord.fieldFlags) delete state.currentRecord.fieldFlags[fieldId];
       if(fieldId === 'rozsah_uvazku' && newValue !== 'Zkrácený úvazek') state.currentRecord.personal.zkraceny_uvazek_procenta = '100';
       if(fieldId === 'rezim_zamestnani' || fieldId === 'vedouci') syncZkusebniDoba(state.currentRecord.personal);
       if(fieldId === 'jmeno' || fieldId === 'prijmeni' || fieldId === 'zdrojovy_urad') ensureExistingEmail(state.currentRecord);
@@ -5686,7 +5707,7 @@ async function openDetail(id){
       async set(key, value){
         if(key !== recordKey(empId) || state.infoOnly) return { key, value, shared: true };   // zaměstnanec smí uložit jen svůj spis a jen u otevřeného dotazníku
         const rec = JSON.parse(value);
-        const patch = { personal: rec.personal, personalStatus: rec.personalStatus, consentGiven: !!rec.consentGiven, consentAt: rec.consentAt || null, firstDayDismissed: !!rec.firstDayDismissed };
+        const patch = { personal: rec.personal, personalStatus: rec.personalStatus, consentGiven: !!rec.consentGiven, consentAt: rec.consentAt || null, firstDayDismissed: !!rec.firstDayDismissed, fieldFlags: rec.fieldFlags || {}, returnNote: rec.returnNote || '' };
         const { data, error } = await sb.rpc('emp_save', { p_id: empId, p_token: empToken, p_patch: patch });
         if(error) throw error;
         if(!data) throw new Error('Uložení bylo zamítnuto (odkaz vypršel nebo je spis již uzamčen).');
@@ -5744,7 +5765,7 @@ const HELP_EMP = [
  {g:'Odeslání a kontrola',items:[
   ['✅','Souhrn a odeslání','Poslední krok je <b>Souhrn</b>. Pokud chybí povinné údaje, aplikace vypíše, ve kterých krocích. Až je vše hotové, klikněte na <b>Odeslat personálnímu oddělení</b> a potvrďte.'],
   ['🔒','Po odeslání','Formulář se zamkne a personální oddělení údaje zkontroluje. Zjistíte-li chybu, můžete ho sami odemknout tlačítkem <b>Stáhnout zpět a opravit</b> (pokud ho už neschválilo).'],
-  ['↩️','Když vás požádají o doplnění','Personální oddělení vám dotazník může vrátit. Nahoře uvidíte jeho vzkaz a v krocích budou <b>zvýrazněná pole</b> s poznámkou, co opravit. Opravené údaje odešlete znovu.']]},
+  ['↩️','Když vás požádají o doplnění','Personální oddělení vám dotazník může vrátit. Nahoře uvidíte jeho vzkaz a v krocích budou <b>zvýrazněná pole</b> s poznámkou, co opravit. Opravené údaje odešlete znovu. Když pole opravíte, označení zmizí samo; jinak ho tlačítkem <b>✓ Vyřešeno</b> u pole nebo <b>✓ Mám doplněno</b> v souhrnu skryjete.']]},
  {g:'Další záložka a pomoc',items:[
   ['ℹ️','Co potřebujete vědět','Druhá záložka obsahuje praktické informace k nástupu: kontakty, pracoviště a další informace pro nové zaměstnance.'],
   ['📞','Něco se nedaří?','Pokud si nevíte rady, obraťte se na personální oddělení – kontakty najdete v záložce <b>Co potřebujete vědět</b>.']]}
@@ -5778,7 +5799,7 @@ const HELP = [
   ['📧','Poslat odkaz e-mailem','Otevře e-mail s odkazem. Text si upravíte v Nastavení → <b>Text e-mailu s odkazem pro zaměstnance</b>. Vyžaduje stávající e-mail zaměstnance.'],
   ['ℹ️','Co potřebujete vědět','Informační záložka pro zaměstnance (kontakty, informace k pracovištím, obecné karty). Obsah se upravuje v Nastavení → Obsah pro zaměstnance.']]},
  {g:'Kontrola a schválení',items:[
-  ['⚑','Vlajky u polí','Nejasné nebo chybějící položky označte vlajkou ⚑ u pole či sekce. Zaměstnanec je uvidí zvýrazněné i s vaší poznámkou.'],
+  ['⚑','Vlajky u polí','Nejasné nebo chybějící položky označte vlajkou ⚑ u pole či sekce. Zaměstnanec je uvidí zvýrazněné i s vaší poznámkou. Zaměstnanec může označení po opravě sám odebrat (nebo zmizí, když pole upraví); nové označení může přidat jen personální oddělení.'],
   ['↩️','Vrátit k doplnění','Vrátí spis zaměstnanci s volitelným vzkazem. <b>Aplikace sama žádné upozornění neposílá</b>, proto zaměstnance informujte: tlačítkem <b>Vrátit a poslat e-mailem</b> (otevře e-mail s vaším vzkazem, seznamem označených polí a odkazem na dotazník; adresa je stávající e-mail, jinak soukromý), později <b>Poslat zaměstnanci e-mailem</b> ve spisu (text e-mailu upravíte v Nastavení → <b>Text e-mailu při vrácení k doplnění</b>), nebo <b>Zkopírovat zprávu pro zaměstnance</b> a poslat ji vlastním kanálem.'],
   ['✅','Schválit údaje','Dostupné ve stavu Odesláno / Vráceno, pokud jsou vyplněna všechna povinná pole. Po schválení má spis stav Zkontrolováno.'],
   ['🙋','Co dělá zaměstnanec','Vyplní průvodce, potvrdí souhlas se zpracováním osobních údajů a odešle. Po odeslání je formulář zamčen; zaměstnanec ho může sám stáhnout zpět a opravit, pokud ho ještě nezkontrolujete.']]},

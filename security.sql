@@ -188,6 +188,15 @@ begin
       end loop;
     end if;
     rec := jsonb_set(rec, '{personal}', np, true);
+    -- zaměstnanec smí jen ODEBRAT označení personálního (vlajky) a vymazat vzkaz; nové přidat ani změnit nemůže
+    if jsonb_typeof(p_patch -> 'fieldFlags') = 'object' and jsonb_typeof(rec -> 'fieldFlags') = 'object' then
+      rec := jsonb_set(rec, '{fieldFlags}',
+        coalesce((select jsonb_object_agg(e.key, e.value) from jsonb_each(rec -> 'fieldFlags') e
+                  where (p_patch -> 'fieldFlags') ? e.key), '{}'::jsonb), true);
+    end if;
+    if p_patch ? 'returnNote' and (p_patch ->> 'returnNote') = '' then
+      rec := jsonb_set(rec, '{returnNote}', '""'::jsonb, true);
+    end if;
     if p_patch ? 'consentGiven' and jsonb_typeof(p_patch -> 'consentGiven') = 'boolean' then
       rec := jsonb_set(rec, '{consentGiven}', p_patch -> 'consentGiven', true);
     end if;
