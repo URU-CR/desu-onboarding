@@ -1,4 +1,4 @@
-const APP_VERSION = '2026-10-15.1';
+const APP_VERSION = '2026-10-15.2';
 const STORAGE_INDEX_KEY = 'onboarding:index';
 const STORAGE_INFO_KEY = 'onboarding:info-content';
 const STORAGE_SETTINGS_KEY = 'onboarding:settings';
@@ -1415,9 +1415,11 @@ function renderList(){
       ${canCreate ? `
       <div class="export-bar">
         <span style="font-size:13px;color:var(--ink-soft);">${selectedCount ? `Vybráno ${selectedCount} ke exportu` : 'Export do VEMY — vyberte zkontrolované spisy'}</span>
-        <button class="btn btn-primary btn-sm" id="btn-generate-vema" ${selectedCount===0 || state.exporting ? 'disabled':''}>${state.exporting ? 'Generuji…' : `Generovat tabulky pro VEMU${selectedCount?' ('+selectedCount+')':''}`}</button>
-        <button class="btn btn-ghost btn-sm" id="btn-confirm-upload" ${uploadableCount===0 ? 'disabled':''} title="Potvrdí, že tabulky byly nahrány do Vemy a ve Vemě zkontrolovány. Spis pak získá stav Nahráno a půjde u něj generovat dokumenty. Dostupné u spisů se stavem Vygenerováno.">Potvrdit nahrání do Vemy${uploadableCount?' ('+uploadableCount+')':''}</button>
-        <button class="btn btn-ghost btn-sm" id="btn-purge-selected" ${purgeableCount===0 ? 'disabled':''} title="Smaže osobní údaje zaměstnanců u vybraných spisů se stavem Nahráno. Smažte až po vygenerování dokumentů – z nich pak už nejdou znovu vytvořit.">Smazat osobní údaje${purgeableCount?' ('+purgeableCount+')':''}</button>
+        <div class="export-btns">
+          <button class="btn btn-primary btn-sm" id="btn-generate-vema" ${selectedCount===0 || state.exporting ? 'disabled':''}>${state.exporting ? 'Generuji…' : `Generovat tabulky pro VEMU${selectedCount?' ('+selectedCount+')':''}`}</button>
+          <button class="btn btn-ghost btn-sm" id="btn-confirm-upload" ${uploadableCount===0 ? 'disabled':''} title="Potvrdí, že tabulky byly nahrány do Vemy a ve Vemě zkontrolovány. Spis pak získá stav Nahráno a půjde u něj generovat dokumenty. Dostupné u spisů se stavem Vygenerováno.">Potvrdit nahrání do Vemy${uploadableCount?' ('+uploadableCount+')':''}</button>
+          <button class="btn btn-ghost btn-sm" id="btn-purge-selected" ${purgeableCount===0 ? 'disabled':''} title="Smaže osobní údaje zaměstnanců u vybraných spisů se stavem Nahráno. Smažte až po vygenerování dokumentů – z nich pak už nejdou znovu vytvořit.">Smazat osobní údaje${purgeableCount?' ('+purgeableCount+')':''}</button>
+        </div>
       </div>
       ` : ''}
       ${isAdmin ? `
@@ -3506,8 +3508,7 @@ function attachHandlers(){
     const ids = state.index.filter(r => state.selectedExport[r.id] && r.vemaExportedAt && !r.vemaUploadedAt && !r.personalPurgedAt).map(r => r.id);
     if(ids.length) openConfirmUploadModal(ids);
   });
-  app.querySelectorAll('[data-open-docs]').forEach(el => el.addEventListener('click', (ev) => { ev.stopPropagation(); openDocsModal(el.getAttribute('data-open-docs')); }));
-  const purgeSelBtn = document.getElementById('btn-purge-selected');
+    const purgeSelBtn = document.getElementById('btn-purge-selected');
   if(purgeSelBtn) purgeSelBtn.addEventListener('click', () => {
     const ids = state.index.filter(r => state.selectedExport[r.id] && r.vemaUploadedAt && !r.personalPurgedAt).map(r => r.id);
     if(ids.length) openPurgeModal(ids);
@@ -5214,7 +5215,7 @@ function downloadBlob(blob, name){
 
 function vemaCellHtml(r){
   if(r.personalPurgedAt) return `<span class="chip chip-done" title="Osobní údaje byly smazány">Údaje smazány</span>`;
-  if(r.vemaUploadedAt) return `<span class="chip chip-done" title="Nahráno do Vemy: ${esc(new Date(r.vemaUploadedAt).toLocaleString('cs-CZ'))}"><i>✓</i> Nahráno</span> <button class="btn btn-ghost btn-sm" type="button" data-open-docs="${esc(r.id)}" title="Vygenerovat dokumenty podle vzorů (Word, PDF)">📄 Dokumenty</button>`;
+  if(r.vemaUploadedAt) return `<span class="chip chip-done" title="Nahráno do Vemy: ${esc(new Date(r.vemaUploadedAt).toLocaleString('cs-CZ'))}"><i>✓</i> Nahráno</span>`;
   if(r.vemaExportedAt) return `<span class="chip chip-blue" title="Tabulky vygenerovány: ${esc(new Date(r.vemaExportedAt).toLocaleString('cs-CZ'))}. Po nahrání do Vemy a kontrole potvrďte tlačítkem Potvrdit nahrání do Vemy.">Vygenerováno</span>`;
   return `<span class="chip chip-progress-bg">Negenerováno</span>`;
 }
@@ -6073,7 +6074,7 @@ const HELP = [
   ['🙋','Co dělá zaměstnanec','Vyplní průvodce, potvrdí souhlas se zpracováním osobních údajů a odešle. Po odeslání je formulář zamčen; zaměstnanec ho může sám stáhnout zpět a opravit, pokud ho ještě nezkontrolujete.']]},
  {g:'Výstupy',items:[
   ['📊','Generovat tabulky pro VEMU','V rejstříku zaškrtněte zkontrolované spisy (výběr lze udělat hromadně v záhlaví) a použijte <b>Generovat tabulky pro VEMU</b>. Stav „Vygenerováno“ se u spisu zapamatuje; po nahrání do Vemy a kontrole tlačítkem <b>Potvrdit nahrání do Vemy</b> (vedle Generovat) přejde na „Nahráno“. Když tabulky vygenerujete znovu, stav se vrátí na „Vygenerováno“. Pevné hodnoty a kódy pracovišť se nastavují v Nastavení.'],
-  ['📄','Dokumenty podle vzorů','U spisu ve stavu <b>Nahráno</b> je v rejstříku (sloupec Export VEMA) i ve spisu tlačítko <b>Dokumenty</b>. Otevře se seznam všech vzorů se zaškrtávátky a volbou <b>Označit vše</b>; předem jsou zaškrtnuté ty, které odpovídají typu poměru (pracovní: platový výměr, pracovní smlouva; služební: informace o pracovním poměru; všichni: kritéria hodnocení, portrétní fotografie, školení BOZP, interní předpisy; dle potřeby: osvědčení o rovnocennosti zkoušek, dohoda o výkonu služby z jiného místa a její příloha). Tlačítkem <b>Vygenerovat</b> se každý dokument vyplní z údajů ve spisu a vytvoří se Word i PDF. U každého je <b>Zobrazit PDF</b>, <b>⬇ PDF</b> a <b>⬇ Word</b>; všechno najednou stáhnete jako <b>ZIP</b>. Názvy souborů jsou ve tvaru <b>Příjmení_Jméno_název.docx / .pdf</b>. Údaje, které ve spisu nejsou (č. j., datum podpisu, osobní číslo, které se nevyplnilo), zůstanou k ručnímu doplnění. PDF se vytváří přímo v prohlížeči, takže se může od Wordu lehce lišit zalomením stránek – Word je přesný. Vzory jsou ve složce <code>templates</code> a po změně vzoru se nahradí příslušný soubor. Dokumenty se generují z osobních údajů, proto je vytvořte před smazáním údajů.'],
+  ['📄','Dokumenty podle vzorů','U spisu ve stavu <b>Nahráno</b> je ve spisu (sekce s podklady) tlačítko <b>Dokumenty podle vzorů</b>. Otevře se seznam všech vzorů se zaškrtávátky a volbou <b>Označit vše</b>; předem jsou zaškrtnuté ty, které odpovídají typu poměru (pracovní: platový výměr, pracovní smlouva; služební: informace o pracovním poměru; všichni: kritéria hodnocení, portrétní fotografie, školení BOZP, interní předpisy; dle potřeby: osvědčení o rovnocennosti zkoušek, dohoda o výkonu služby z jiného místa a její příloha). Tlačítkem <b>Vygenerovat</b> se každý dokument vyplní z údajů ve spisu a vytvoří se Word i PDF. U každého je <b>Zobrazit PDF</b>, <b>⬇ PDF</b> a <b>⬇ Word</b>; všechno najednou stáhnete jako <b>ZIP</b>. Názvy souborů jsou ve tvaru <b>Příjmení_Jméno_název.docx / .pdf</b>. Údaje, které ve spisu nejsou (č. j., datum podpisu, osobní číslo, které se nevyplnilo), zůstanou k ručnímu doplnění. PDF se vytváří přímo v prohlížeči, takže se může od Wordu lehce lišit zalomením stránek – Word je přesný. Vzory jsou ve složce <code>templates</code> a po změně vzoru se nahradí příslušný soubor. Dokumenty se generují z osobních údajů, proto je vytvořte před smazáním údajů.'],
   ['🧹','Smazání osobních údajů','Po nahrání do Vemy a ověření, že je vše správně, vyberte v rejstříku spisy a klikněte na <b>Smazat osobní údaje</b>. Tlačítko je aktivní jen u spisů ve stavu <b>Nahráno</b>. Smažte až po vygenerování dokumentů (z údajů se pak už znovu vytvořit nedají). Nevratně se smažou osobní údaje zaměstnance (zůstane jméno, pozice, pracoviště, datum nástupu a stavy) a jeho odkaz dál otevře jen záložku „Co potřebujete vědět“. Pokud smazání zapomenete, proběhne automaticky 60 dní po vygenerování tabulek.'],
   ['🖨️','Tištěné podklady','Ve spisu <b>Tisk podkladů</b>: A – Osobní dotazník, B – Prohlášení o předchozích zaměstnáních, C – Souhlas se zasíláním platu na účet. Předvyplněno z formuláře; lze tisknout/uložit jako PDF nebo odeslat e-mailem (potřebuje přidělený e-mail zaměstnance).']]},
  {g:'IT a provoz (stručně)',items:[
