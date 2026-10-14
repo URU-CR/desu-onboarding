@@ -1,4 +1,4 @@
-const APP_VERSION = '2026-10-14.4';
+const APP_VERSION = '2026-10-14.5';
 const STORAGE_INDEX_KEY = 'onboarding:index';
 const STORAGE_INFO_KEY = 'onboarding:info-content';
 const STORAGE_SETTINGS_KEY = 'onboarding:settings';
@@ -2148,6 +2148,7 @@ function sectionFieldsHtml(sec, r, editable){
     if(editable) html += `<button class="btn btn-ghost btn-sm" type="button" data-repeat-add="${sec.id}">${esc(sec.addLabel || '+ Přidat')}</button>`;
     return html;
   }
+  syncZkusebniDoba(r.personal); // zkušební doba se vždy odvozuje z poměru a vedoucí pozice
   return `<div class="form-grid">${sec.fields.filter(f => !f.showIf || f.showIf(r.personal)).map(fRaw => {
     const f = resolveField(fRaw, r.personal);
     const flagged = f.id in flags;
