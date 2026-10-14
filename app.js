@@ -1,4 +1,4 @@
-const APP_VERSION = '2026-10-14.17';
+const APP_VERSION = '2026-10-14.18';
 const STORAGE_INDEX_KEY = 'onboarding:index';
 const STORAGE_INFO_KEY = 'onboarding:info-content';
 const STORAGE_SETTINGS_KEY = 'onboarding:settings';
@@ -2184,6 +2184,18 @@ const ATTACH_MAX_PDF = 2621440;       // bajtů
 const ATTACH_MAX_TOTAL = 12;
 function fmtSize(n){ n = Number(n)||0; return n >= 1048576 ? (n/1048576).toFixed(1).replace('.',',')+' MB' : Math.max(1,Math.round(n/1024))+' kB'; }
 function attachFilesOf(record, kind){ return ((record && record.personal && record.personal.prilohy) || []).filter(x => x && x.kind === kind); }
+function slugName(t){ return String(t||'').trim().replace(/[\\/:*?"<>|]+/g,'').replace(/\s+/g,'_'); }
+// Automatický název dokladu: Příjmení_Jméno_druh[_n].přípona (pořadí v rámci druhu přílohy)
+function attachDisplayName(rec, item){
+  const p = (rec && rec.personal) || {};
+  const who = [slugName(p.prijmeni), slugName(p.jmeno)].filter(Boolean).join('_') || 'zamestnanec';
+  const label = item.kind === 'zp_karta' ? 'kartička_ZP' : item.kind === 'zoz' ? 'osvědčení_ZOZ' : 'doklad';
+  const same = attachFilesOf(rec, item.kind);
+  const idx = same.findIndex(x => x.id === item.id);
+  const n = same.length > 1 && idx >= 0 ? '_' + (idx + 1) : '';
+  const ext = item.mime === 'application/pdf' ? 'pdf' : item.mime === 'image/png' ? 'png' : 'jpg';
+  return `${who}_${label}${n}.${ext}`;
+}
 function safeThumb(t){ return typeof t === 'string' && /^data:image\/jpeg;base64,[A-Za-z0-9+\/=]{20,40000}$/.test(t) ? t : ''; }
 function attachmentsHtml(sec, r, editable){
   const a = sec.attachments;
@@ -2198,8 +2210,8 @@ function attachmentsHtml(sec, r, editable){
   const items = list.map(x => {
     const th = safeThumb(x.thumb);
     return `<div class="attach-item">${th ? `<img src="${th}" alt="">` : `<span class="attach-pdf">PDF</span>`}
-      <div class="attach-meta"><div class="attach-name">${esc(x.name)}</div><div class="attach-size">${esc(fmtSize(x.size))}</div></div>
-      ${canView ? `<button class="btn btn-ghost btn-sm" type="button" data-attach-view="${esc(x.id)}">Zobrazit</button>` : ''}
+      <div class="attach-meta"><div class="attach-name">${esc(state.role === 'hr' ? attachDisplayName(r, x) : x.name)}</div><div class="attach-size">${esc(fmtSize(x.size))}</div></div>
+      ${canView ? `<button class="btn btn-ghost btn-sm" type="button" data-attach-view="${esc(x.id)}">Zobrazit</button><button class="btn btn-ghost btn-sm" type="button" data-attach-download="${esc(x.id)}">⬇ Stáhnout</button>` : ''}
       ${canUpload ? `<button class="btn btn-ghost btn-sm" type="button" data-attach-del="${esc(x.id)}">Smazat</button>` : ''}
     </div>`;
   }).join('');
@@ -2255,7 +2267,7 @@ async function prepareAttachment(blob, name){
   if(!type.startsWith('image/')) throw new Error('Nepodporovaný typ souboru. Nahrajte prosím fotografii (JPG, PNG) nebo PDF.');
   let bmp;
   try{ bmp = await loadBitmap(blob); }catch(e){ throw new Error('Obrázek se nepodařilo načíst (formát HEIC z telefonu zkuste uložit jako JPG).'); }
-  const main = drawScaled(bmp, 1800, 0.85);
+  const main = drawScaled(bmp, 1600, 0.8);
   const thumb = drawScaled(bmp, 120, 0.7);
   const b64 = main.split(',')[1];
   return { mime: 'image/jpeg', b64, size: Math.round(b64.length * 0.75), thumb, name: (name || 'foto.jpg').replace(/\.(png|jpe?g|webp|heic|heif|gif|bmp)$/i, '') + '.jpg' };
@@ -2303,17 +2315,31 @@ async function deleteAttachment(id){
   }catch(e){ console.error('delete attachment failed', e); state.attachMsg = { kind: item.kind, text: 'Smazání se nezdařilo, zkuste to prosím znovu.', err: true }; }
   render();
 }
+async function fetchAttachmentBlob(id){
+  const f = await fileApi.get(id);
+  if(!f || !f.data) throw new Error('empty');
+  const bin = atob(f.data); const arr = new Uint8Array(bin.length);
+  for(let k = 0; k < bin.length; k++) arr[k] = bin.charCodeAt(k);
+  return new Blob([arr], { type: f.mime });
+}
 async function viewAttachment(id){
   if(!fileApi || !fileApi.get) return;
   try{
-    const f = await fileApi.get(id);
-    if(!f || !f.data) throw new Error('empty');
-    const bin = atob(f.data); const arr = new Uint8Array(bin.length);
-    for(let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
-    const url = URL.createObjectURL(new Blob([arr], { type: f.mime }));
+    const url = URL.createObjectURL(await fetchAttachmentBlob(id));
     window.open(url, '_blank', 'noopener');
     setTimeout(() => URL.revokeObjectURL(url), 120000);
   }catch(e){ console.error('view attachment failed', e); state.error = 'Soubor se nepodařilo načíst.'; render(); }
+}
+async function downloadAttachment(id){
+  if(!fileApi || !fileApi.get) return;
+  const item = ((state.currentRecord && state.currentRecord.personal && state.currentRecord.personal.prilohy) || []).find(x => x.id === id);
+  try{
+    const url = URL.createObjectURL(await fetchAttachmentBlob(id));
+    const a = document.createElement('a');
+    a.href = url; a.download = item ? attachDisplayName(state.currentRecord, item) : 'doklad';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  }catch(e){ console.error('download attachment failed', e); state.error = 'Soubor se nepodařilo stáhnout.'; render(); }
 }
 async function openCameraModal(kind){
   let stream;
@@ -2324,11 +2350,11 @@ async function openCameraModal(kind){
   }
   const backdrop = document.createElement('div');
   backdrop.className = 'modal-backdrop';
-  backdrop.innerHTML = `<div class="modal" style="max-width:760px;">
+  backdrop.innerHTML = `<div class="modal" style="max-width:520px;">
     <h3>Vyfotit kartičku pojišťovny</h3>
     <p style="font-size:13px;color:var(--ink-soft);margin:0 0 10px;">Přiložte kartičku <b>stranou s údaji</b> do rámečku a držte ji klidně. Jakmile ji aplikace rozpozná a bude čitelná, sama ji vyfotí a ořízne.</p>
-    <canvas id="cam-view" style="width:100%;border-radius:8px;background:#000;display:block;"></canvas>
-    <img id="cam-still" alt="" style="display:none;width:100%;max-height:60vh;object-fit:contain;border-radius:8px;background:#000;">
+    <canvas id="cam-view" style="width:100%;max-height:40vh;object-fit:contain;border-radius:8px;background:#000;display:block;"></canvas>
+    <img id="cam-still" alt="" style="display:none;width:100%;max-height:36vh;object-fit:contain;border-radius:8px;background:#000;">
     <p id="cam-status" style="font-size:13px;margin:8px 0 0;color:var(--ink-soft);min-height:1.4em;">Spouštím kameru…</p>
     <div class="modal-actions">
       <button class="btn btn-ghost" id="cam-cancel">Zrušit</button>
@@ -2349,10 +2375,10 @@ async function openCameraModal(kind){
 
   function geom(){
     const vw = video.videoWidth, vh = video.videoHeight;
-    let gw = vw * 0.74, gh = gw / RATIO;
+    let gw = vw * 0.66, gh = gw / RATIO;
     if(gh > vh * 0.78){ gh = vh * 0.78; gw = gh * RATIO; }
     const gx = (vw - gw) / 2, gy = (vh - gh) / 2;
-    const mx = gw * 0.12, my = gh * 0.14;
+    const mx = gw * 0.24, my = gh * 0.28;
     const rx = Math.max(0, gx - mx), ry = Math.max(0, gy - my);
     return { vw, vh, gx, gy, gw, gh, rx, ry, rw: Math.min(vw - rx, gw + 2 * mx), rh: Math.min(vh - ry, gh + 2 * my) };
   }
@@ -2360,7 +2386,7 @@ async function openCameraModal(kind){
   function detect(d, aw, ah, gg){
     // rozdíl barev dvou pixelů (součet rozdílů kanálů RGB / 3) – hrany tak najde i při podobné jasnosti kartičky a pozadí
     const df = (a, b) => (Math.abs(d[a*4] - d[b*4]) + Math.abs(d[a*4+1] - d[b*4+1]) + Math.abs(d[a*4+2] - d[b*4+2])) / 3;
-    const band = Math.max(3, Math.round(gg.w * 0.07));
+    const band = Math.max(3, Math.round(gg.w * 0.16));
     const clampI = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
     // Z celého pásma kolem strany rámečku vybere nejvzdálenější výraznou hranu (aby se nezaměnila s vnitřním
     // barevným pruhem kartičky): směr dir = -1 (levá/horní strana, nejnižší pozice) nebo +1 (pravá/dolní).
@@ -2370,7 +2396,7 @@ async function openCameraModal(kind){
       let idx = -1;
       for(let n = 0; n < vals.length; n++){
         const i = dir < 0 ? n : vals.length - 1 - n;
-        if(vals[i] >= Math.max(10, best * 0.3)){ idx = i; break; }
+        if(vals[i] >= Math.max(10, best * 0.45)){ idx = i; break; }
       }
       return { pos: lo + idx, score: best, ratio: best / Math.max(1, sum / vals.length) };
     };
@@ -2438,7 +2464,7 @@ async function openCameraModal(kind){
     if(blob || !G || !video.videoWidth) return;
     let sx, sy, sw, sh;
     if(auto && found){      // oříznutí přesně na rozpoznanou kartičku (+ malý okraj)
-      const pad = 0.008 * G.gw;
+      const pad = 0.004 * G.gw;
       sx = G.rx + found.xl / SC - pad; sy = G.ry + found.yt / SC - pad;
       sw = (found.xr - found.xl) / SC + 2 * pad; sh = (found.yb - found.yt) / SC + 2 * pad;
     } else { sx = G.gx; sy = G.gy; sw = G.gw; sh = G.gh; }
@@ -2487,6 +2513,7 @@ function attachFileHandlers(){
   }));
   app.querySelectorAll('[data-attach-cam]').forEach(b => b.addEventListener('click', () => openCameraModal(b.getAttribute('data-attach-cam'))));
   app.querySelectorAll('[data-attach-del]').forEach(b => b.addEventListener('click', () => deleteAttachment(b.getAttribute('data-attach-del'))));
+  app.querySelectorAll('[data-attach-download]').forEach(b => b.addEventListener('click', () => downloadAttachment(b.getAttribute('data-attach-download'))));
   app.querySelectorAll('[data-attach-view]').forEach(b => b.addEventListener('click', () => viewAttachment(b.getAttribute('data-attach-view'))));
   app.querySelectorAll('[data-attach-drop]').forEach(z => {
     if(!z.querySelector('[data-attach-input]')) return;
@@ -5743,7 +5770,7 @@ const HELP = [
  {g:'Spis – údaje personálního oddělení',items:[
   ['📝','Osobní údaje','Formulář je rozdělen do sekcí. Povinné údaje jsou označeny <b style="color:#C62828">*</b>; chybějící jsou po pokusu o schválení zvýrazněny červeně a nad formulářem je výpis sekcí, kde ještě něco chybí.'],
   ['👔','Pracovní poměr','Typ poměru je předvyplněn jako <b>HPP</b> (lze změnit). <b>Zkušební doba:</b> u služebního poměru 6 nebo 8 měsíců – správná hodnota se předvyplní podle toho, zda je pozice vedoucí; u pracovního poměru se počet měsíců vybírá po jednom. Vedoucí pozice a platová třída se berou z Organigramu. <b>Tarifní plat</b> se dopočítá sám z tabulky tarifů (pracovní / služební poměr) podle platové třídy a platového stupně 1. <b>Platový stupeň</b> je předvyplněn na 1 (lze změnit, tarif se přepočte). Při otevření spisu se z Organigramu doplní chybějící vedoucí pozice a platová třída. Další položky pro Vemu (klasifikace, platová skupina, skupina prací, způsob odměňování aj.) se doplňují automaticky a najdete je v sbalené sekci <b>Automaticky doplňované hodnoty pro Vemu</b> na konci formuláře (jen ke kontrole).'],
-  ['📎','Přílohy od zaměstnance','Zaměstnanec v dotazníku nahrává <b>kartičku zdravotní pojišťovny</b> (povinné, krok Pojišťovna a účet) a případná <b>osvědčení o ZOZ</b> (nepovinné, krok Praxe a ZOZ). Ve spisu je vidíte v těchto krocích a tlačítkem <b>Zobrazit</b> je otevřete. Soubory jsou uložené odděleně v databázi, přístupné jen přihlášeným zaměstnancům a <b>mažou se spolu s osobními údaji</b> (ručně tlačítkem Smazat osobní údaje i automaticky po 60 dnech). Do tabulek pro Vemu nejdou a do zálohy (json) se neukládají.'],
+  ['📎','Přílohy od zaměstnance','Zaměstnanec v dotazníku nahrává <b>kartičku zdravotní pojišťovny</b> (povinné, krok Pojišťovna a účet) a případná <b>osvědčení o ZOZ</b> (nepovinné, krok Praxe a ZOZ). Ve spisu je vidíte v těchto krocích; tlačítkem <b>Zobrazit</b> je otevřete a tlačítkem <b>⬇ Stáhnout</b> uložíte. Název souboru se vytvoří automaticky ve tvaru <b>Příjmení_Jméno_kartička_ZP.jpg</b> (u ZOZ <b>…_osvědčení_ZOZ.pdf</b>, při více souborech s pořadovým číslem). Fotky se ukládají zmenšené (cca 200–400 kB). Soubory jsou uložené odděleně v databázi, přístupné jen přihlášeným zaměstnancům a <b>mažou se spolu s osobními údaji</b> (ručně tlačítkem Smazat osobní údaje i automaticky po 60 dnech). Do tabulek pro Vemu nejdou a do zálohy (json) se neukládají.'],
   ['🪪','Rodné číslo','Aplikace kontroluje rodné číslo a z něj dopočítá datum narození; nesrovnalosti zobrazí jako upozornění u pole.'],
   ['✉️','Stávající e-mail','Navrhuje se podle pravidel z Nastavení (zdrojový úřad, jméno, příjmení). Je potřeba pro odeslání odkazu e-mailem.']]},
  {g:'Odkaz pro zaměstnance',items:[
