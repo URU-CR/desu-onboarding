@@ -1,4 +1,4 @@
-const APP_VERSION = '2026-10-14.6';
+const APP_VERSION = '2026-10-14.7';
 const STORAGE_INDEX_KEY = 'onboarding:index';
 const STORAGE_INFO_KEY = 'onboarding:info-content';
 const STORAGE_SETTINGS_KEY = 'onboarding:settings';
@@ -2659,7 +2659,7 @@ function renderPersonalWizard(r){
     ${stepErrorBanner}
     <div class="wizard-breadcrumb">${breadcrumb}</div>
     <div class="wizard-step-title" style="margin:0 0 4px;">Krok ${idx+1}/${total} · ${esc(title)}${sectionOptional?' <span class="section-optional-tag">doplňkové</span>':''}</div>
-    ${idx===0 ? `<div class="info-box" style="margin:0 0 14px;font-size:13.5px;line-height:1.55;">Údaje z tohoto dotazníku slouží k zavedení do personálního a mzdového systému. Po jejich zavedení budou vaše citlivé osobní údaje z této aplikace <b>vymazány</b>.</div>` : ''}
+    ${idx===0 ? `<div style="display:block;margin:0 0 14px;padding:12px 14px;background:var(--paper-alt);border-radius:var(--radius);font-size:13.5px;line-height:1.55;">Údaje z tohoto dotazníku slouží k zavedení do personálního a mzdového systému. Po jejich zavedení budou vaše citlivé osobní údaje z této aplikace <b>vymazány</b>.</div>` : ''}
     ${idx===0 && canEdit ? `<p style="font-size:12px;color:var(--ink-faint);margin:0 0 14px;"><span class="essential-dot">*</span> = povinný údaj — bez něj se dotazník neobejde, zbytek je doplňkový.</p>` : ''}
     ${saveStatusHtml}
     ${body}
