@@ -1,4 +1,4 @@
-const APP_VERSION = '2026-10-14.9';
+const APP_VERSION = '2026-10-14.10';
 const STORAGE_INDEX_KEY = 'onboarding:index';
 const STORAGE_INFO_KEY = 'onboarding:info-content';
 const STORAGE_SETTINGS_KEY = 'onboarding:settings';
@@ -351,16 +351,21 @@ const PERSONAL_SECTIONS = [
     {id:'sidlo_skoly', label:'Sídlo školy'},
     {id:'druh_zkousky', label:'Druh zkoušky (maturita, státní zkouška, certifikát…)', showIf:p=>p.stav_vzdelani==='Dokončené'},
   ]},
-  { id:'praxe', label:'Předchozí zaměstnání a praxe', navLabel:'Praxe', owner:'employee', type:'repeat', requireAtLeastOne:true, addLabel:'+ Přidat zaměstnání', fields:[
-    {id:'od', label:'Od', type:'date'},
-    {id:'do', label:'Do', type:'date', validate:'praxeDo'},
-    {id:'organizace', label:'Organizace'},
-    {id:'sidlo', label:'Sídlo organizace'},
-    {id:'pracovni_zarazeni', label:'Pracovní zařazení / vykonávaná činnost', full:true},
-  ]},
-  { id:'jazyky', label:'Jazykové znalosti a zkouška odborné způsobilosti (ZOZ)', navLabel:'Jazyky a ZOZ', owner:'employee', type:'repeat', optional:true, addLabel:'+ Přidat jazyk',
+  { id:'praxe', label:'Praxe, započitatelné doby a ZOZ', navLabel:'Praxe a ZOZ', owner:'employee', type:'repeat', optional:true, addLabel:'+ Přidat období',
+    emptyHint:'Pokud žádnou praxi ani započitatelnou dobu nemáte (např. absolvent), tento krok prostě přeskočte.',
+    intro:['PŘEHLED PRŮBĚHU PŘEDCHOZÍCH ZAMĚSTNÁNÍ, VOJENSKÉ SLUŽBY, MATEŘSKÉ/RODIČOVSKÉ DOVOLENÉ, ÚŘADU PRÁCE apod.',
+      'Této části dotazníku prosím věnujte zvýšenou pozornost. Jednotlivé položky uvádějte s přesnými daty (tj. den.měsíc.rok). Nesprávně uvedené údaje mohou vést např. k zařazení do nižšího platového stupně, případně mohou vést k pracovně právním postihům podle příslušných ustanovení zákoníku práce a zákona o státních zaměstnancích v případě nepravdivých údajů.',
+      'Mimo předchozí zaměstnání nezapomeňte uvést všechny započitatelné doby, včetně mateřské a rodičovské dovolené či vojenské služby. V případě, že jste byl/a evidován/a na úřadu práce, uveďte taktéž toto období. Praxi nemusíte vyplňovat, pokud ji nemáte (např. absolvent).'],
     attachments:{kind:'zoz', title:'Osvědčení o vykonání zkoušky odborné způsobilosti (ZOZ)', required:false, max:6, camera:false, addLabel:'+ Přidat ZOZ',
       hint:'Máte-li osvědčení o ZOZ, nahrajte jeho sken (PDF nebo obrázek). Může se uznat jako část praxe a ovlivnit platový stupeň. Doplňkové – můžete přidat i více osvědčení.'}, fields:[
+    {id:'druh', label:'Druh období', type:'select', default:'Zaměstnání', options:['Zaměstnání','Vojenská služba','Mateřská dovolená','Rodičovská dovolená','Evidence na úřadu práce','Podnikání (OSVČ)','Jiná započitatelná doba'], full:true},
+    {id:'od', label:'Od', type:'date'},
+    {id:'do', label:'Do', type:'date', validate:'praxeDo'},
+    {id:'organizace', label:'Organizace / instituce', placeholder:'zaměstnavatel, vojenský útvar, úřad práce…'},
+    {id:'sidlo', label:'Sídlo organizace'},
+    {id:'pracovni_zarazeni', label:'Pracovní zařazení / vykonávaná činnost', full:true, placeholder:'u mateřské a rodičovské dovolené nevyplňujte'},
+  ]},
+  { id:'jazyky', label:'Jazykové znalosti', navLabel:'Jazyky', owner:'employee', type:'repeat', optional:true, addLabel:'+ Přidat jazyk', fields:[
     {id:'jazyk', label:'Jazyk', datalist:'jazyky'},
     {id:'stupen_znalosti', label:'Stupeň znalosti', essential:true, type:'select', options:['','Základní (začátečník)','Střední (pokročilý)','Odborný']},
     {id:'stupen_osvedceni', label:'Stupeň osvědčení', placeholder:'maturita, státní zkouška, certifikát…'},
@@ -655,6 +660,7 @@ function normalizeRecord(record){
     if(sec.type === 'repeat' && !Array.isArray(record.personal[sec.id])) record.personal[sec.id] = [];
   });
   if(!Array.isArray(record.personal.prilohy)) record.personal.prilohy = [];
+  (record.personal.praxe || []).forEach(x => { if(x && !x.druh) x.druh = 'Zaměstnání'; });
   // Starší spisy: typ poměru výchozí HPP, zkušební doba srovnaná podle poměru a vedoucí pozice.
   if(!record.personal.typ_pomeru) record.personal.typ_pomeru = 'HPP';
   if(!record.personal.platovy_stupen) record.personal.platovy_stupen = '1';
@@ -2436,7 +2442,9 @@ function attachFileHandlers(){
 }
 
 function sectionFieldsHtml(sec, r, editable){
-  return sectionFieldsHtmlCore(sec, r, editable) + attachmentsHtml(sec, r, editable);
+  const intro = Array.isArray(sec.intro) && sec.intro.length
+    ? `<div style="display:block;margin:0 0 14px;padding:12px 14px;background:var(--paper-alt);border-radius:var(--radius);font-size:13.5px;line-height:1.55;"><p style="margin:0 0 6px;font-weight:700;">${esc(sec.intro[0])}</p>${sec.intro.slice(1).map(t => `<p style="margin:0 0 6px;">${esc(t)}</p>`).join('')}</div>` : '';
+  return intro + sectionFieldsHtmlCore(sec, r, editable) + attachmentsHtml(sec, r, editable);
 }
 function sectionFieldsHtmlCore(sec, r, editable){
   const flags = r.fieldFlags || {};
@@ -2458,7 +2466,7 @@ function sectionFieldsHtmlCore(sec, r, editable){
     } else if(showFlagInfo && flagged){
       html += `<div class="field-flag-note" style="margin-bottom:10px;">⚑ Personální: ${esc(flags[flagKey] || 'zkontrolujte prosím tuto sekci')}</div>`;
     }
-    if(rows.length === 0) html += `<p class="repeat-empty" ${missingSet.has('null:_atLeastOne')?'style="color:var(--red);"':''}>Zatím nevyplněno.${sec.requireAtLeastOne?' Je potřeba doplnit alespoň jednu položku.':''}</p>`;
+    if(rows.length === 0) html += `<p class="repeat-empty" ${missingSet.has('null:_atLeastOne')?'style="color:var(--red);"':''}>Zatím nevyplněno.${sec.requireAtLeastOne?' Je potřeba doplnit alespoň jednu položku.':''}${sec.emptyHint ? ' ' + esc(sec.emptyHint) : ''}</p>`;
     rows.forEach((row, i) => {
       html += `<div class="repeat-row ${(showFlagInfo || hrFlagMode) && flagged ? 'flagged':''}"><div class="form-grid">`;
       html += sec.fields.map(f => {
@@ -2738,7 +2746,7 @@ function buildDocBHtml(r){
   const p = r.personal;
   const praxeRows = (p.praxe || []).map(x => `
     <tr>
-      <td>${esc(x.organizace||'')}${x.sidlo?`, ${esc(x.sidlo)}`:''}</td>
+      <td>${x.druh && x.druh !== 'Zaměstnání' ? `<b>${esc(x.druh)}</b>${x.organizace ? ' – ' : ''}` : ''}${esc(x.organizace||'')}${x.sidlo?`, ${esc(x.sidlo)}`:''}</td>
       <td>${esc(x.pracovni_zarazeni||'')}</td>
       <td>${esc(formatDate(x.od))||''}</td>
       <td>${esc(formatDate(x.do))||''}</td>
@@ -3815,7 +3823,7 @@ function attachHandlers(){
       const secId = el.getAttribute('data-repeat-add');
       const sec = PERSONAL_SECTIONS.find(s => s.id === secId);
       const row = {};
-      sec.fields.forEach(f => row[f.id] = '');
+      sec.fields.forEach(f => row[f.id] = f.default || '');
       if(!Array.isArray(state.currentRecord.personal[secId])) state.currentRecord.personal[secId] = [];
       state.currentRecord.personal[secId].push(row);
       persistRecordOnly();
@@ -4894,7 +4902,7 @@ const SATELLITE_TABLES = [
     name: 'Predchozi_zamestnani',
     header: ['oscis-A','zamod-A','zamdo-A','zamorg-A','sidorg-A','zamvykz-A'],
     rows(oscis, p){
-      return (p.praxe||[]).map(x => [oscis, x.od, x.do, x.organizace, x.sidlo, x.pracovni_zarazeni]);
+      return (p.praxe||[]).map(x => [oscis, x.od, x.do, x.organizace || (x.druh && x.druh !== 'Zaměstnání' ? x.druh : ''), x.sidlo, x.pracovni_zarazeni || (x.druh && x.druh !== 'Zaměstnání' && x.organizace ? x.druh : '')]);
     }
   },
   {
@@ -5555,8 +5563,8 @@ const HELP_EMP = [
   ['🏦','Pojišťovna a účet','Zdravotní pojišťovnu vyberte ze seznamu. <b>Nahrajte kartičku pojišťovny</b> (povinné): tlačítkem <b>📷 Vyfotit kamerou</b> ji vyfotíte kamerou počítače (prohlížeč se zeptá na povolení kamery): přiložte kartičku stranou s údaji do rámečku a držte ji klidně – aplikace ji sama rozpozná, vyfotí a ořízne (kdyby to nešlo, použijte <b>Vyfotit hned</b>). Nebo <b>📎 Nahrát soubor</b> / přetažením vložíte hotovou fotografii či sken (JPG, PNG, PDF). Fotografie se před odesláním zmenší. Nahraný soubor můžete tlačítkem <b>Smazat</b> nahradit jiným. Číslo účtu zadejte bez lomítka a kódu banky, kód banky vyplňte zvlášť (např. 0100). Po zadání čísla účtu se zobrazí tři souhlasy se zasíláním platu, cestovních náhrad a příspěvku na stravování na tento účet.'],
   ['👪','Rodina a děti','Rodinný stav je povinný. Krok <b>Děti</b> je doplňkový – pokud děti nemáte, jen pokračujte dál. Další dítě přidáte tlačítkem <b>+ Přidat dítě</b>.'],
   ['🎓','Vzdělání','Údaje o vašem dosaženém vzdělání – vyplňte podle pokynů u polí.'],
-  ['💼','Praxe','Předchozí zaměstnání a činnosti. Uveďte <b>alespoň jedno</b>; další přidáte tlačítkem <b>+ Přidat zaměstnání</b>.'],
-  ['🌍','Jazyky a ZOZ','Jazykové znalosti jsou doplňkové. Máte-li <b>osvědčení o zkoušce odborné způsobilosti (ZOZ)</b>, nahrajte jeho sken tlačítkem <b>+ Přidat ZOZ</b> (lze více osvědčení). Může se uznat jako část praxe a ovlivnit platový stupeň. Nepovinné.'],
+  ['💼','Praxe a ZOZ','Krok je <b>nepovinný</b> – pokud praxi nemáte (např. absolvent), přeskočte ho. Uvádějte <b>přesná data</b> (den.měsíc.rok): předchozí zaměstnání, ale i <b>vojenskou službu, mateřskou a rodičovskou dovolenou, evidenci na úřadu práce</b> a další započitatelné doby – u každého období vyberte jeho <b>druh</b>. Nesprávné údaje mohou vést k zařazení do nižšího platového stupně. Další období přidáte tlačítkem <b>+ Přidat období</b>. Dole můžete nahrát sken <b>osvědčení o zkoušce odborné způsobilosti (ZOZ)</b> (tlačítko <b>+ Přidat ZOZ</b>, lze více osvědčení) – může se uznat jako část praxe.'],
+  ['🌍','Jazyky','Jazykové znalosti jsou doplňkové; další jazyk přidáte tlačítkem <b>+ Přidat jazyk</b>.'],
   ['🗂️','Další údaje','V kroku <b>Další údaje</b> jsou dodatečné údaje, které úřad ze zákona potřebuje; vyplňte je podle pokynů u polí.']]},
  {g:'Odeslání a kontrola',items:[
   ['✅','Souhrn a odeslání','Poslední krok je <b>Souhrn</b>. Pokud chybí povinné údaje, aplikace vypíše, ve kterých krocích. Až je vše hotové, klikněte na <b>Odeslat personálnímu oddělení</b> a potvrďte.'],
@@ -5586,7 +5594,7 @@ const HELP = [
  {g:'Spis – údaje personálního oddělení',items:[
   ['📝','Osobní údaje','Formulář je rozdělen do sekcí. Povinné údaje jsou označeny <b style="color:#C62828">*</b>; chybějící jsou po pokusu o schválení zvýrazněny červeně a nad formulářem je výpis sekcí, kde ještě něco chybí.'],
   ['👔','Pracovní poměr','Typ poměru je předvyplněn jako <b>HPP</b> (lze změnit). <b>Zkušební doba:</b> u služebního poměru 6 nebo 8 měsíců – správná hodnota se předvyplní podle toho, zda je pozice vedoucí; u pracovního poměru se počet měsíců vybírá po jednom. Vedoucí pozice a platová třída se berou z Organigramu. <b>Tarifní plat</b> se dopočítá sám z tabulky tarifů (pracovní / služební poměr) podle platové třídy a platového stupně 1. <b>Platový stupeň</b> je předvyplněn na 1 (lze změnit, tarif se přepočte). Při otevření spisu se z Organigramu doplní chybějící vedoucí pozice a platová třída. Další položky pro Vemu (klasifikace, platová skupina, skupina prací, způsob odměňování aj.) se doplňují automaticky a najdete je v sbalené sekci <b>Automaticky doplňované hodnoty pro Vemu</b> na konci formuláře (jen ke kontrole).'],
-  ['📎','Přílohy od zaměstnance','Zaměstnanec v dotazníku nahrává <b>kartičku zdravotní pojišťovny</b> (povinné, krok Pojišťovna a účet) a případná <b>osvědčení o ZOZ</b> (nepovinné, krok Jazyky a ZOZ). Ve spisu je vidíte v těchto krocích a tlačítkem <b>Zobrazit</b> je otevřete. Soubory jsou uložené odděleně v databázi, přístupné jen přihlášeným zaměstnancům a <b>mažou se spolu s osobními údaji</b> (ručně tlačítkem Smazat osobní údaje i automaticky po 60 dnech). Do tabulek pro Vemu nejdou a do zálohy (json) se neukládají.'],
+  ['📎','Přílohy od zaměstnance','Zaměstnanec v dotazníku nahrává <b>kartičku zdravotní pojišťovny</b> (povinné, krok Pojišťovna a účet) a případná <b>osvědčení o ZOZ</b> (nepovinné, krok Praxe a ZOZ). Ve spisu je vidíte v těchto krocích a tlačítkem <b>Zobrazit</b> je otevřete. Soubory jsou uložené odděleně v databázi, přístupné jen přihlášeným zaměstnancům a <b>mažou se spolu s osobními údaji</b> (ručně tlačítkem Smazat osobní údaje i automaticky po 60 dnech). Do tabulek pro Vemu nejdou a do zálohy (json) se neukládají.'],
   ['🪪','Rodné číslo','Aplikace kontroluje rodné číslo a z něj dopočítá datum narození; nesrovnalosti zobrazí jako upozornění u pole.'],
   ['✉️','Stávající e-mail','Navrhuje se podle pravidel z Nastavení (zdrojový úřad, jméno, příjmení). Je potřeba pro odeslání odkazu e-mailem.']]},
  {g:'Odkaz pro zaměstnance',items:[
