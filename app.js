@@ -1,4 +1,4 @@
-const APP_VERSION = '2026-10-14.3';
+const APP_VERSION = '2026-10-14.4';
 const STORAGE_INDEX_KEY = 'onboarding:index';
 const STORAGE_INFO_KEY = 'onboarding:info-content';
 const STORAGE_SETTINGS_KEY = 'onboarding:settings';
@@ -221,8 +221,8 @@ function vemaAuto(p){
   return {
     czicse: klas,
     plasku: sluz ? '14' : (prac ? '2' : ''),
-    plastu: '1',
-    tarif: tarifniPlat(p, 1),
+    plastu: String(parseInt(p.platovy_stupen,10) || 1),
+    tarif: tarifniPlat(p, parseInt(p.platovy_stupen,10) || 1),
     skupzm: (tr >= 6 && tr <= 9) ? '3' : ((tr >= 10 && tr <= 16) ? '4' : ''),
     plpost: '0',
     zupltar: '1',
@@ -233,7 +233,6 @@ function vemaAuto(p){
 const VEMA_AUTO_TEXT = {
   czicse: {'1111':'zaměstnanci v pracovním poměru na dobu neurčitou','1112':'zaměstnanci v pracovním poměru na dobu určitou','1211':'zaměstnanci na základě dohod o pracovní činnosti','1212':'zaměstnanci na základě dohod o provedení práce','1320':'ostatní zaměstnanci ve služebním poměru'},
   plasku: {'14':'Státní zaměstnanci ZSS §2 odst.1 NV 304/2014 Sb.','2':'Státní správa - ZP §5 odst.2 NV 341/2017 Sb.'},
-  plastu: {'1':'1. platový stupeň (ruční úprava ve Vemě)'},
   tarif: {},
   skupzm: {'3':'3. skupina prací','4':'4. skupina prací'},
   plpost: {'0':'postup s tarifem'},
@@ -244,8 +243,7 @@ const VEMA_AUTO_TEXT = {
 const VEMA_AUTO_ROWS = [
   ['czicse','Klasifikace postavení v zaměstnání','zaměstnanec; kód podle poměru: služební 1320, pracovní na dobu neurčitou 1111 / určitou 1112, DPČ 1211, DPP 1212'],
   ['plasku','Platová skupina','služební poměr 14, pracovní poměr 2'],
-  ['plastu','Platový stupeň','vždy 1 (následně ruční úprava ve Vemě)'],
-  ['tarif','Tarifní plat (Kč/měsíc)','z tabulky tarifů podle poměru, platové třídy a stupně 1'],
+  ['tarif','Tarifní plat (Kč/měsíc)','z tabulky tarifů podle poměru, platové třídy a platového stupně'],
   ['skupzm','Skupina prací pro zaručenou mzdu','podle platové třídy: 6.–9. třída = 3, 10.–16. třída = 4'],
   ['plpost','Nastavení platového postupu','vždy 0'],
   ['zupltar','Způsob určení platového tarifu','vždy 1'],
@@ -407,6 +405,7 @@ const PERSONAL_SECTIONS = [
     {id:'vedouci', label:'Vedoucí pozice', essential:true, type:'select', options:['','Ne','Ano']},
     {id:'stupen_rizeni', label:'Stupeň řízení vedoucích zaměstnanců', type:'select', options:['','1. stupeň','2. stupeň','3. stupeň','4. stupeň'], essential:true, showIf:p=>p.vedouci==='Ano'},
     {id:'platova_trida', label:'Platová třída', essential:true, type:'select', options:['','1','2','3','4','5','6','7','8','9','10','11','12','13','14','15','16']},
+    {id:'platovy_stupen', label:'Platový stupeň', essential:true, type:'select', default:'1', options:['1','2','3','4','5','6','7','8','9','10','11','12']},
     {id:'zkraceny_uvazek_hodiny', label:'Zkrácený úvazek — hodin týdně', showIf:p=>p.rozsah_uvazku==='Zkrácený úvazek'},
     {id:'zkraceny_uvazek_procenta', label:'Zkrácený úvazek — v %', default:'100', essential:true, disabledIf:p=>p.rozsah_uvazku!=='Zkrácený úvazek'},
     {id:'individualni_rozvrh', label:'Individuální rozvrh (je-li pracovní doba upravena individuálně)'},
@@ -653,6 +652,7 @@ function normalizeRecord(record){
   });
   // Starší spisy: typ poměru výchozí HPP, zkušební doba srovnaná podle poměru a vedoucí pozice.
   if(!record.personal.typ_pomeru) record.personal.typ_pomeru = 'HPP';
+  if(!record.personal.platovy_stupen) record.personal.platovy_stupen = '1';
   syncZkusebniDoba(record.personal);
   const defaultChecklist = emptyChecklist();
   record.checklist = record.checklist || {};
@@ -4936,6 +4936,30 @@ function openDeleteModal(id){
   });
 }
 
+// Doplní do už založeného spisu údaje z organigramu, které v něm chybí (vedoucí pozice, platová třída,
+// stupeň řízení, režim zaměstnání). Nepřepisuje nic, co už je vyplněné. Seznam osob se stahuje jen jednou za relaci.
+let orgRosterCache = null;
+async function refreshFromOrganigram(rec){
+  try{
+    if(state.employeeMode || state.role !== 'hr' || !rec || !rec.orgPersonId || !organigramConfigured()) return false;
+    if(!orgRosterCache){
+      const { data, error } = await getOrgSb().from('organigram_roster').select('*');
+      if(error) throw error;
+      orgRosterCache = new Map((data || []).map(p => [String(p.person_id), p]));
+    }
+    const o = orgRosterCache.get(String(rec.orgPersonId));
+    if(!o) return false;
+    const p = rec.personal; let changed = false;
+    const fill = (k, v) => { if(!p[k] && v){ p[k] = String(v); changed = true; } };
+    fill('platova_trida', o.pay_grade != null ? o.pay_grade : '');
+    fill('vedouci', o.position_kind ? (o.position_kind === 'head' ? 'Ano' : 'Ne') : '');
+    if(o.position_kind === 'head') fill('stupen_rizeni', o.management_level != null ? o.management_level + '. stupeň' : '');
+    fill('rezim_zamestnani', o.employment_type || '');
+    if(changed) syncZkusebniDoba(p);
+    return changed;
+  }catch(e){ console.warn('doplnění z organigramu selhalo', e); return false; }
+}
+
 async function deleteEmployee(id){
   state.index = state.index.filter(e => e.id !== id);
   await saveIndex();
@@ -4946,7 +4970,8 @@ async function deleteEmployee(id){
 async function openDetail(id){
   state.currentId = id;
   state.currentRecord = await loadRecord(id);
-  if(ensureSuggestedEmail(state.currentRecord)) persistRecordOnly();
+  let _chg = await refreshFromOrganigram(state.currentRecord);
+  if(ensureSuggestedEmail(state.currentRecord) || _chg) persistRecordOnly();
   state.view = 'detail';
   state.tab = availableTabs()[0];
   state.collapsed = {};
@@ -5193,7 +5218,7 @@ const HELP = [
   ['🗑️','Smazání spisu','Tlačítko Smazat v řádku (po potvrzení) odstraní jeden spis. Hromadné smazání všech spisů je v Nastavení.']]},
  {g:'Spis – údaje personálního oddělení',items:[
   ['📝','Osobní údaje','Formulář je rozdělen do sekcí. Povinné údaje jsou označeny <b style="color:#C62828">*</b>; chybějící jsou po pokusu o schválení zvýrazněny červeně a nad formulářem je výpis sekcí, kde ještě něco chybí.'],
-  ['👔','Pracovní poměr','Typ poměru je předvyplněn jako <b>HPP</b> (lze změnit). <b>Zkušební doba:</b> u služebního poměru 6 nebo 8 měsíců – správná hodnota se předvyplní podle toho, zda je pozice vedoucí; u pracovního poměru se počet měsíců vybírá po jednom. Vedoucí pozice a platová třída se berou z Organigramu. <b>Tarifní plat</b> se dopočítá sám z tabulky tarifů (pracovní / služební poměr) podle platové třídy a platového stupně 1. Další položky pro Vemu (klasifikace, platová skupina, stupeň, skupina prací, způsob odměňování aj.) se doplňují automaticky a najdete je v sbalené sekci <b>Automaticky doplňované hodnoty pro Vemu</b> na konci formuláře (jen ke kontrole).'],
+  ['👔','Pracovní poměr','Typ poměru je předvyplněn jako <b>HPP</b> (lze změnit). <b>Zkušební doba:</b> u služebního poměru 6 nebo 8 měsíců – správná hodnota se předvyplní podle toho, zda je pozice vedoucí; u pracovního poměru se počet měsíců vybírá po jednom. Vedoucí pozice a platová třída se berou z Organigramu. <b>Tarifní plat</b> se dopočítá sám z tabulky tarifů (pracovní / služební poměr) podle platové třídy a platového stupně 1. <b>Platový stupeň</b> je předvyplněn na 1 (lze změnit, tarif se přepočte). Při otevření spisu se z Organigramu doplní chybějící vedoucí pozice a platová třída. Další položky pro Vemu (klasifikace, platová skupina, skupina prací, způsob odměňování aj.) se doplňují automaticky a najdete je v sbalené sekci <b>Automaticky doplňované hodnoty pro Vemu</b> na konci formuláře (jen ke kontrole).'],
   ['🪪','Rodné číslo','Aplikace kontroluje rodné číslo a z něj dopočítá datum narození; nesrovnalosti zobrazí jako upozornění u pole.'],
   ['✉️','Stávající e-mail','Navrhuje se podle pravidel z Nastavení (zdrojový úřad, jméno, příjmení). Je potřeba pro odeslání odkazu e-mailem.']]},
  {g:'Odkaz pro zaměstnance',items:[
