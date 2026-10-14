@@ -10,7 +10,7 @@
 <link rel="apple-touch-icon" href="apple-touch-icon.png?v=1">
 <link rel="mask-icon" href="safari-pinned-tab.svg?v=1" color="#C8900F">
 <meta name="referrer" content="no-referrer">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://*.supabase.co wss://*.supabase.co; object-src 'none'; base-uri 'self'; form-action 'self' mailto:">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://*.supabase.co wss://*.supabase.co; object-src 'none'; base-uri 'self'; form-action 'self' mailto:">
 <meta name="theme-color" content="#C8900F">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@100;300;400;500;700&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
@@ -346,12 +346,32 @@ input:-webkit-autofill,input:-webkit-autofill:hover,input:-webkit-autofill:focus
 .attach-note{font-size:12px;color:var(--ink-faint);}
 .attach-msg{font-size:13px;margin:8px 0 0;color:var(--ink-soft);}
 .attach-msg.err{color:var(--red);}
+
+.docs-modal{max-width:680px;}
+.docs-intro{font-size:13px;color:var(--ink-soft);margin:0 0 10px;}
+.docs-list{max-height:46vh;overflow:auto;border:1px solid var(--line);border-radius:8px;}
+.docs-row{display:flex;gap:10px;align-items:flex-start;padding:8px 12px;border-bottom:1px solid var(--line);cursor:pointer;font-size:13.5px;}
+.docs-list .docs-row:last-child{border-bottom:0;}
+.docs-row input{margin-top:3px;}
+.docs-row:hover{background:var(--paper-alt);}
+.docs-all{border:1px solid var(--line);border-radius:8px;margin-bottom:8px;font-weight:600;}
+.docs-row-main{display:flex;flex-direction:column;gap:1px;}
+.docs-row-title{font-size:13.5px;}
+.docs-row-hint{font-size:11.5px;color:var(--ink-faint);}
+.docs-status{font-size:12.5px;color:var(--ink-soft);min-height:1.3em;margin:10px 0 0;}
+.docs-zip-bar{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 10px;}
+.docs-out-list{max-height:46vh;overflow:auto;border:1px solid var(--line);border-radius:8px;}
+.docs-out-row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--line);flex-wrap:wrap;}
+.docs-out-row:last-child{border-bottom:0;}
+.docs-out-btns{display:flex;gap:6px;flex-wrap:wrap;}
+.docs-err{font-size:12.5px;color:var(--red);}
 </style>
 </head>
 <body>
 <div id="app"></div>
 
-<script src="config.js?v=67"></script>
-<script src="app.js?v=67"></script>
+<script src="config.js?v=68"></script>
+<script src="docgen.js?v=68"></script>
+<script src="app.js?v=68"></script>
 </body>
 </html>
