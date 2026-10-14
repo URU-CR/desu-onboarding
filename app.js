@@ -1,4 +1,4 @@
-const APP_VERSION = '2026-10-14.13';
+const APP_VERSION = '2026-10-14.14';
 const STORAGE_INDEX_KEY = 'onboarding:index';
 const STORAGE_INFO_KEY = 'onboarding:info-content';
 const STORAGE_SETTINGS_KEY = 'onboarding:settings';
@@ -2548,7 +2548,7 @@ function sectionHasHardError(sec, r){
 
 // Úplně prázdné (omylem přidané) položky v nepovinných opakovaných sekcích se nepočítají a při pohybu v dotazníku se odstraní.
 function isRowEmpty(sec, row){
-  return sec.fields.every(f => { const v = row && row[f.id] != null ? String(row[f.id]).trim() : ''; return v === '' || v === (f.default || ''); });
+  return sec.fields.every(f => { const v = row && row[f.id] != null ? String(row[f.id]).trim() : ''; return v === '' || v === (f.default || '') || (f.id === 'od' && row.auto_od && v === row.auto_od); });
 }
 function pruneEmptyRows(record){
   let changed = false;
@@ -3839,6 +3839,16 @@ function attachHandlers(){
       const sec = PERSONAL_SECTIONS.find(s => s.id === secId);
       const row = {};
       sec.fields.forEach(f => row[f.id] = f.default || '');
+      if(!Array.isArray(state.currentRecord.personal[secId])) state.currentRecord.personal[secId] = [];
+      if(secId === 'praxe'){     // nové období navazuje na konec předchozího (den po jeho „Do“); uživatel může přepsat
+        const prev = state.currentRecord.personal[secId].slice(-1)[0];
+        const m = prev && /^(\d{4})-(\d{2})-(\d{2})$/.exec(prev.do || '');
+        if(m){
+          const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3] + 1));
+          row.od = d.toISOString().slice(0, 10);
+          row.auto_od = row.od;
+        }
+      }
       if(!Array.isArray(state.currentRecord.personal[secId])) state.currentRecord.personal[secId] = [];
       state.currentRecord.personal[secId].push(row);
       persistRecordOnly();
@@ -5580,7 +5590,7 @@ const HELP_EMP = [
   ['🏦','Pojišťovna a účet','Zdravotní pojišťovnu vyberte ze seznamu. <b>Nahrajte kartičku pojišťovny</b> (povinné): tlačítkem <b>📷 Vyfotit kamerou</b> ji vyfotíte kamerou počítače (prohlížeč se zeptá na povolení kamery): přiložte kartičku stranou s údaji do rámečku a držte ji klidně – aplikace ji sama rozpozná, vyfotí a ořízne (kdyby to nešlo, použijte <b>Vyfotit hned</b>). Nebo <b>📎 Nahrát soubor</b> / přetažením vložíte hotovou fotografii či sken (JPG, PNG, PDF). Fotografie se před odesláním zmenší. Nahraný soubor můžete tlačítkem <b>Smazat</b> nahradit jiným. Číslo účtu zadejte bez lomítka a kódu banky, kód banky vyplňte zvlášť (např. 0100). Po zadání čísla účtu se zobrazí tři souhlasy se zasíláním platu, cestovních náhrad a příspěvku na stravování na tento účet.'],
   ['👪','Rodina a děti','Rodinný stav je povinný. Krok <b>Děti</b> je doplňkový – pokud děti nemáte, jen pokračujte dál. Další dítě přidáte tlačítkem <b>+ Přidat dítě</b>. Omylem přidané dítě zrušíte tlačítkem <b>✕ Zrušit / odebrat</b>.'],
   ['🎓','Vzdělání','Údaje o vašem dosaženém vzdělání – vyplňte podle pokynů u polí.'],
-  ['💼','Praxe a ZOZ','Krok je <b>nepovinný</b> – pokud praxi nemáte (např. absolvent), přeskočte ho. Uvádějte <b>přesná data</b> (den.měsíc.rok): předchozí zaměstnání, ale i <b>vojenskou službu, mateřskou a rodičovskou dovolenou, evidenci na úřadu práce</b> a další započitatelné doby – u každého období vyberte jeho <b>druh</b>. Nesprávné údaje mohou vést k zařazení do nižšího platového stupně. Další období přidáte tlačítkem <b>+ Přidat období</b>; omylem přidanou položku zrušíte tlačítkem <b>✕ Zrušit / odebrat</b> (úplně prázdné položky se při pohybu v dotazníku odstraní samy). Dole můžete nahrát sken <b>osvědčení o zkoušce odborné způsobilosti (ZOZ)</b> (tlačítko <b>+ Přidat ZOZ</b>, lze více osvědčení) – může se uznat jako část praxe.'],
+  ['💼','Praxe a ZOZ','Krok je <b>nepovinný</b> – pokud praxi nemáte (např. absolvent), přeskočte ho. Uvádějte <b>přesná data</b> (den.měsíc.rok): předchozí zaměstnání, ale i <b>vojenskou službu, mateřskou a rodičovskou dovolenou, evidenci na úřadu práce</b> a další započitatelné doby – u každého období vyberte jeho <b>druh</b>. Nesprávné údaje mohou vést k zařazení do nižšího platového stupně. Další období přidáte tlačítkem <b>+ Přidat období</b> (datum „Od“ se předvyplní dnem po konci předchozího období, můžete ho přepsat – období by na sebe měla navazovat); omylem přidanou položku zrušíte tlačítkem <b>✕ Zrušit / odebrat</b> (úplně prázdné položky se při pohybu v dotazníku odstraní samy). Dole můžete nahrát sken <b>osvědčení o zkoušce odborné způsobilosti (ZOZ)</b> (tlačítko <b>+ Přidat ZOZ</b>, lze více osvědčení) – může se uznat jako část praxe.'],
   ['🌍','Jazyky','Jazykové znalosti jsou doplňkové; další jazyk přidáte tlačítkem <b>+ Přidat jazyk</b>.'],
   ['🗂️','Další údaje','V kroku <b>Další údaje</b> jsou dodatečné údaje, které úřad ze zákona potřebuje; vyplňte je podle pokynů u polí.']]},
  {g:'Odeslání a kontrola',items:[
