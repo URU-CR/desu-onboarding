@@ -1,4 +1,4 @@
-const APP_VERSION = '2026-10-14.11';
+const APP_VERSION = '2026-10-14.12';
 const STORAGE_INDEX_KEY = 'onboarding:index';
 const STORAGE_INFO_KEY = 'onboarding:info-content';
 const STORAGE_SETTINGS_KEY = 'onboarding:settings';
@@ -2477,7 +2477,7 @@ function sectionFieldsHtmlCore(sec, r, editable){
         const rowWithPending = pending ? {...row, [f.id]: pending.newValue} : row;
         const displayVal = pending ? pending.newValue : row[f.id];
         const isMissing = missingSet.has(i+':'+f.id);
-        return `<div class="field ${isMissing?'missing':''}"><label>${esc(f.label)}</label>${fieldMarkup(f, displayVal, !editable, 'data-repeat-field', pKey)}
+        return `<div class="field ${f.full?'full':''} ${isMissing?'missing':''}"><label>${esc(f.label)}</label>${fieldMarkup(f, displayVal, !editable, 'data-repeat-field', pKey)}
         ${isMissing ? `<div class="field-missing-note">Povinný údaj — nevyplněno</div>` : ''}
         ${validationNoteHtml(f, displayVal, rowWithPending)}
         ${editable ? autofillButtonHtml(f, rowWithPending, 'repeat', pKey) : ''}
