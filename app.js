@@ -1,4 +1,4 @@
-const APP_VERSION = '2026-10-14.1';
+const APP_VERSION = '2026-10-14.2';
 const STORAGE_INDEX_KEY = 'onboarding:index';
 const STORAGE_INFO_KEY = 'onboarding:info-content';
 const STORAGE_SETTINGS_KEY = 'onboarding:settings';
@@ -141,34 +141,132 @@ function workplaceLocation(workplace){ return workplaceLocations()[workplace] ||
 function categoryList(){ return (state.settings && state.settings.categories) || DEFAULT_CATEGORIES; }
 function categoryNames(){ return categoryList().map(c => c.name); }
 function systemsForCategory(name){ const c = categoryList().find(c => c.name === name); return c ? c.systems : []; }
-// Zkušební doba závisí na typu úvazku a na tom, zda jde o vedoucí pozici:
-//  - služební poměr: 6 měsíců, u vedoucích 8 měsíců (hodnota se předvyplní, jde změnit),
-//  - pracovní poměr: výběr počtu měsíců po jednom (do 3 měsíců, u vedoucích do 6 — § 35 zákoníku práce).
-const ZKUSEBNI_SLUZEBNI = ['6 měsíců','8 měsíců (vedoucí zaměstnanec)'];
-const ZKUSEBNI_ALL = ['','Bez zkušební doby','6 měsíců','8 měsíců (vedoucí zaměstnanec)'];
-function monthsLabel(n){ return n===1 ? '1 měsíc' : (n<5 ? n+' měsíce' : n+' měsíců'); }
+// Zkušební doba (do Vemy jde jako počet měsíců 0–8):
+//  - služební poměr: natvrdo — vedoucí 8 měsíců, ostatní 6 měsíců (pole je zamčené),
+//  - pracovní poměr: výběr 0–8 měsíců po jednom.
+const ZKUSEBNI_SLUZEBNI = ['6 měsíců','8 měsíců'];
+const ZKUSEBNI_ALL = ['','Bez zkušební doby','1 měsíc','2 měsíce','3 měsíce','4 měsíce','5 měsíců','6 měsíců','7 měsíců','8 měsíců'];
 function zkusebniDobaOptions(p){
-  if(!p) return ZKUSEBNI_ALL;
-  if(p.rezim_zamestnani === 'Služební poměr') return ['', ...ZKUSEBNI_SLUZEBNI];
-  if(p.rezim_zamestnani === 'Pracovní poměr'){
-    const max = p.vedouci === 'Ano' ? 6 : 3;
-    return ['', 'Bez zkušební doby', ...Array.from({length:max}, (_,i) => monthsLabel(i+1))];
-  }
+  if(p && p.rezim_zamestnani === 'Služební poměr') return ['', ...ZKUSEBNI_SLUZEBNI];
   return ZKUSEBNI_ALL;
 }
-// Po změně typu úvazku / vedoucí pozice srovná zkušební dobu: u služebního poměru předvyplní správnou
-// hodnotu (8 měsíců vedoucí, jinak 6), u pracovního poměru zruší hodnotu, která už mezi možnostmi není.
+// Po změně typu úvazku / vedoucí pozice srovná zkušební dobu: u služebního poměru doplní 8 (vedoucí) / 6 měsíců,
+// u pracovního poměru zruší hodnotu, která už mezi možnostmi není (starý zápis „8 měsíců (vedoucí zaměstnanec)“ převede).
 function syncZkusebniDoba(p){
   if(!p) return;
+  if(p.zkusebni_doba === '8 měsíců (vedoucí zaměstnanec)') p.zkusebni_doba = '8 měsíců';
   if(p.rezim_zamestnani === 'Služební poměr'){
-    // Dokud není známo, zda jde o vedoucí pozici (ruční zadání bez organigramu), se nic nepředvyplňuje.
-    if(p.vedouci === 'Ano') p.zkusebni_doba = ZKUSEBNI_SLUZEBNI[1];
-    else if(p.vedouci === 'Ne') p.zkusebni_doba = ZKUSEBNI_SLUZEBNI[0];
-    else if(p.zkusebni_doba && !ZKUSEBNI_SLUZEBNI.includes(p.zkusebni_doba)) p.zkusebni_doba = '';
+    p.zkusebni_doba = p.vedouci === 'Ano' ? ZKUSEBNI_SLUZEBNI[1] : ZKUSEBNI_SLUZEBNI[0];
   } else if(p.zkusebni_doba && !zkusebniDobaOptions(p).includes(p.zkusebni_doba)){
     p.zkusebni_doba = '';
   }
 }
+// Počet měsíců zkušební doby pro Vemu (sloupec zkusd) — služební poměr se počítá vždy z vedoucí pozice.
+function zkusdMonths(p){
+  if(p.rezim_zamestnani === 'Služební poměr') return p.vedouci === 'Ano' ? '8' : '6';
+  const v = p.zkusebni_doba || '';
+  if(!v) return '';
+  if(/^Bez/.test(v)) return '0';
+  const m = /^(\d+)/.exec(v);
+  return m ? m[1] : '';
+}
+
+// Stupnice platových tarifů (Kč měsíčně): řádek = platový stupeň 1–12, sloupec = platová třída.
+// Pracovní poměr (§ 5 NV): třídy 1–16. Služební poměr (§ 2 NV): třídy 6–16.
+const TARIF_PRACOVNI = [
+  [14760,15740,16780,17900,19110,20440,21890,23470,25190,27030,29090,31230,33590,36160,38960,42000],
+  [15170,16200,17280,18470,19760,21120,22590,24260,25990,27930,30050,32270,34730,37380,40300,43450],
+  [15610,16700,17800,19030,20360,21780,23330,25050,26870,28870,31100,33380,35920,38690,41700,44960],
+  [16070,17180,18370,19610,21020,22490,24090,25870,27760,29850,32130,34480,37130,40010,43160,46530],
+  [16580,17720,18940,20240,21670,23210,24880,26730,28680,30840,33210,35680,38420,41390,44650,48140],
+  [17100,18260,19510,20870,22370,23940,25700,27640,29630,31850,34340,36900,39740,42810,46200,49820],
+  [17600,18850,20140,21540,23080,24740,26520,28540,30660,32940,35520,38180,41100,44310,47810,51570],
+  [18140,19430,20780,22220,23830,25540,27390,29490,31680,34060,36720,39510,42530,45850,49520,53390],
+  [18700,20030,21430,22940,24620,26380,28310,30470,32740,35220,37960,40850,44010,47490,51260,55280],
+  [19320,20680,22120,23680,25430,27250,29220,31510,33860,36410,39270,42280,45560,49130,53080,57210],
+  [19900,21300,22840,24450,26280,28170,30240,32610,35020,37690,40640,43740,47140,50880,54940,59280],
+  [20540,22000,23580,25240,27160,29100,31240,33710,36210,38990,42050,45260,48800,52660,56870,61390]
+];
+const TARIF_SLUZEBNI = [
+  [20440,21890,23470,25190,27030,29090,31670,35080,39510,44930,51580],
+  [21120,22590,24260,25990,27930,30050,32730,36240,40840,46460,53360],
+  [21780,23330,25050,26870,28870,31100,33870,37520,42330,48150,55330],
+  [22490,24090,25870,27760,29850,32130,35000,38810,43780,49840,57270],
+  [23210,24880,26730,28680,30840,33210,36210,40140,45280,51580,59290],
+  [23940,25700,27640,29630,31850,34340,37450,41530,46870,53390,61420],
+  [24740,26520,28540,30660,32940,35520,38740,42990,48530,55310,63620],
+  [25540,27390,29490,31680,34060,36720,40060,44480,50240,57260,65880],
+  [26380,28310,30470,32740,35220,37960,41420,45990,51950,59270,68220],
+  [27250,29220,31510,33860,36410,39270,42860,47610,53810,61390,70650],
+  [28170,30240,32610,35020,37690,40640,44360,49280,55700,63570,73190],
+  [29100,31240,33710,36210,38990,42050,45940,51040,57700,65860,75870]
+];
+function tarifniPlat(p, stupen){
+  const tr = parseInt(p.platova_trida, 10), st = stupen || 1;
+  if(!tr || tr < 1 || tr > 16) return '';
+  if(p.rezim_zamestnani === 'Služební poměr') return tr >= 6 ? String(TARIF_SLUZEBNI[st-1][tr-6]) : '';
+  if(p.rezim_zamestnani === 'Pracovní poměr') return String(TARIF_PRACOVNI[st-1][tr-1]);
+  return '';
+}
+
+// Hodnoty, které se do tabulky pro Vemu doplňují natvrdo / odvozují (nejsou ve formuláři).
+function vemaAuto(p){
+  const sluz = p.rezim_zamestnani === 'Služební poměr', prac = p.rezim_zamestnani === 'Pracovní poměr';
+  const tr = parseInt(p.platova_trida, 10);
+  let klas = '';
+  if(sluz) klas = '1320';
+  else if(p.typ_pomeru === 'DPČ') klas = '1211';
+  else if(p.typ_pomeru === 'DPP') klas = '1212';
+  else if(prac){ klas = p.doba_trvani_pomeru === 'Na dobu neurčitou' ? '1111' : (p.doba_trvani_pomeru === 'Na dobu určitou' ? '1112' : ''); }
+  return {
+    czicse: klas,
+    plasku: sluz ? '14' : (prac ? '2' : ''),
+    plastu: '1',
+    tarif: tarifniPlat(p, 1),
+    skupzm: (tr >= 6 && tr <= 9) ? '3' : ((tr >= 10 && tr <= 16) ? '4' : ''),
+    plpost: '0',
+    zupltar: '1',
+    zpodm: '2',
+    typpv: '1',
+  };
+}
+const VEMA_AUTO_TEXT = {
+  czicse: {'1111':'zaměstnanci v pracovním poměru na dobu neurčitou','1112':'zaměstnanci v pracovním poměru na dobu určitou','1211':'zaměstnanci na základě dohod o pracovní činnosti','1212':'zaměstnanci na základě dohod o provedení práce','1320':'ostatní zaměstnanci ve služebním poměru'},
+  plasku: {'14':'Státní zaměstnanci ZSS §2 odst.1 NV 304/2014 Sb.','2':'Státní správa - ZP §5 odst.2 NV 341/2017 Sb.'},
+  plastu: {'1':'1. platový stupeň (ruční úprava ve Vemě)'},
+  tarif: {},
+  skupzm: {'3':'3. skupina prací','4':'4. skupina prací'},
+  plpost: {'0':'postup s tarifem'},
+  zupltar: {'1':'platový tarif podle stupnice platových tarifů'},
+  zpodm: {'2':'pevný měsíční plat'},
+  typpv: {'1':'odměňování podle § 5 NV'},
+};
+const VEMA_AUTO_ROWS = [
+  ['czicse','Klasifikace postavení v zaměstnání','zaměstnanec; kód podle poměru: služební 1320, pracovní na dobu neurčitou 1111 / určitou 1112, DPČ 1211, DPP 1212'],
+  ['plasku','Platová skupina','služební poměr 14, pracovní poměr 2'],
+  ['plastu','Platový stupeň','vždy 1 (následně ruční úprava ve Vemě)'],
+  ['tarif','Tarifní plat (Kč/měsíc)','z tabulky tarifů podle poměru, platové třídy a stupně 1'],
+  ['skupzm','Skupina prací pro zaručenou mzdu','podle platové třídy: 6.–9. třída = 3, 10.–16. třída = 4'],
+  ['plpost','Nastavení platového postupu','vždy 0'],
+  ['zupltar','Způsob určení platového tarifu','vždy 1'],
+  ['zpodm','Způsob odměňování','vždy 2 (měsíční plat)'],
+  ['typpv','Typ platového výměru','vždy 1 (§ 5 NV)'],
+];
+function renderVemaAutoPanel(r){
+  const auto = vemaAuto(r.personal);
+  const rows = VEMA_AUTO_ROWS.map(([k, label, rule]) => {
+    const v = auto[k];
+    const txt = v ? `<strong>${esc(v)}</strong> — ${esc((VEMA_AUTO_TEXT[k]||{})[v] || '')}` : '<span style="color:var(--ink-faint);">nelze určit (doplňte údaje výše)</span>';
+    return `<tr><td style="padding:5px 12px 5px 0;">${esc(label)}</td><td style="padding:5px 12px 5px 0;">${txt}</td><td style="padding:5px 0;color:var(--ink-faint);font-size:12px;">${esc(rule)}</td></tr>`;
+  }).join('');
+  return `
+    <details id="auto-panel" class="form-section" ${state.autoPanelOpen ? 'open' : ''} style="margin-top:20px;">
+      <summary style="cursor:pointer;font-weight:600;">Automaticky doplňované hodnoty pro Vemu <span class="section-optional-tag">jen ke kontrole</span></summary>
+      <p style="font-size:12.5px;color:var(--ink-faint);margin:10px 0;">Tyto položky se do tabulky pro Vemu doplňují samy, nejdou upravit. Slouží ke kontrole; později je ze zobrazení odstraníme.</p>
+      <table style="font-size:13px;border-collapse:collapse;width:100%;"><tbody>${rows}</tbody></table>
+    </details>`;
+}
+
 function resolveField(f, p){
   if(f.id === 'zkusebni_doba' && p) return {...f, options: zkusebniDobaOptions(p)};
   if(f.id === 'pracoviste') return {...f, options: ['', ...workplaceList()]};
@@ -303,21 +401,12 @@ const PERSONAL_SECTIONS = [
     {id:'rozsah_uvazku', label:'Rozsah úvazku', essential:true, type:'select', options:['','Plný úvazek','Zkrácený úvazek']},
     {id:'doba_trvani_pomeru', label:'Doba trvání pracovního poměru', essential:true, type:'select', options:['','Na dobu neurčitou','Na dobu určitou']},
     {id:'uvazek', label:'Výše úvazku', placeholder:'např. 1,0'},
-    {id:'zkusebni_doba', label:'Zkušební doba', essential:true, type:'select', options:['','Bez zkušební doby','6 měsíců','8 měsíců (vedoucí zaměstnanec)']},
+    {id:'zkusebni_doba', label:'Zkušební doba', essential:true, type:'select', options:ZKUSEBNI_ALL, disabledIf:p=>p.rezim_zamestnani==='Služební poměr'},
   ]},
   { id:'mzdove_udaje', label:'Mzdové a organizační údaje', owner:'hr', fields:[
     {id:'vedouci', label:'Vedoucí pozice', essential:true, type:'select', options:['','Ne','Ano']},
     {id:'stupen_rizeni', label:'Stupeň řízení vedoucích zaměstnanců', type:'select', options:['','1. stupeň','2. stupeň','3. stupeň','4. stupeň'], essential:true, showIf:p=>p.vedouci==='Ano'},
-    {id:'klasifikace_postaveni', label:'Klasifikace postavení v zaměstnání', type:'select', options:['','Zaměstnanec','Zaměstnavatel','OSVČ (samostatně výdělečně činná osoba)','Pomáhající rodinný příslušník','Člen produkčního družstva'], default:'Zaměstnanec', essential:true},
     {id:'platova_trida', label:'Platová třída', essential:true, type:'select', options:['','1','2','3','4','5','6','7','8','9','10','11','12','13','14','15','16']},
-    {id:'platova_skupina', label:'Platová skupina', essential:true},
-    {id:'platovy_stupen', label:'Platový stupeň', essential:true, type:'select', options:['','1','2','3','4','5','6','7','8','9','10','11','12']},
-    {id:'skupina_praci_zaruc_mzda', label:'Skupina prací pro zaručenou mzdu', type:'select', options:['','1','2','3','4','5','6','7','8']},
-    {id:'nastaveni_platoveho_postupu', label:'Nastavení platového postupu', essential:true, type:'select', options:['','Ano','Ne']},
-    {id:'zpusob_urceni_tarifu', label:'Způsob určení platového tarifu'},
-    {id:'tarifni_plat', label:'Tarifní plat (Kč/měsíc)', essential:true},
-    {id:'zpusob_odmenovani', label:'Způsob odměňování', essential:true, type:'select', options:['','Měsíční plat/mzda','Hodinová mzda']},
-    {id:'typ_platoveho_vymeru', label:'Typ platového výměru', essential:true, type:'select', options:['','Odměňování podle § 5 NV','Pásmové odměňování (§ 6 NV) s platovými postupy','Pásmové odměňování (§ 6 NV) bez platových postupů']},
     {id:'zkraceny_uvazek_hodiny', label:'Zkrácený úvazek — hodin týdně', showIf:p=>p.rozsah_uvazku==='Zkrácený úvazek'},
     {id:'zkraceny_uvazek_procenta', label:'Zkrácený úvazek — v %', default:'100', essential:true, disabledIf:p=>p.rozsah_uvazku!=='Zkrácený úvazek'},
     {id:'individualni_rozvrh', label:'Individuální rozvrh (je-li pracovní doba upravena individuálně)'},
@@ -2497,6 +2586,7 @@ function renderPersonalForm(r){
       ${sectionFieldsHtml(sec, r, true)}
     </div>`;
   });
+  if(role === 'hr') out += renderVemaAutoPanel(r);
   return out;
 }
 
@@ -2927,6 +3017,8 @@ function attachHandlers(){
       render();
     });
   }
+  const autoPanel = document.getElementById('auto-panel');
+  if(autoPanel) autoPanel.addEventListener('toggle', () => { state.autoPanelOpen = autoPanel.open; });
   const generateVemaBtn = document.getElementById('btn-generate-vema');
   if(generateVemaBtn) generateVemaBtn.addEventListener('click', async () => {
     const ids = Object.keys(state.selectedExport).filter(id => state.selectedExport[id]);
@@ -4316,7 +4408,7 @@ function zhlavColumns(){
     {code:'pmods', get:p=>''},
     {code:'dsmlouva', get:p=>''},
     {code:'csmlouva', get:p=>''},
-    {code:'zkusd', get:p=>p.zkusebni_doba},
+    {code:'zkusd', get:p=>zkusdMonths(p)},
     {code:'pracvz', get:p=>workplaceVemaCode(p.pracoviste)},
     {code:'utvar', get:p=>p.odbor_oddeleni},
     {code:'ppvdr', get:p=>ppvdrCode(p)},
@@ -4325,7 +4417,7 @@ function zhlavColumns(){
     {code:'zames', get:p=>''},
     {code:'povolani', get:p=>''},
     {code:'skjkz', get:p=>''},
-    {code:'czicse', get:p=>({'Zaměstnanec':'1','Zaměstnavatel':'2','OSVČ (samostatně výdělečně činná osoba)':'3','Pomáhající rodinný příslušník':'4','Člen produkčního družstva':'5'}[p.klasifikace_postaveni] || '')},
+    {code:'czicse', get:p=>vemaAuto(p).czicse},
     {code:'stspr', get:p=>vc.stspr||''},
     {code:'pocrd', get:p=>vc.pocrd||''},
     {code:'vedouci', get:p=>ynCode(p.vedouci)},
@@ -4338,22 +4430,22 @@ function zhlavColumns(){
     {code:'vypuv', get:p=>''},
     {code:'limpr', get:p=>''},
     {code:'limnepp', get:p=>''},
-    {code:'tarif', get:p=>p.tarifni_plat},
-    {code:'typpv', get:p=>TYPPV_CODES[p.typ_platoveho_vymeru] || ''},
+    {code:'tarif', get:p=>vemaAuto(p).tarif},
+    {code:'typpv', get:p=>vemaAuto(p).typpv},
     {code:'dzpvk', get:p=>''},
-    {code:'zpodm', get:p=>ZPODM_CODES[p.zpusob_odmenovani] || ''},
+    {code:'zpodm', get:p=>vemaAuto(p).zpodm},
     {code:'zmr', get:p=>'0'},
     {code:'rozst', get:p=>'1'},
     {code:'rozin', get:p=>'1'},
     {code:'rozprh', get:p=>p.rozsah_uvazku==='Zkrácený úvazek' ? p.zkraceny_uvazek_hodiny : ''},
     {code:'rozpr', get:p=>p.rozsah_uvazku==='Zkrácený úvazek' ? (p.zkraceny_uvazek_procenta || '') : '100'},
     {code:'odprdo', get:p=>''},
-    {code:'plpost', get:p=>ynCode(p.nastaveni_platoveho_postupu)},
-    {code:'zupltar', get:p=>p.zpusob_urceni_tarifu},
+    {code:'plpost', get:p=>vemaAuto(p).plpost},
+    {code:'zupltar', get:p=>vemaAuto(p).zupltar},
     {code:'mzdza', get:p=>p.platova_trida},
-    {code:'skupzm', get:p=>p.skupina_praci_zaruc_mzda},
-    {code:'plasku', get:p=>p.platova_skupina},
-    {code:'plastu', get:p=>p.platovy_stupen},
+    {code:'skupzm', get:p=>vemaAuto(p).skupzm},
+    {code:'plasku', get:p=>vemaAuto(p).plasku},
+    {code:'plastu', get:p=>vemaAuto(p).plastu},
     {code:'zvodm', get:p=>''},
     {code:'nahsv', get:p=>''},
     {code:'nahdov', get:p=>''},
@@ -5098,7 +5190,7 @@ const HELP = [
   ['🗑️','Smazání spisu','Tlačítko Smazat v řádku (po potvrzení) odstraní jeden spis. Hromadné smazání všech spisů je v Nastavení.']]},
  {g:'Spis – údaje personálního oddělení',items:[
   ['📝','Osobní údaje','Formulář je rozdělen do sekcí. Povinné údaje jsou označeny <b style="color:#C62828">*</b>; chybějící jsou po pokusu o schválení zvýrazněny červeně a nad formulářem je výpis sekcí, kde ještě něco chybí.'],
-  ['👔','Pracovní poměr','Typ poměru je předvyplněn jako <b>HPP</b> (lze změnit). <b>Zkušební doba:</b> u služebního poměru 6 nebo 8 měsíců – správná hodnota se předvyplní podle toho, zda je pozice vedoucí; u pracovního poměru se počet měsíců vybírá po jednom. Vedoucí pozice a platová třída se berou z Organigramu.'],
+  ['👔','Pracovní poměr','Typ poměru je předvyplněn jako <b>HPP</b> (lze změnit). <b>Zkušební doba:</b> u služebního poměru 6 nebo 8 měsíců – správná hodnota se předvyplní podle toho, zda je pozice vedoucí; u pracovního poměru se počet měsíců vybírá po jednom. Vedoucí pozice a platová třída se berou z Organigramu. <b>Tarifní plat</b> se dopočítá sám z tabulky tarifů (pracovní / služební poměr) podle platové třídy a platového stupně 1. Další položky pro Vemu (klasifikace, platová skupina, stupeň, skupina prací, způsob odměňování aj.) se doplňují automaticky a najdete je v sbalené sekci <b>Automaticky doplňované hodnoty pro Vemu</b> na konci formuláře (jen ke kontrole).'],
   ['🪪','Rodné číslo','Aplikace kontroluje rodné číslo a z něj dopočítá datum narození; nesrovnalosti zobrazí jako upozornění u pole.'],
   ['✉️','Stávající e-mail','Navrhuje se podle pravidel z Nastavení (zdrojový úřad, jméno, příjmení). Je potřeba pro odeslání odkazu e-mailem.']]},
  {g:'Odkaz pro zaměstnance',items:[
