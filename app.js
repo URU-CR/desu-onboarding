@@ -1,4 +1,4 @@
-const APP_VERSION = '2026-10-14.8';
+const APP_VERSION = '2026-10-14.9';
 const STORAGE_INDEX_KEY = 'onboarding:index';
 const STORAGE_INFO_KEY = 'onboarding:info-content';
 const STORAGE_SETTINGS_KEY = 'onboarding:settings';
@@ -310,7 +310,7 @@ const PERSONAL_SECTIONS = [
   ]},
   { id:'doklady', label:'Zdravotní pojišťovna a bankovní účet', navLabel:'Pojišťovna a účet', owner:'employee',
     attachments:{kind:'zp_karta', title:'Kartička zdravotní pojišťovny', required:true, max:2, camera:true,
-      hint:'Nahrajte fotografii nebo sken kartičky (stačí přední strana, případně i zadní). Můžete ji vyfotit kamerou počítače.'}, fields:[
+      hint:'Nahrajte fotografii nebo sken kartičky (stačí strana s údaji). Můžete ji i vyfotit kamerou počítače.'}, fields:[
     {id:'zdravotni_pojistovna', label:'Zdravotní pojišťovna', essential:true, full:true, insuranceList:true},
     {id:'cislo_uctu', label:'Číslo bankovního účtu', placeholder:'123456789', validate:'cisloUctu', essential:true},
     {id:'kod_banky', label:'Kód banky', placeholder:'např. 0100', validate:'kodBanky', bankList:true, essential:true},
@@ -2259,43 +2259,157 @@ async function openCameraModal(kind){
   }
   const backdrop = document.createElement('div');
   backdrop.className = 'modal-backdrop';
-  backdrop.innerHTML = `<div class="modal" style="max-width:720px;">
-    <h3>Vyfotit kartičku</h3>
-    <p style="font-size:13px;color:var(--ink-soft);margin:0 0 10px;">Držte kartičku v záběru tak, aby byla celá vidět a čitelná, a klikněte na <b>Vyfotit</b>.</p>
-    <video id="cam-video" autoplay playsinline muted style="width:100%;max-height:60vh;background:#000;border-radius:8px;"></video>
-    <img id="cam-still" alt="" style="display:none;width:100%;max-height:60vh;object-fit:contain;border-radius:8px;">
+  backdrop.innerHTML = `<div class="modal" style="max-width:760px;">
+    <h3>Vyfotit kartičku pojišťovny</h3>
+    <p style="font-size:13px;color:var(--ink-soft);margin:0 0 10px;">Přiložte kartičku <b>stranou s údaji</b> do rámečku a držte ji klidně. Jakmile ji aplikace rozpozná a bude čitelná, sama ji vyfotí a ořízne.</p>
+    <canvas id="cam-view" style="width:100%;border-radius:8px;background:#000;display:block;"></canvas>
+    <img id="cam-still" alt="" style="display:none;width:100%;max-height:60vh;object-fit:contain;border-radius:8px;background:#000;">
+    <p id="cam-status" style="font-size:13px;margin:8px 0 0;color:var(--ink-soft);min-height:1.4em;">Spouštím kameru…</p>
     <div class="modal-actions">
       <button class="btn btn-ghost" id="cam-cancel">Zrušit</button>
+      <button class="btn btn-ghost" id="cam-shot">Vyfotit hned</button>
       <button class="btn btn-ghost" id="cam-retake" style="display:none;">Znovu</button>
-      <button class="btn btn-primary" id="cam-shot">Vyfotit</button>
       <button class="btn btn-primary" id="cam-use" style="display:none;">Použít fotografii</button>
     </div></div>`;
   document.body.appendChild(backdrop);
-  const video = backdrop.querySelector('#cam-video'), still = backdrop.querySelector('#cam-still');
-  video.srcObject = stream;
-  let blob = null;
-  const stop = () => { try{ stream.getTracks().forEach(t => t.stop()); }catch(e){} };
-  const close = () => { stop(); backdrop.remove(); };
-  const show = (shot) => {
-    video.style.display = shot ? 'none' : ''; still.style.display = shot ? '' : 'none';
-    backdrop.querySelector('#cam-shot').style.display = shot ? 'none' : '';
-    backdrop.querySelector('#cam-retake').style.display = shot ? '' : 'none';
-    backdrop.querySelector('#cam-use').style.display = shot ? '' : 'none';
-  };
-  backdrop.querySelector('#cam-cancel').addEventListener('click', close);
-  backdrop.querySelector('#cam-shot').addEventListener('click', () => {
-    if(!video.videoWidth) return;
-    const c = document.createElement('canvas'); c.width = video.videoWidth; c.height = video.videoHeight;
-    c.getContext('2d').drawImage(video, 0, 0);
-    c.toBlob(b => { if(!b) return; blob = b; still.src = c.toDataURL('image/jpeg', 0.8); show(true); }, 'image/jpeg', 0.92);
+  const $ = sel => backdrop.querySelector(sel);
+  const view = $('#cam-view'), still = $('#cam-still'), statusEl = $('#cam-status');
+  const video = document.createElement('video');
+  video.muted = true; video.playsInline = true; video.srcObject = stream;
+  try{ await video.play(); }catch(e){ /* přehraje se po načtení metadat */ }
+  const work = document.createElement('canvas');
+  const wctx = work.getContext('2d', { willReadFrequently: true });
+  const RATIO = 85.6 / 54;            // poměr stran platební/pojišťovací karty
+  let raf = 0, timer = 0, last = null, stableCnt = 0, found = null, blob = null, closed = false, G = null, SC = 1;
+
+  function geom(){
+    const vw = video.videoWidth, vh = video.videoHeight;
+    let gw = vw * 0.74, gh = gw / RATIO;
+    if(gh > vh * 0.78){ gh = vh * 0.78; gw = gh * RATIO; }
+    const gx = (vw - gw) / 2, gy = (vh - gh) / 2;
+    const mx = gw * 0.12, my = gh * 0.14;
+    const rx = Math.max(0, gx - mx), ry = Math.max(0, gy - my);
+    return { vw, vh, gx, gy, gw, gh, rx, ry, rw: Math.min(vw - rx, gw + 2 * mx), rh: Math.min(vh - ry, gh + 2 * my) };
+  }
+  // Detekce hran kartičky: u každé strany rámečku hledá ostrou svislou/vodorovnou hranu (přechod kartička–pozadí).
+  function detect(d, aw, ah, gg){
+    // rozdíl barev dvou pixelů (součet rozdílů kanálů RGB / 3) – hrany tak najde i při podobné jasnosti kartičky a pozadí
+    const df = (a, b) => (Math.abs(d[a*4] - d[b*4]) + Math.abs(d[a*4+1] - d[b*4+1]) + Math.abs(d[a*4+2] - d[b*4+2])) / 3;
+    const band = Math.max(3, Math.round(gg.w * 0.07));
+    const clampI = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+    // Z celého pásma kolem strany rámečku vybere nejvzdálenější výraznou hranu (aby se nezaměnila s vnitřním
+    // barevným pruhem kartičky): směr dir = -1 (levá/horní strana, nejnižší pozice) nebo +1 (pravá/dolní).
+    const pick = (vals, lo, dir) => {
+      let best = -1, sum = 0;
+      vals.forEach(t => { sum += t; if(t > best) best = t; });
+      let idx = -1;
+      for(let n = 0; n < vals.length; n++){
+        const i = dir < 0 ? n : vals.length - 1 - n;
+        if(vals[i] >= Math.max(10, best * 0.3)){ idx = i; break; }
+      }
+      return { pos: lo + idx, score: best, ratio: best / Math.max(1, sum / vals.length) };
+    };
+    const scanV = (xc, y0, y1, dir) => {  // svislá hrana: vodorovný gradient
+      const lo = clampI(Math.round(xc - band), 1, aw - 2), hi = clampI(Math.round(xc + band), 1, aw - 2), vals = [];
+      for(let x = lo; x <= hi; x++){
+        let t = 0; for(let y = y0; y < y1; y++) t += df(y*aw + x + 1, y*aw + x - 1);
+        vals.push(t / Math.max(1, y1 - y0));
+      }
+      return pick(vals, lo, dir);
+    };
+    const scanH = (yc, x0, x1, dir) => {
+      const lo = clampI(Math.round(yc - band), 1, ah - 2), hi = clampI(Math.round(yc + band), 1, ah - 2), vals = [];
+      for(let y = lo; y <= hi; y++){
+        let t = 0; for(let x = x0; x < x1; x++) t += df((y+1)*aw + x, (y-1)*aw + x);
+        vals.push(t / Math.max(1, x1 - x0));
+      }
+      return pick(vals, lo, dir);
+    };
+    const y0 = clampI(Math.round(gg.y + gg.h * 0.15), 1, ah - 2), y1 = clampI(Math.round(gg.y + gg.h * 0.85), 2, ah - 1);
+    const x0 = clampI(Math.round(gg.x + gg.w * 0.15), 1, aw - 2), x1 = clampI(Math.round(gg.x + gg.w * 0.85), 2, aw - 1);
+    const L = scanV(gg.x, y0, y1, -1), R = scanV(gg.x + gg.w, y0, y1, 1), T = scanH(gg.y, x0, x1, -1), B = scanH(gg.y + gg.h, x0, x1, 1);
+    const strong = [L, R, T, B].every(e => e.score >= 12 && e.ratio >= 1.7);
+    if(!strong) return null;
+    const w = R.pos - L.pos, h = B.pos - T.pos;
+    if(w < gg.w * 0.7 || h < gg.h * 0.7) return null;
+    const ratio = w / h;
+    if(ratio < 1.35 || ratio > 1.85) return null;
+    return { xl: L.pos, xr: R.pos, yt: T.pos, yb: B.pos };
+  }
+  function analyse(){
+    if(closed || blob || !video.videoWidth) return;
+    G = geom();
+    const aw = 320, ah = Math.max(2, Math.round(aw * G.rh / G.rw));
+    work.width = aw; work.height = ah;
+    SC = aw / G.rw;
+    wctx.drawImage(video, G.rx, G.ry, G.rw, G.rh, 0, 0, aw, ah);
+    const d = wctx.getImageData(0, 0, aw, ah).data;
+    const gg = { x: (G.gx - G.rx) * SC, y: (G.gy - G.ry) * SC, w: G.gw * SC, h: G.gh * SC };
+    const r = detect(d, aw, ah, gg);
+    found = r;
+    if(!r){ stableCnt = 0; last = null; statusEl.textContent = 'Přiložte kartičku stranou s údaji do rámečku…'; return; }
+    const tol = gg.w * 0.02;
+    if(last && Math.abs(r.xl - last.xl) <= tol && Math.abs(r.xr - last.xr) <= tol && Math.abs(r.yt - last.yt) <= tol && Math.abs(r.yb - last.yb) <= tol) stableCnt++;
+    else stableCnt = 1;
+    last = r;
+    statusEl.textContent = stableCnt >= 2 ? 'Kartička rozpoznána – držte ji klidně…' : 'Kartička nalezena…';
+    if(stableCnt >= 6) capture(true);
+  }
+  function draw(){
+    if(closed) return;
+    raf = requestAnimationFrame(draw);
+    if(blob || !video.videoWidth || !G) return;
+    const k = 720 / G.rw;
+    if(view.width !== 720 || view.height !== Math.round(G.rh * k)){ view.width = 720; view.height = Math.round(G.rh * k); }
+    const c = view.getContext('2d');
+    c.drawImage(video, G.rx, G.ry, G.rw, G.rh, 0, 0, view.width, view.height);
+    const gx = (G.gx - G.rx) * k, gy = (G.gy - G.ry) * k, gw = G.gw * k, gh = G.gh * k;
+    c.save(); c.fillStyle = 'rgba(0,0,0,0.45)';
+    c.beginPath(); c.rect(0, 0, view.width, view.height); c.rect(gx, gy, gw, gh); c.fill('evenodd'); c.restore();
+    c.lineWidth = 3; c.strokeStyle = found ? '#2ecc71' : '#ffffff'; c.setLineDash(found ? [] : [10, 8]);
+    c.strokeRect(gx, gy, gw, gh);
+  }
+  function capture(auto){
+    if(blob || !G || !video.videoWidth) return;
+    let sx, sy, sw, sh;
+    if(auto && found){      // oříznutí přesně na rozpoznanou kartičku (+ malý okraj)
+      const pad = 0.008 * G.gw;
+      sx = G.rx + found.xl / SC - pad; sy = G.ry + found.yt / SC - pad;
+      sw = (found.xr - found.xl) / SC + 2 * pad; sh = (found.yb - found.yt) / SC + 2 * pad;
+    } else { sx = G.gx; sy = G.gy; sw = G.gw; sh = G.gh; }
+    sx = Math.max(0, sx); sy = Math.max(0, sy); sw = Math.min(G.vw - sx, sw); sh = Math.min(G.vh - sy, sh);
+    const c = document.createElement('canvas'); c.width = Math.round(sw); c.height = Math.round(sh);
+    c.getContext('2d').drawImage(video, sx, sy, sw, sh, 0, 0, c.width, c.height);
+    c.toBlob(b => {
+      if(!b || closed) return;
+      blob = b; still.src = c.toDataURL('image/jpeg', 0.85);
+      view.style.display = 'none'; still.style.display = '';
+      $('#cam-shot').style.display = 'none'; $('#cam-retake').style.display = ''; $('#cam-use').style.display = '';
+      statusEl.textContent = auto ? 'Kartička vyfocena a oříznuta. Zkontrolujte, že je text čitelný.' : 'Zkontrolujte, že je text čitelný.';
+    }, 'image/jpeg', 0.92);
+  }
+  function close(){
+    closed = true; cancelAnimationFrame(raf); clearInterval(timer);
+    try{ stream.getTracks().forEach(t => t.stop()); }catch(e){}
+    backdrop.remove();
+  }
+  $('#cam-cancel').addEventListener('click', close);
+  $('#cam-shot').addEventListener('click', () => capture(false));
+  $('#cam-retake').addEventListener('click', () => {
+    blob = null; last = null; stableCnt = 0; found = null;
+    still.style.display = 'none'; view.style.display = '';
+    $('#cam-shot').style.display = ''; $('#cam-retake').style.display = 'none'; $('#cam-use').style.display = 'none';
+    statusEl.textContent = 'Přiložte kartičku stranou s údaji do rámečku…';
   });
-  backdrop.querySelector('#cam-retake').addEventListener('click', () => { blob = null; show(false); });
-  backdrop.querySelector('#cam-use').addEventListener('click', () => {
+  $('#cam-use').addEventListener('click', () => {
     if(!blob) return;
     const f = new File([blob], 'kartička-zp.jpg', { type: 'image/jpeg' });
     close();
     uploadAttachments(kind, [f]);
   });
+  statusEl.textContent = 'Přiložte kartičku stranou s údaji do rámečku…';
+  draw();
+  timer = setInterval(analyse, 130);
 }
 function attachFileHandlers(){
   const app = document.getElementById('app');
@@ -5438,7 +5552,7 @@ const HELP_EMP = [
  {g:'Jednotlivé kroky',items:[
   ['🪪','Základní údaje','Jméno, příjmení, tituly, rodné číslo <b>bez lomítka</b> (např. 9001011234), místo narození a státní příslušnost. Datum narození se z rodného čísla doplní samo a aplikace ho zkontroluje.'],
   ['🏠','Bydliště a kontakt','Trvalé bydliště, soukromý telefon a e-mail. Doručovací adresu vyplňte jen tehdy, pokud je jiná než trvalá. Kontakt pro mimořádnou událost je doplňkový (koho zavolat, kdyby se vám něco stalo).'],
-  ['🏦','Pojišťovna a účet','Zdravotní pojišťovnu vyberte ze seznamu. <b>Nahrajte kartičku pojišťovny</b> (povinné): tlačítkem <b>📷 Vyfotit kamerou</b> ji vyfotíte kamerou počítače (prohlížeč se zeptá na povolení kamery), nebo <b>📎 Nahrát soubor</b> / přetažením vložíte hotovou fotografii či sken (JPG, PNG, PDF). Fotografie se před odesláním zmenší. Nahraný soubor můžete tlačítkem <b>Smazat</b> nahradit jiným. Číslo účtu zadejte bez lomítka a kódu banky, kód banky vyplňte zvlášť (např. 0100). Po zadání čísla účtu se zobrazí tři souhlasy se zasíláním platu, cestovních náhrad a příspěvku na stravování na tento účet.'],
+  ['🏦','Pojišťovna a účet','Zdravotní pojišťovnu vyberte ze seznamu. <b>Nahrajte kartičku pojišťovny</b> (povinné): tlačítkem <b>📷 Vyfotit kamerou</b> ji vyfotíte kamerou počítače (prohlížeč se zeptá na povolení kamery): přiložte kartičku stranou s údaji do rámečku a držte ji klidně – aplikace ji sama rozpozná, vyfotí a ořízne (kdyby to nešlo, použijte <b>Vyfotit hned</b>). Nebo <b>📎 Nahrát soubor</b> / přetažením vložíte hotovou fotografii či sken (JPG, PNG, PDF). Fotografie se před odesláním zmenší. Nahraný soubor můžete tlačítkem <b>Smazat</b> nahradit jiným. Číslo účtu zadejte bez lomítka a kódu banky, kód banky vyplňte zvlášť (např. 0100). Po zadání čísla účtu se zobrazí tři souhlasy se zasíláním platu, cestovních náhrad a příspěvku na stravování na tento účet.'],
   ['👪','Rodina a děti','Rodinný stav je povinný. Krok <b>Děti</b> je doplňkový – pokud děti nemáte, jen pokračujte dál. Další dítě přidáte tlačítkem <b>+ Přidat dítě</b>.'],
   ['🎓','Vzdělání','Údaje o vašem dosaženém vzdělání – vyplňte podle pokynů u polí.'],
   ['💼','Praxe','Předchozí zaměstnání a činnosti. Uveďte <b>alespoň jedno</b>; další přidáte tlačítkem <b>+ Přidat zaměstnání</b>.'],
