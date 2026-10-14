@@ -1,4 +1,4 @@
-const APP_VERSION = '2026-10-14.15';
+const APP_VERSION = '2026-10-14.16';
 const STORAGE_INDEX_KEY = 'onboarding:index';
 const STORAGE_INFO_KEY = 'onboarding:info-content';
 const STORAGE_SETTINGS_KEY = 'onboarding:settings';
@@ -748,6 +748,7 @@ async function saveRecord(id, record){
     return true;
   }catch(e){
     console.error('saveRecord failed:', e);
+    if(state.employeeMode) showToast('Údaje se nepodařilo uložit: ' + (e && e.message ? e.message : e) + ' Zkuste to prosím znovu.', true);
     if(isHardRateLimitError(e)){
       state.hardRateLimited = true;
       state.error = 'Úložiště dosáhlo limitu požadavků. Znovu načtěte artefakt (obnovte stránku) a zkuste to prosím znovu.';
@@ -1394,7 +1395,7 @@ function renderList(){
       <div style="display:flex;gap:8px;">
         ${canCreate ? `<button class="btn btn-ghost" id="btn-import-upload">Vytěžit podklady</button><input type="file" id="import-file-input" accept=".xlsx,.xls,.json" multiple style="display:none;">` : ''}
         ${canCreate && organigramConfigured() ? `<button class="btn btn-ghost" id="btn-import-organigram">Stáhnout nové z organigramu</button>` : ''}
-        <button class="btn btn-ghost" data-refresh title="Načte aktuální stav z databáze (např. po odeslání dotazníku zaměstnancem)">↻ Aktualizovat</button>
+        <button class="btn btn-ghost refresh-btn" data-refresh title="Aktualizovat – načte aktuální stav z databáze (např. po odeslání dotazníku zaměstnancem)" aria-label="Aktualizovat">↻</button>
         ${canCreate ? `<button class="btn btn-primary" id="btn-new">+ Nový nástup</button>` : ''}
       </div>
     </div>
@@ -1563,7 +1564,7 @@ function renderDetail(){
         <div class="detail-sub">${esc(displayRef)}${displayRef?' · ':''}nástup ${esc(formatDate(displayDatumNastupu)) || '—'}</div>
       </div>
       <div class="detail-actions">
-        ${state.employeeMode || state.previewingEmployee ? '' : `<button class="btn btn-ghost btn-sm" data-refresh title="Načte aktuální stav spisu z databáze">↻ Aktualizovat</button>`}
+        ${state.employeeMode || state.previewingEmployee ? '' : `<button class="btn btn-ghost btn-sm refresh-btn" data-refresh title="Aktualizovat – načte aktuální stav spisu z databáze" aria-label="Aktualizovat">↻</button>`}
         ${complete ? `<div class="stamp">Přístupy vyřízeny</div>` : ''}
         ${state.role==='hr' && !state.previewingEmployee ? (() => {
           const hrMissing = missingHrRequiredFields(r);
@@ -5293,9 +5294,22 @@ function openSubmitConfirmModal(){
   document.body.appendChild(backdrop);
   document.getElementById('sc-cancel').addEventListener('click', () => backdrop.remove());
   backdrop.addEventListener('click', (ev) => { if(ev.target === backdrop) backdrop.remove(); });
-  document.getElementById('sc-confirm').addEventListener('click', () => {
-    backdrop.remove();
+  document.getElementById('sc-confirm').addEventListener('click', async () => {
+    const btn = document.getElementById('sc-confirm');
+    btn.disabled = true; btn.textContent = 'Odesílám…';
+    const prevStatus = state.currentRecord.personalStatus;
     state.currentRecord.personalStatus = 'submitted';
+    let ok = false, reason = '';
+    try{ ok = await saveRecord(state.currentId, state.currentRecord); }catch(e){ reason = e && e.message ? e.message : String(e); }
+    if(!ok){
+      state.currentRecord.personalStatus = prevStatus;
+      btn.disabled = false; btn.textContent = 'Ano, odeslat';
+      let err = backdrop.querySelector('#sc-error');
+      if(!err){ err = document.createElement('p'); err.id = 'sc-error'; err.style.cssText = 'color:var(--red);font-size:13px;margin:10px 0 0;'; backdrop.querySelector('.modal-actions').before(err); }
+      err.textContent = 'Odeslání se nezdařilo – údaje NEBYLY odeslány. ' + (reason || state.error || 'Zkuste to prosím znovu, případně kontaktujte personální oddělení.');
+      return;
+    }
+    backdrop.remove();
     persistCurrentRecord();
     window.scrollTo({top:0, behavior:'smooth'});
     render();
@@ -5402,30 +5416,46 @@ async function refreshFromOrganigram(rec){
 
 // Ruční / automatické načtení aktuálního stavu z databáze (např. po odeslání dotazníku zaměstnancem).
 let refreshing = false;
+function showToast(text, isErr){
+  const t = document.createElement('div');
+  t.className = 'toast-msg' + (isErr ? ' err' : '');
+  t.textContent = text;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), isErr ? 5000 : 1800);
+}
+const withTimeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('Časový limit odpovědi databáze vypršel.')), ms))]);
 async function refreshFromServer(manual){
-  if(refreshing || state.employeeMode || state.loading || !window.storage) return;
+  if(state.employeeMode || state.loading || !window.storage) return;
+  if(refreshing){ if(manual) showToast('Aktualizace už probíhá…'); return; }
   if(!manual && (document.hidden || document.querySelector('.modal-backdrop'))) return;
   const ae = document.activeElement;
   if(!manual && ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)) return;   // nepřerušovat psaní
   refreshing = true;
+  if(manual) document.querySelectorAll('[data-refresh]').forEach(b => b.classList.add('spin'));
   try{
     let changed = false;
-    const res = await window.storage.get(STORAGE_INDEX_KEY, true);
+    const res = await withTimeout(window.storage.get(STORAGE_INDEX_KEY, true), 15000);
     if(res && res.value !== indexBase){ state.index = JSON.parse(res.value); indexBase = res.value; changed = true; }
     if(state.view === 'detail' && state.currentId && state.currentRecord){
-      const rr = await window.storage.get(recordKey(state.currentId), true);
+      const rr = await withTimeout(window.storage.get(recordKey(state.currentId), true), 15000);
       const base = recordBase[state.currentId];
       if(rr && base){
         const latest = normalizeRecord(JSON.parse(rr.value));
         const latestStr = JSON.stringify(latest);
-        if(latestStr !== base){
-          if(JSON.stringify(state.currentRecord) === base){ state.currentRecord = latest; recordBase[state.currentId] = latestStr; changed = true; }
+        if(latestStr !== base && JSON.stringify(state.currentRecord) === base){
+          state.currentRecord = latest; recordBase[state.currentId] = latestStr; changed = true;
         }
       }
     }
     if(changed || manual){ state.error = null; render(); }
-  }catch(e){ console.warn('refresh failed', e); }
-  finally{ refreshing = false; }
+    if(manual) showToast(changed ? 'Aktualizováno – načteny novější údaje.' : 'Aktualizováno – žádné změny.');
+  }catch(e){
+    console.warn('refresh failed', e);
+    if(manual) showToast('Aktualizace se nezdařila: ' + (e && e.message ? e.message : e), true);
+  }finally{
+    refreshing = false;
+    document.querySelectorAll('[data-refresh]').forEach(b => b.classList.remove('spin'));
+  }
 }
 document.addEventListener('click', ev => { const b = ev.target.closest && ev.target.closest('[data-refresh]'); if(b) refreshFromServer(true); });
 document.addEventListener('visibilitychange', () => { if(!document.hidden) refreshFromServer(false); });
@@ -5706,7 +5736,7 @@ const HELP = [
   ['🏛️','Stáhnout nové z organigramu','Načte obsazené osoby publikované z aplikace Organigram. Už dříve převzaté osoby se nenabízejí znovu. Přenáší se jméno, pozice, odbor, vedoucí pozice, platová třída a stupeň řízení. Pokud hlásí, že nejsou žádné osoby, zkuste v Organigramu <b>Publikovat seznam osob</b>.'],
   ['📄','Vytěžit podklady','Hromadný import z Excelu/JSON. Sloupce se namapují na údaje (zkontrolujte odhad) a lze nastavit <b>společné hodnoty</b> pro celou dávku – pracoviště, důvod vzniku pracovního poměru, typ poměru apod. Hodnota ze sloupce má vždy přednost.'],
   ['🔎','Hledání, filtry a řazení','Vyhledávání funguje na jméno, pozici, pracoviště, zdrojový úřad, administrátora i referenci. Filtry jsou pod záhlavím sloupců, řadit lze kliknutím na název sloupce.'],
-  ['↻','Aktualizovat','Rejstřík i spis se po návratu do okna a každých ~45 s sami načtou znovu; tlačítko <b>↻ Aktualizovat</b> načte aktuální stav hned (např. po odeslání dotazníku zaměstnancem). Ukládání personálního oddělení se slučuje se změnami zaměstnance, takže otevřený spis už jeho údaje nepřepíše.'],
+  ['↻','Aktualizovat','Rejstřík i spis se po návratu do okna a každých ~45 s sami načtou znovu; tlačítko <b>↻</b> (Aktualizovat) načte aktuální stav hned (např. po odeslání dotazníku zaměstnancem). Ukládání personálního oddělení se slučuje se změnami zaměstnance, takže otevřený spis už jeho údaje nepřepíše.'],
   ['🏷️','Stavy spisu','<b>K doplnění personálním oddělením</b> (chybí povinné údaje) → <b>Připraveno – vygenerujte odkaz</b> → <b>Čeká na zaměstnance</b> → <b>Odesláno zaměstnancem</b> → <b>Zkontrolováno</b>; případně <b>Vráceno k doplnění</b>.'],
   ['✎','Rychlé doplnění','Tužka v řádku otevře okno pro rychlé doplnění základních údajů bez otevírání celého spisu.'],
   ['🗑️','Smazání spisu','Tlačítko Smazat v řádku (po potvrzení) odstraní jeden spis. Hromadné smazání všech spisů je v Nastavení.']]},
