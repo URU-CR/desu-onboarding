@@ -1,4 +1,4 @@
-const APP_VERSION = '2026-10-14.5';
+const APP_VERSION = '2026-10-14.6';
 const STORAGE_INDEX_KEY = 'onboarding:index';
 const STORAGE_INFO_KEY = 'onboarding:info-content';
 const STORAGE_SETTINGS_KEY = 'onboarding:settings';
@@ -2609,10 +2609,15 @@ function renderPersonalWizard(r){
   const status = r.personalStatus || 'draft';
   const canEdit = status === 'draft' || status === 'returned';
   const submitMissing = currentSubmitMissing();
-  const missingBySection = new Set(submitMissing.map(m => m.sectionId));
-  const breadcrumb = steps.map((sec,i) => `<span class="crumb ${i===idx?'active':''} ${sectionHasFlag(sec,r)?'flagged':''} ${missingBySection.has(sec.id)?'incomplete':''}" data-wizard-goto="${i}">${i+1}. ${esc(sec.navLabel||sec.label)}</span>`)
-    .concat([`<span class="crumb ${idx===steps.length?'active':''} ${missingBySection.size>0?'incomplete':''}" data-wizard-goto="${steps.length}">${steps.length+1}. Souhrn</span>`])
+  // Krok se červeně označí, až když byl už otevřen (a opuštěn) a stále v něm chybí povinné údaje; pohyb mezi kroky nic neblokuje.
+  state.visitedSteps = state.visitedSteps || {};
+  const allMissing = canEdit ? missingRequiredFields(r, false) : [];
+  const missingBySection = new Set(allMissing.map(m => m.sectionId));
+  const crumbIncomplete = (key, on) => (on && state.visitedSteps[key] && key !== (idx < steps.length ? steps[idx].id : '__summary')) ? 'incomplete' : '';
+  const breadcrumb = steps.map((sec,i) => `<span class="crumb ${i===idx?'active':''} ${sectionHasFlag(sec,r)?'flagged':''} ${crumbIncomplete(sec.id, missingBySection.has(sec.id))}" data-wizard-goto="${i}">${i+1}. ${esc(sec.navLabel||sec.label)}</span>`)
+    .concat([`<span class="crumb ${idx===steps.length?'active':''} ${crumbIncomplete('__summary', missingBySection.size>0)}" data-wizard-goto="${steps.length}">${steps.length+1}. Souhrn</span>`])
     .join('<span class="crumb-sep">›</span>');
+  state.visitedSteps[idx < steps.length ? steps[idx].id : '__summary'] = true;
   let body, title, sectionOptional = false;
   if(idx < steps.length){
     const sec = steps[idx];
@@ -2654,6 +2659,7 @@ function renderPersonalWizard(r){
     ${stepErrorBanner}
     <div class="wizard-breadcrumb">${breadcrumb}</div>
     <div class="wizard-step-title" style="margin:0 0 4px;">Krok ${idx+1}/${total} · ${esc(title)}${sectionOptional?' <span class="section-optional-tag">doplňkové</span>':''}</div>
+    ${idx===0 ? `<div class="info-box" style="margin:0 0 14px;font-size:13.5px;line-height:1.55;">Údaje z tohoto dotazníku slouží k zavedení do personálního a mzdového systému. Po jejich zavedení budou vaše citlivé osobní údaje z této aplikace <b>vymazány</b>.</div>` : ''}
     ${idx===0 && canEdit ? `<p style="font-size:12px;color:var(--ink-faint);margin:0 0 14px;"><span class="essential-dot">*</span> = povinný údaj — bez něj se dotazník neobejde, zbytek je doplňkový.</p>` : ''}
     ${saveStatusHtml}
     ${body}
@@ -4976,7 +4982,7 @@ async function openDetail(id){
   state.view = 'detail';
   state.tab = availableTabs()[0];
   state.collapsed = {};
-  state.wizardStep = 0; state.wizardStepError = false; state.showMissingHighlights = false;
+  state.wizardStep = 0; state.wizardStepError = false; state.showMissingHighlights = false; state.visitedSteps = {};
   state.firstDayHiddenSession = false; state.firstDayDismissPrompt = false;
   render();
 }
@@ -5180,10 +5186,10 @@ async function openDetail(id){
    KAŽDOU ZMĚNU DOTAZNÍKU (kroky, pole, tlačítka, stavy) PROMÍTNOUT I SEM. */
 const HELP_EMP = [
  {g:'Na úvod',items:[
-  ['👋','K čemu dotazník slouží','Údaje, které zde vyplníte, potřebuje personální oddělení k vaší smlouvě, mzdám a přihlášení k pojištění. Nic jiného se s nimi nedělá.'],
+  ['👋','K čemu dotazník slouží','Údaje, které zde vyplníte, potřebuje personální oddělení k vaší smlouvě, mzdám a přihlášení k pojištění. Slouží k zavedení do personálního a mzdového systému; po jejich zavedení budou vaše citlivé osobní údaje z aplikace <b>vymazány</b>. Nic jiného se s nimi nedělá.'],
   ['💾','Nemusíte to stihnout najednou','Vyplněné se ukládá samo. Dotazník můžete kdykoli zavřít a později se k němu vrátit <b>stejným odkazem</b> – nic se neztratí. Odkaz nikomu nepřeposílejte, je osobní. Dotazník se přes něj dá vyplňovat zhruba měsíc; potom (nebo po zpracování údajů) se uzavře a odkaz vám dál ukáže jen záložku <b>Co potřebujete vědět</b>. Potřebujete-li údaje ještě opravit, požádejte personální oddělení o nový odkaz.'],
   ['⭐','Co je povinné','Povinné údaje jsou označeny <b style="color:#C62828">červenou hvězdičkou *</b>. Bez nich dotazník nepůjde odeslat. Ostatní údaje jsou doplňkové – vyplňte je, pokud se vás týkají.'],
-  ['➡️','Jak se pohybovat','Dotazník je rozdělen do kroků. Tlačítky <b>Pokračovat</b> a <b>Zpět</b> se posouváte mezi kroky, nahoře můžete kliknutím přeskočit na libovolný krok. Červeně podtržený krok znamená, že tam něco povinného chybí.']]},
+  ['➡️','Jak se pohybovat','Dotazník je rozdělen do kroků. Tlačítky <b>Pokračovat</b> a <b>Zpět</b> se posouváte mezi kroky, nahoře můžete kliknutím přeskočit na libovolný krok – <b>chybějící povinné údaje vás nezastaví</b>, můžete vyplňovat i napřeskáčku. Krok, který jste už otevřeli a v němž ještě něco povinného chybí, se nahoře zobrazí <b style="color:#C62828">červeně s tečkou ●</b>; po doplnění zčerná.']]},
  {g:'Jednotlivé kroky',items:[
   ['🪪','Základní údaje','Jméno, příjmení, tituly, rodné číslo <b>bez lomítka</b> (např. 9001011234), místo narození a státní příslušnost. Datum narození se z rodného čísla doplní samo a aplikace ho zkontroluje.'],
   ['🏠','Bydliště a kontakt','Trvalé bydliště, soukromý telefon a e-mail. Doručovací adresu vyplňte jen tehdy, pokud je jiná než trvalá. Kontakt pro mimořádnou událost je doplňkový (koho zavolat, kdyby se vám něco stalo).'],
