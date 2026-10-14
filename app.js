@@ -1,4 +1,4 @@
-const APP_VERSION = '2026-10-14.16';
+const APP_VERSION = '2026-10-14.17';
 const STORAGE_INDEX_KEY = 'onboarding:index';
 const STORAGE_INFO_KEY = 'onboarding:info-content';
 const STORAGE_SETTINGS_KEY = 'onboarding:settings';
@@ -1504,7 +1504,7 @@ function personalChip(r){
   const status = r.personalStatus || 'draft';
   if(status === 'reviewed') return `<span class="chip chip-done">Zkontrolováno</span>`;
   if(status === 'returned') return `<span class="chip chip-amber">Vráceno k doplnění</span>`;
-  if(status === 'submitted') return `<span class="chip chip-blue">Odesláno zaměstnancem</span>`;
+  if(status === 'submitted') return `<span class="chip chip-submitted">● Odesláno zaměstnancem</span>`;
   const info = draftStageInfo(r.hrMissingCount || 0, r.linkGeneratedAt);
   return `<span class="chip ${info.chipClass}">${esc(info.label)}</span>`;
 }
