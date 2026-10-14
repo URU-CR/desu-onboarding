@@ -1,4 +1,4 @@
-const APP_VERSION = '2026-10-14.2';
+const APP_VERSION = '2026-10-14.3';
 const STORAGE_INDEX_KEY = 'onboarding:index';
 const STORAGE_INFO_KEY = 'onboarding:info-content';
 const STORAGE_SETTINGS_KEY = 'onboarding:settings';
@@ -401,7 +401,7 @@ const PERSONAL_SECTIONS = [
     {id:'rozsah_uvazku', label:'Rozsah úvazku', essential:true, type:'select', options:['','Plný úvazek','Zkrácený úvazek']},
     {id:'doba_trvani_pomeru', label:'Doba trvání pracovního poměru', essential:true, type:'select', options:['','Na dobu neurčitou','Na dobu určitou']},
     {id:'uvazek', label:'Výše úvazku', placeholder:'např. 1,0'},
-    {id:'zkusebni_doba', label:'Zkušební doba', essential:true, type:'select', options:ZKUSEBNI_ALL, disabledIf:p=>p.rezim_zamestnani==='Služební poměr'},
+    {id:'zkusebni_doba', label:'Zkušební doba', essential:true, type:'select', options:ZKUSEBNI_ALL, showWhenLocked:true, disabledIf:p=>p.rezim_zamestnani==='Služební poměr'},
   ]},
   { id:'mzdove_udaje', label:'Mzdové a organizační údaje', owner:'hr', fields:[
     {id:'vedouci', label:'Vedoucí pozice', essential:true, type:'select', options:['','Ne','Ano']},
@@ -651,6 +651,9 @@ function normalizeRecord(record){
   PERSONAL_SECTIONS.forEach(sec => {
     if(sec.type === 'repeat' && !Array.isArray(record.personal[sec.id])) record.personal[sec.id] = [];
   });
+  // Starší spisy: typ poměru výchozí HPP, zkušební doba srovnaná podle poměru a vedoucí pozice.
+  if(!record.personal.typ_pomeru) record.personal.typ_pomeru = 'HPP';
+  syncZkusebniDoba(record.personal);
   const defaultChecklist = emptyChecklist();
   record.checklist = record.checklist || {};
   Object.keys(defaultChecklist).forEach(key => {
@@ -2150,7 +2153,7 @@ function sectionFieldsHtml(sec, r, editable){
     const flagged = f.id in flags;
     const pending = state.pendingEdit && state.pendingEdit.key === f.id ? state.pendingEdit : null;
     const lockedByDep = f.disabledIf && f.disabledIf(r.personal);
-    const displayVal = lockedByDep ? (f.default || '') : (pending ? pending.newValue : r.personal[f.id]);
+    const displayVal = lockedByDep && !f.showWhenLocked ? (f.default || '') : (pending ? pending.newValue : r.personal[f.id]);
     const ctxWithPending = pending ? {...r.personal, [f.id]: pending.newValue} : r.personal;
     const isMissing = missingSet.has(f.id);
     return `<div class="field ${f.full?'full':''} ${f.essential?'essential':''} ${(showFlagInfo || hrFlagMode) && flagged ? 'flagged':''} ${isMissing?'missing':''}">
