@@ -1,4 +1,4 @@
-const APP_VERSION = '2026-10-14.14';
+const APP_VERSION = '2026-10-14.15';
 const STORAGE_INDEX_KEY = 'onboarding:index';
 const STORAGE_INFO_KEY = 'onboarding:info-content';
 const STORAGE_SETTINGS_KEY = 'onboarding:settings';
@@ -596,12 +596,44 @@ function checklistTotals(checklist, category, tab){
   return {total, done};
 }
 
+// Personální oddělení a zaměstnanec zapisují do stejných záznamů souběžně (zaměstnanec odešle dotazník, zatímco
+// má personální rejstřík nebo spis otevřený). Proto si pamatujeme, co jsme naposledy načetli/uložili (base),
+// a při uložení sloučíme: změněné jen u nás bereme od nás, ostatní z aktuálního stavu v databázi.
+let indexBase = null;
+const recordBase = {};
+const sameJson = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+function merge3(base, mine, latest){
+  base = base || {}; mine = mine || {}; latest = latest || {};
+  const out = {};
+  new Set([...Object.keys(latest), ...Object.keys(mine)]).forEach(k => {
+    const v = sameJson(mine[k], base[k]) ? latest[k] : mine[k];
+    if(v !== undefined) out[k] = v;
+  });
+  return out;
+}
+function mergeRecord(base, mine, latest){
+  const out = merge3(base, mine, latest);
+  ['personal', 'checklist', 'fieldFlags'].forEach(k => { out[k] = merge3(base[k], mine[k], latest[k]); });
+  return out;
+}
+function mergeIndex(base, mine, latest){
+  const bm = new Map(base.map(e => [e.id, e])), lm = new Map(latest.map(e => [e.id, e])), mm = new Set(mine.map(e => e.id));
+  const out = [];
+  mine.forEach(e => {
+    if(lm.has(e.id)) out.push(merge3(bm.get(e.id), e, lm.get(e.id)));
+    else if(!bm.has(e.id)) out.push(e);                  // nově přidáno u nás
+  });
+  latest.forEach(e => { if(!mm.has(e.id) && !bm.has(e.id)) out.push(e); });   // přidáno jinde
+  return out;
+}
 async function loadIndex(){
   try{
     const res = await window.storage.get(STORAGE_INDEX_KEY, true);
     state.index = res ? JSON.parse(res.value) : [];
+    indexBase = JSON.stringify(state.index);
   }catch(e){
     state.index = [];
+    indexBase = null;
   }
 }
 function isHardRateLimitError(e){
@@ -627,7 +659,14 @@ async function withRetry(fn, retries){
 async function saveIndex(){
   if(state.standaloneMode) return true;
   try{
+    if(!state.employeeMode && indexBase !== null){
+      try{
+        const res = await window.storage.get(STORAGE_INDEX_KEY, true);
+        if(res && res.value !== indexBase) state.index = mergeIndex(JSON.parse(indexBase), state.index, JSON.parse(res.value));
+      }catch(e){ /* uložíme beze sloučení */ }
+    }
     await withRetry(() => window.storage.set(STORAGE_INDEX_KEY, JSON.stringify(state.index), true));
+    indexBase = JSON.stringify(state.index);
     state.error = null;
     return true;
   }catch(e){
@@ -645,7 +684,9 @@ async function loadRecord(id){
   try{
     const res = await window.storage.get(recordKey(id), true);
     const record = res ? JSON.parse(res.value) : {};
-    return normalizeRecord(record);
+    const norm = normalizeRecord(record);
+    if(res && !state.employeeMode) recordBase[id] = JSON.stringify(norm);
+    return norm;
   }catch(e){
     return normalizeRecord({});
   }
@@ -688,7 +729,21 @@ function normalizeRecord(record){
 async function saveRecord(id, record){
   if(state.standaloneMode) return true;
   try{
+    if(!state.employeeMode && recordBase[id]){
+      try{
+        const res = await window.storage.get(recordKey(id), true);
+        if(res){
+          const latest = normalizeRecord(JSON.parse(res.value));
+          if(JSON.stringify(latest) !== recordBase[id]){
+            const merged = mergeRecord(JSON.parse(recordBase[id]), record, latest);
+            Object.keys(record).forEach(k => delete record[k]);
+            Object.assign(record, merged);
+          }
+        }
+      }catch(e){ /* uložíme beze sloučení */ }
+    }
     await withRetry(() => window.storage.set(recordKey(id), JSON.stringify(record), true));
+    if(!state.employeeMode) recordBase[id] = JSON.stringify(record);
     state.error = null;
     return true;
   }catch(e){
@@ -1339,6 +1394,7 @@ function renderList(){
       <div style="display:flex;gap:8px;">
         ${canCreate ? `<button class="btn btn-ghost" id="btn-import-upload">Vytěžit podklady</button><input type="file" id="import-file-input" accept=".xlsx,.xls,.json" multiple style="display:none;">` : ''}
         ${canCreate && organigramConfigured() ? `<button class="btn btn-ghost" id="btn-import-organigram">Stáhnout nové z organigramu</button>` : ''}
+        <button class="btn btn-ghost" data-refresh title="Načte aktuální stav z databáze (např. po odeslání dotazníku zaměstnancem)">↻ Aktualizovat</button>
         ${canCreate ? `<button class="btn btn-primary" id="btn-new">+ Nový nástup</button>` : ''}
       </div>
     </div>
@@ -1507,6 +1563,7 @@ function renderDetail(){
         <div class="detail-sub">${esc(displayRef)}${displayRef?' · ':''}nástup ${esc(formatDate(displayDatumNastupu)) || '—'}</div>
       </div>
       <div class="detail-actions">
+        ${state.employeeMode || state.previewingEmployee ? '' : `<button class="btn btn-ghost btn-sm" data-refresh title="Načte aktuální stav spisu z databáze">↻ Aktualizovat</button>`}
         ${complete ? `<div class="stamp">Přístupy vyřízeny</div>` : ''}
         ${state.role==='hr' && !state.previewingEmployee ? (() => {
           const hrMissing = missingHrRequiredFields(r);
@@ -5343,6 +5400,38 @@ async function refreshFromOrganigram(rec){
   }catch(e){ console.warn('doplnění z organigramu selhalo', e); return false; }
 }
 
+// Ruční / automatické načtení aktuálního stavu z databáze (např. po odeslání dotazníku zaměstnancem).
+let refreshing = false;
+async function refreshFromServer(manual){
+  if(refreshing || state.employeeMode || state.loading || !window.storage) return;
+  if(!manual && (document.hidden || document.querySelector('.modal-backdrop'))) return;
+  const ae = document.activeElement;
+  if(!manual && ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)) return;   // nepřerušovat psaní
+  refreshing = true;
+  try{
+    let changed = false;
+    const res = await window.storage.get(STORAGE_INDEX_KEY, true);
+    if(res && res.value !== indexBase){ state.index = JSON.parse(res.value); indexBase = res.value; changed = true; }
+    if(state.view === 'detail' && state.currentId && state.currentRecord){
+      const rr = await window.storage.get(recordKey(state.currentId), true);
+      const base = recordBase[state.currentId];
+      if(rr && base){
+        const latest = normalizeRecord(JSON.parse(rr.value));
+        const latestStr = JSON.stringify(latest);
+        if(latestStr !== base){
+          if(JSON.stringify(state.currentRecord) === base){ state.currentRecord = latest; recordBase[state.currentId] = latestStr; changed = true; }
+        }
+      }
+    }
+    if(changed || manual){ state.error = null; render(); }
+  }catch(e){ console.warn('refresh failed', e); }
+  finally{ refreshing = false; }
+}
+document.addEventListener('click', ev => { const b = ev.target.closest && ev.target.closest('[data-refresh]'); if(b) refreshFromServer(true); });
+document.addEventListener('visibilitychange', () => { if(!document.hidden) refreshFromServer(false); });
+window.addEventListener('focus', () => refreshFromServer(false));
+setInterval(() => refreshFromServer(false), 45000);
+
 async function deleteEmployee(id){
   state.index = state.index.filter(e => e.id !== id);
   await saveIndex();
@@ -5354,6 +5443,8 @@ async function deleteEmployee(id){
 async function openDetail(id){
   state.currentId = id;
   state.currentRecord = await loadRecord(id);
+  { const en = state.index.find(e => e.id === id);   // rejstřík se mohl rozejít se spisem (souběžný zápis) – srovnat
+    if(en && !state.employeeMode && en.personalStatus !== state.currentRecord.personalStatus){ en.personalStatus = state.currentRecord.personalStatus; saveIndex(); } }
   let _chg = await refreshFromOrganigram(state.currentRecord);
   if(ensureSuggestedEmail(state.currentRecord) || _chg) persistRecordOnly();
   state.view = 'detail';
@@ -5615,6 +5706,7 @@ const HELP = [
   ['🏛️','Stáhnout nové z organigramu','Načte obsazené osoby publikované z aplikace Organigram. Už dříve převzaté osoby se nenabízejí znovu. Přenáší se jméno, pozice, odbor, vedoucí pozice, platová třída a stupeň řízení. Pokud hlásí, že nejsou žádné osoby, zkuste v Organigramu <b>Publikovat seznam osob</b>.'],
   ['📄','Vytěžit podklady','Hromadný import z Excelu/JSON. Sloupce se namapují na údaje (zkontrolujte odhad) a lze nastavit <b>společné hodnoty</b> pro celou dávku – pracoviště, důvod vzniku pracovního poměru, typ poměru apod. Hodnota ze sloupce má vždy přednost.'],
   ['🔎','Hledání, filtry a řazení','Vyhledávání funguje na jméno, pozici, pracoviště, zdrojový úřad, administrátora i referenci. Filtry jsou pod záhlavím sloupců, řadit lze kliknutím na název sloupce.'],
+  ['↻','Aktualizovat','Rejstřík i spis se po návratu do okna a každých ~45 s sami načtou znovu; tlačítko <b>↻ Aktualizovat</b> načte aktuální stav hned (např. po odeslání dotazníku zaměstnancem). Ukládání personálního oddělení se slučuje se změnami zaměstnance, takže otevřený spis už jeho údaje nepřepíše.'],
   ['🏷️','Stavy spisu','<b>K doplnění personálním oddělením</b> (chybí povinné údaje) → <b>Připraveno – vygenerujte odkaz</b> → <b>Čeká na zaměstnance</b> → <b>Odesláno zaměstnancem</b> → <b>Zkontrolováno</b>; případně <b>Vráceno k doplnění</b>.'],
   ['✎','Rychlé doplnění','Tužka v řádku otevře okno pro rychlé doplnění základních údajů bez otevírání celého spisu.'],
   ['🗑️','Smazání spisu','Tlačítko Smazat v řádku (po potvrzení) odstraní jeden spis. Hromadné smazání všech spisů je v Nastavení.']]},
