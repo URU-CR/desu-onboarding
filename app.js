@@ -1,4 +1,4 @@
-const APP_VERSION = '2026-10-14.7';
+const APP_VERSION = '2026-10-14.8';
 const STORAGE_INDEX_KEY = 'onboarding:index';
 const STORAGE_INFO_KEY = 'onboarding:info-content';
 const STORAGE_SETTINGS_KEY = 'onboarding:settings';
@@ -308,7 +308,9 @@ const PERSONAL_SECTIONS = [
     {id:'nouzovy_kontakt_telefon', label:'Kontaktní osoba pro mimořádnou událost — telefon', type:'tel'},
     {id:'nouzovy_kontakt_adresa', label:'Kontaktní osoba pro mimořádnou událost — adresa', full:true},
   ]},
-  { id:'doklady', label:'Zdravotní pojišťovna a bankovní účet', navLabel:'Pojišťovna a účet', owner:'employee', fields:[
+  { id:'doklady', label:'Zdravotní pojišťovna a bankovní účet', navLabel:'Pojišťovna a účet', owner:'employee',
+    attachments:{kind:'zp_karta', title:'Kartička zdravotní pojišťovny', required:true, max:2, camera:true,
+      hint:'Nahrajte fotografii nebo sken kartičky (stačí přední strana, případně i zadní). Můžete ji vyfotit kamerou počítače.'}, fields:[
     {id:'zdravotni_pojistovna', label:'Zdravotní pojišťovna', essential:true, full:true, insuranceList:true},
     {id:'cislo_uctu', label:'Číslo bankovního účtu', placeholder:'123456789', validate:'cisloUctu', essential:true},
     {id:'kod_banky', label:'Kód banky', placeholder:'např. 0100', validate:'kodBanky', bankList:true, essential:true},
@@ -356,7 +358,9 @@ const PERSONAL_SECTIONS = [
     {id:'sidlo', label:'Sídlo organizace'},
     {id:'pracovni_zarazeni', label:'Pracovní zařazení / vykonávaná činnost', full:true},
   ]},
-  { id:'jazyky', label:'Jazykové znalosti', navLabel:'Jazyky', owner:'employee', type:'repeat', optional:true, addLabel:'+ Přidat jazyk', fields:[
+  { id:'jazyky', label:'Jazykové znalosti a zkouška odborné způsobilosti (ZOZ)', navLabel:'Jazyky a ZOZ', owner:'employee', type:'repeat', optional:true, addLabel:'+ Přidat jazyk',
+    attachments:{kind:'zoz', title:'Osvědčení o vykonání zkoušky odborné způsobilosti (ZOZ)', required:false, max:6, camera:false, addLabel:'+ Přidat ZOZ',
+      hint:'Máte-li osvědčení o ZOZ, nahrajte jeho sken (PDF nebo obrázek). Může se uznat jako část praxe a ovlivnit platový stupeň. Doplňkové – můžete přidat i více osvědčení.'}, fields:[
     {id:'jazyk', label:'Jazyk', datalist:'jazyky'},
     {id:'stupen_znalosti', label:'Stupeň znalosti', essential:true, type:'select', options:['','Základní (začátečník)','Střední (pokročilý)','Odborný']},
     {id:'stupen_osvedceni', label:'Stupeň osvědčení', placeholder:'maturita, státní zkouška, certifikát…'},
@@ -566,7 +570,7 @@ const DEFAULT_INFO = {
 let state = { view:'list', index:[], currentId:null, currentRecord:null, tab:'personal', loading:true, error:null, collapsed:{}, role:'hr', employeeMode:false, linkCopied:false, wizardStep:0, infoContent:null, editingInfo:false, previewingEmployee:false, returnMsgCopied:false, pendingEdit:null, filterText:'', colFilters:{pozice:'', pracoviste:'', zdrojovyUrad:'', personal:'', it:'', assigned:''}, sortKey:'created', sortDir:'desc', wizardStepError:false, editingWorkplace:null, editingFirstDayType:null, firstDayDismissPrompt:false, firstDayHiddenSession:false, settings:null, settingsDraft:null, settingsSaved:false, openItemNotes:{}, selectedExport:{}, exporting:false, hardRateLimited:false, selectedAssign:{}, bulkAssignTarget:'', bulkAssigning:false, saveStatus:null, saveStatusAt:null, standaloneMode:false, showMissingHighlights:false, userEmail:null, settingsCollapsed:{}, importQueue:[], importCurrent:null };
 
 function emptyPersonal(){
-  const p = {};
+  const p = { prilohy: [] };
   PERSONAL_SECTIONS.forEach(s => {
     if(s.type === 'repeat') p[s.id] = [];
     else s.fields.forEach(f => p[f.id] = f.default || '');
@@ -650,6 +654,7 @@ function normalizeRecord(record){
   PERSONAL_SECTIONS.forEach(sec => {
     if(sec.type === 'repeat' && !Array.isArray(record.personal[sec.id])) record.personal[sec.id] = [];
   });
+  if(!Array.isArray(record.personal.prilohy)) record.personal.prilohy = [];
   // Starší spisy: typ poměru výchozí HPP, zkušební doba srovnaná podle poměru a vedoucí pozice.
   if(!record.personal.typ_pomeru) record.personal.typ_pomeru = 'HPP';
   if(!record.personal.platovy_stupen) record.personal.platovy_stupen = '1';
@@ -1473,6 +1478,7 @@ function renderDetail(){
       <div class="panel">
         <h3 style="font-family:var(--font-display);font-size:1.25rem;margin:0 0 12px;">Souhlas se zpracováním osobních údajů</h3>
         <p style="font-size:14px;color:var(--ink-soft);line-height:1.6;white-space:pre-wrap;">${esc(state.infoContent.consentText)}</p>
+        <p style="font-size:14px;color:var(--ink-soft);line-height:1.6;">Součástí dotazníku je i nahrání kopie kartičky zdravotní pojišťovny a případných osvědčení o odborné způsobilosti (ZOZ). Tyto dokumenty se uchovávají jen po dobu zavedení zaměstnance do personálního a mzdového systému a poté se vymažou spolu s ostatními osobními údaji z této aplikace.</p>
         <div class="review-row" style="margin-top:18px;">
           <input type="checkbox" id="chk-consent">
           <label for="chk-consent">Souhlasím se zpracováním svých osobních údajů pro uvedené účely.</label>
@@ -2105,7 +2111,220 @@ function renderSettingsPage(){
   `;
 }
 
+
+// ---------------- Přílohy (kartička ZP, osvědčení ZOZ) ----------------
+// Metadata příloh jsou ve spisu (personal.prilohy), samotné soubory v tabulce onboarding_files (viz security.sql).
+let fileApi = null;   // nastavuje se při startu: zaměstnanec { put, del }, personální oddělení { get, del, delRecord }
+const ATTACH_MAX_PDF = 2621440;       // bajtů
+const ATTACH_MAX_TOTAL = 12;
+function fmtSize(n){ n = Number(n)||0; return n >= 1048576 ? (n/1048576).toFixed(1).replace('.',',')+' MB' : Math.max(1,Math.round(n/1024))+' kB'; }
+function attachFilesOf(record, kind){ return ((record && record.personal && record.personal.prilohy) || []).filter(x => x && x.kind === kind); }
+function safeThumb(t){ return typeof t === 'string' && /^data:image\/jpeg;base64,[A-Za-z0-9+\/=]{20,40000}$/.test(t) ? t : ''; }
+function attachmentsHtml(sec, r, editable){
+  const a = sec.attachments;
+  if(!a) return '';
+  const list = attachFilesOf(r, a.kind);
+  const canUpload = !!(editable && state.role === 'employee' && fileApi && fileApi.put);
+  const canView = !!(state.role === 'hr' && fileApi && fileApi.get);
+  const activeMissing = state.role === 'hr' ? currentApproveMissing() : currentSubmitMissing();
+  const isMissing = a.required && list.length === 0 && activeMissing.some(m => m.fieldId === '_attach_' + a.kind);
+  const msg = state.attachMsg && state.attachMsg.kind === a.kind ? state.attachMsg : null;
+  const busy = state.attachBusy === a.kind;
+  const items = list.map(x => {
+    const th = safeThumb(x.thumb);
+    return `<div class="attach-item">${th ? `<img src="${th}" alt="">` : `<span class="attach-pdf">PDF</span>`}
+      <div class="attach-meta"><div class="attach-name">${esc(x.name)}</div><div class="attach-size">${esc(fmtSize(x.size))}</div></div>
+      ${canView ? `<button class="btn btn-ghost btn-sm" type="button" data-attach-view="${esc(x.id)}">Zobrazit</button>` : ''}
+      ${canUpload ? `<button class="btn btn-ghost btn-sm" type="button" data-attach-del="${esc(x.id)}">Smazat</button>` : ''}
+    </div>`;
+  }).join('');
+  const hasCam = !!(a.camera && navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+  const full = list.length >= (a.max || 6);
+  const pickLabel = a.addLabel || '📎 Nahrát soubor';
+  return `<div class="attach-block ${isMissing ? 'missing' : ''}" data-attach-drop="${a.kind}">
+    <h4 class="attach-title">${esc(a.title)}${a.required ? ' <span class="essential-dot" title="Povinný údaj">*</span>' : ' <span class="section-optional-tag">doplňkové</span>'}</h4>
+    <p class="attach-hint">${esc(a.hint || '')}</p>
+    ${items || `<p class="repeat-empty" ${isMissing ? 'style="color:var(--red);"' : ''}>${isMissing ? 'Povinný údaj — zatím nenahráno.' : 'Zatím nic nenahráno.'}</p>`}
+    ${canUpload && !full ? `<div class="attach-actions">
+      ${hasCam ? `<button class="btn btn-primary btn-sm" type="button" data-attach-cam="${a.kind}" ${busy?'disabled':''}>📷 Vyfotit kamerou</button>` : ''}
+      <button class="btn ${hasCam ? 'btn-ghost' : 'btn-primary'} btn-sm" type="button" data-attach-pick="${a.kind}" ${busy?'disabled':''}>${esc(pickLabel)}</button>
+      <input type="file" hidden data-attach-input="${a.kind}" accept="image/*,application/pdf" multiple>
+      <span class="attach-note">JPG, PNG nebo PDF (PDF do ${fmtSize(ATTACH_MAX_PDF)}). Soubor můžete i přetáhnout sem.</span>
+    </div>` : ''}
+    ${canUpload && full ? `<p class="attach-note">Dosažen nejvyšší počet souborů (${a.max || 6}).</p>` : ''}
+    ${busy ? `<p class="attach-note">Nahrávám…</p>` : ''}
+    ${msg ? `<p class="attach-msg ${msg.err ? 'err' : ''}">${esc(msg.text)}</p>` : ''}
+  </div>`;
+}
+function readAsDataUrl(blob){
+  return new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = () => rej(fr.error); fr.readAsDataURL(blob); });
+}
+async function loadBitmap(blob){
+  if(typeof createImageBitmap === 'function'){
+    try{ return await createImageBitmap(blob, { imageOrientation: 'from-image' }); }catch(e){ /* zkusí níže */ }
+    try{ return await createImageBitmap(blob); }catch(e){ /* zkusí níže */ }
+  }
+  const url = URL.createObjectURL(blob);
+  try{
+    return await new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = () => rej(new Error('img')); im.src = url; });
+  } finally { URL.revokeObjectURL(url); }
+}
+function drawScaled(bmp, maxSide, quality){
+  const w0 = bmp.width || bmp.naturalWidth, h0 = bmp.height || bmp.naturalHeight;
+  const k = Math.min(1, maxSide / Math.max(w0, h0));
+  const c = document.createElement('canvas');
+  c.width = Math.max(1, Math.round(w0 * k)); c.height = Math.max(1, Math.round(h0 * k));
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
+  ctx.drawImage(bmp, 0, 0, c.width, c.height);
+  return c.toDataURL('image/jpeg', quality);
+}
+// Vrátí {mime, b64, size, thumb, name}. Obrázky se zmenší (max. 1800 px, JPEG), PDF se předává beze změny.
+async function prepareAttachment(blob, name){
+  const type = (blob.type || '').toLowerCase();
+  if(type === 'application/pdf' || /\.pdf$/i.test(name || '')){
+    if(blob.size > ATTACH_MAX_PDF) throw new Error(`PDF je příliš velké (${fmtSize(blob.size)}). Nejvíce ${fmtSize(ATTACH_MAX_PDF)} – zkuste jej zmenšit nebo nahrát fotografii.`);
+    const du = await readAsDataUrl(new Blob([blob], { type: 'application/pdf' }));
+    return { mime: 'application/pdf', b64: du.split(',')[1], size: blob.size, thumb: '', name: name || 'dokument.pdf' };
+  }
+  if(!type.startsWith('image/')) throw new Error('Nepodporovaný typ souboru. Nahrajte prosím fotografii (JPG, PNG) nebo PDF.');
+  let bmp;
+  try{ bmp = await loadBitmap(blob); }catch(e){ throw new Error('Obrázek se nepodařilo načíst (formát HEIC z telefonu zkuste uložit jako JPG).'); }
+  const main = drawScaled(bmp, 1800, 0.85);
+  const thumb = drawScaled(bmp, 120, 0.7);
+  const b64 = main.split(',')[1];
+  return { mime: 'image/jpeg', b64, size: Math.round(b64.length * 0.75), thumb, name: (name || 'foto.jpg').replace(/\.(png|jpe?g|webp|heic|heif|gif|bmp)$/i, '') + '.jpg' };
+}
+function newFileId(){
+  const b = new Uint8Array(12); crypto.getRandomValues(b);
+  return Array.from(b, x => x.toString(16).padStart(2, '0')).join('');
+}
+async function uploadAttachments(kind, files){
+  const sec = PERSONAL_SECTIONS.find(x => x.attachments && x.attachments.kind === kind);
+  const max = (sec && sec.attachments.max) || 6;
+  if(!fileApi || !fileApi.put || !state.currentRecord) return;
+  state.attachMsg = null;
+  state.attachBusy = kind; render();
+  let ok = 0, errText = '';
+  try{
+    for(const f of files){
+      const have = attachFilesOf(state.currentRecord, kind).length;
+      if(have >= max){ errText = `Nejvíce ${max} souborů.`; break; }
+      if((state.currentRecord.personal.prilohy || []).length >= ATTACH_MAX_TOTAL){ errText = 'Dosažen celkový počet příloh.'; break; }
+      try{
+        const p = await prepareAttachment(f, f.name || '');
+        const id = newFileId();
+        await fileApi.put(state.currentId, id, kind, p.name, p.mime, p.b64);
+        state.currentRecord.personal.prilohy = [...(state.currentRecord.personal.prilohy || []), { id, kind, name: p.name, mime: p.mime, size: p.size, thumb: p.thumb, at: new Date().toISOString() }];
+        ok++;
+      }catch(e){ console.error('upload failed', e); errText = e && e.message && !/^(rpc|Failed|NetworkError)/i.test(e.message) ? e.message : 'Nahrání se nezdařilo, zkuste to prosím znovu.'; }
+    }
+    if(ok) await persistRecordOnly();
+  } finally {
+    state.attachBusy = null;
+    state.attachMsg = errText ? { kind, text: errText, err: true } : (ok ? { kind, text: ok === 1 ? 'Soubor nahrán.' : `Nahráno souborů: ${ok}.` } : null);
+    render();
+  }
+}
+async function deleteAttachment(id){
+  if(!fileApi || !fileApi.del || !state.currentRecord) return;
+  const item = (state.currentRecord.personal.prilohy || []).find(x => x.id === id);
+  if(!item) return;
+  try{
+    await fileApi.del(state.currentId, id);
+    state.currentRecord.personal.prilohy = state.currentRecord.personal.prilohy.filter(x => x.id !== id);
+    await persistRecordOnly();
+    state.attachMsg = { kind: item.kind, text: 'Soubor smazán.' };
+  }catch(e){ console.error('delete attachment failed', e); state.attachMsg = { kind: item.kind, text: 'Smazání se nezdařilo, zkuste to prosím znovu.', err: true }; }
+  render();
+}
+async function viewAttachment(id){
+  if(!fileApi || !fileApi.get) return;
+  try{
+    const f = await fileApi.get(id);
+    if(!f || !f.data) throw new Error('empty');
+    const bin = atob(f.data); const arr = new Uint8Array(bin.length);
+    for(let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    const url = URL.createObjectURL(new Blob([arr], { type: f.mime }));
+    window.open(url, '_blank', 'noopener');
+    setTimeout(() => URL.revokeObjectURL(url), 120000);
+  }catch(e){ console.error('view attachment failed', e); state.error = 'Soubor se nepodařilo načíst.'; render(); }
+}
+async function openCameraModal(kind){
+  let stream;
+  try{ stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false }); }
+  catch(e){
+    state.attachMsg = { kind, text: 'Kameru se nepodařilo spustit (zkontrolujte, že jste v prohlížeči povolil/a přístup ke kameře). Soubor můžete nahrát tlačítkem „Nahrát soubor“.', err: true };
+    render(); return;
+  }
+  const backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+  backdrop.innerHTML = `<div class="modal" style="max-width:720px;">
+    <h3>Vyfotit kartičku</h3>
+    <p style="font-size:13px;color:var(--ink-soft);margin:0 0 10px;">Držte kartičku v záběru tak, aby byla celá vidět a čitelná, a klikněte na <b>Vyfotit</b>.</p>
+    <video id="cam-video" autoplay playsinline muted style="width:100%;max-height:60vh;background:#000;border-radius:8px;"></video>
+    <img id="cam-still" alt="" style="display:none;width:100%;max-height:60vh;object-fit:contain;border-radius:8px;">
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="cam-cancel">Zrušit</button>
+      <button class="btn btn-ghost" id="cam-retake" style="display:none;">Znovu</button>
+      <button class="btn btn-primary" id="cam-shot">Vyfotit</button>
+      <button class="btn btn-primary" id="cam-use" style="display:none;">Použít fotografii</button>
+    </div></div>`;
+  document.body.appendChild(backdrop);
+  const video = backdrop.querySelector('#cam-video'), still = backdrop.querySelector('#cam-still');
+  video.srcObject = stream;
+  let blob = null;
+  const stop = () => { try{ stream.getTracks().forEach(t => t.stop()); }catch(e){} };
+  const close = () => { stop(); backdrop.remove(); };
+  const show = (shot) => {
+    video.style.display = shot ? 'none' : ''; still.style.display = shot ? '' : 'none';
+    backdrop.querySelector('#cam-shot').style.display = shot ? 'none' : '';
+    backdrop.querySelector('#cam-retake').style.display = shot ? '' : 'none';
+    backdrop.querySelector('#cam-use').style.display = shot ? '' : 'none';
+  };
+  backdrop.querySelector('#cam-cancel').addEventListener('click', close);
+  backdrop.querySelector('#cam-shot').addEventListener('click', () => {
+    if(!video.videoWidth) return;
+    const c = document.createElement('canvas'); c.width = video.videoWidth; c.height = video.videoHeight;
+    c.getContext('2d').drawImage(video, 0, 0);
+    c.toBlob(b => { if(!b) return; blob = b; still.src = c.toDataURL('image/jpeg', 0.8); show(true); }, 'image/jpeg', 0.92);
+  });
+  backdrop.querySelector('#cam-retake').addEventListener('click', () => { blob = null; show(false); });
+  backdrop.querySelector('#cam-use').addEventListener('click', () => {
+    if(!blob) return;
+    const f = new File([blob], 'kartička-zp.jpg', { type: 'image/jpeg' });
+    close();
+    uploadAttachments(kind, [f]);
+  });
+}
+function attachFileHandlers(){
+  const app = document.getElementById('app');
+  app.querySelectorAll('[data-attach-pick]').forEach(b => b.addEventListener('click', () => {
+    const inp = app.querySelector(`[data-attach-input="${b.getAttribute('data-attach-pick')}"]`); if(inp) inp.click();
+  }));
+  app.querySelectorAll('[data-attach-input]').forEach(inp => inp.addEventListener('change', () => {
+    const files = Array.from(inp.files || []); inp.value = '';
+    if(files.length) uploadAttachments(inp.getAttribute('data-attach-input'), files);
+  }));
+  app.querySelectorAll('[data-attach-cam]').forEach(b => b.addEventListener('click', () => openCameraModal(b.getAttribute('data-attach-cam'))));
+  app.querySelectorAll('[data-attach-del]').forEach(b => b.addEventListener('click', () => deleteAttachment(b.getAttribute('data-attach-del'))));
+  app.querySelectorAll('[data-attach-view]').forEach(b => b.addEventListener('click', () => viewAttachment(b.getAttribute('data-attach-view'))));
+  app.querySelectorAll('[data-attach-drop]').forEach(z => {
+    if(!z.querySelector('[data-attach-input]')) return;
+    z.addEventListener('dragover', ev => { ev.preventDefault(); z.classList.add('dragover'); });
+    z.addEventListener('dragleave', () => z.classList.remove('dragover'));
+    z.addEventListener('drop', ev => {
+      ev.preventDefault(); z.classList.remove('dragover');
+      const files = Array.from((ev.dataTransfer && ev.dataTransfer.files) || []);
+      if(files.length) uploadAttachments(z.getAttribute('data-attach-drop'), files);
+    });
+  });
+}
+
 function sectionFieldsHtml(sec, r, editable){
+  return sectionFieldsHtmlCore(sec, r, editable) + attachmentsHtml(sec, r, editable);
+}
+function sectionFieldsHtmlCore(sec, r, editable){
   const flags = r.fieldFlags || {};
   const hrFlagMode = state.role === 'hr' && sec.owner === 'employee' && !state.previewingEmployee;
   const showFlagInfo = state.role === 'employee';
@@ -2210,6 +2429,9 @@ function missingRequiredFields(record, includeHr){
   PERSONAL_SECTIONS.forEach(sec => {
     if(sec.owner === 'hr' && !includeHr) return;
     if(sec.owner !== 'employee' && sec.owner !== 'hr') return;
+    if(sec.attachments && sec.attachments.required && attachFilesOf(record, sec.attachments.kind).length === 0){
+      missing.push({ sectionId: sec.id, section: sec.label, fieldId: '_attach_' + sec.attachments.kind, rowIdx: null, label: sec.attachments.title });
+    }
     if(sec.type === 'repeat'){
       const rows = record.personal[sec.id] || [];
       if(sec.requireAtLeastOne && rows.length === 0){
@@ -2628,6 +2850,7 @@ function renderPersonalWizard(r){
     title = 'Souhrn';
     const hrSec = PERSONAL_SECTIONS.find(s => s.owner === 'hr');
     body = `<div class="info-box">${hrSec.fields.map(f => `<div class="context-item"><span>${esc(f.label)}</span>${f.type==='date' ? (esc(formatDate(r.personal[f.id])) || '—') : esc(r.personal[f.id] || '—')}</div>`).join('')}</div>`;
+    body += `<div class="info-box" style="margin-top:12px;">${PERSONAL_SECTIONS.filter(x => x.attachments).map(x => { const n = attachFilesOf(r, x.attachments.kind).length; return `<div class="context-item"><span>${esc(x.attachments.title)}</span>${n ? 'nahráno: ' + n : (x.attachments.required ? '<b style="color:#C62828">chybí</b>' : '—')}</div>`; }).join('')}</div>`;
     if(status === 'reviewed'){
       body += `<div class="wizard-review-msg">Vaše údaje personální oddělení již zkontrolovalo a schválilo.</div>`;
     } else if(status === 'submitted'){
@@ -2760,6 +2983,7 @@ function renderChecklist(r, pct, complete, tab){
 
 function attachHandlers(){
   const app = document.getElementById('app');
+  attachFileHandlers();
 
   app.querySelectorAll('[data-role]').forEach(el => {
     el.addEventListener('click', () => { state.role = el.getAttribute('data-role'); state.view='list'; state.colFilters = {pozice:'', pracoviste:'', personal:'', it:'', assigned:''}; render(); });
@@ -3924,6 +4148,7 @@ function purgeRecordPersonalData(record){
     if(sec.type === 'repeat'){ record.personal[sec.id] = []; return; }
     sec.fields.forEach(f => { if(!keep.has(f.id)) record.personal[f.id] = ''; });
   });
+  record.personal.prilohy = [];
   // odkaz zůstává platný, ale otevře už jen záložku „Co potřebujete vědět“ (server pak osobní údaje nepošle)
   record.consentGiven = false;
   record.fieldFlags = {};
@@ -3955,6 +4180,7 @@ function openPurgeModal(ids){
         const res = await window.storage.get(recordKey(id), true);   // přímo, aby výpadek nenahradil spis prázdným
         const rec = normalizeRecord(JSON.parse(res.value));
         purgeRecordPersonalData(rec);
+        if(fileApi && fileApi.delRecord) await fileApi.delRecord(id);
         if(!(await saveRecord(id, rec))) throw new Error('save');
         const entry = state.index.find(e => e.id === id);
         if(entry){ entry.personalPurgedAt = rec.personalPurgedAt; }
@@ -4837,6 +5063,7 @@ async function deleteAllEmployees(){
   state.index = [];
   await saveIndex();
   for(const id of ids){
+    try{ if(fileApi && fileApi.delRecord) await fileApi.delRecord(id); }catch(e){}
     try{ await window.storage.delete(recordKey(id), true); }catch(e){}
   }
   render();
@@ -4970,6 +5197,7 @@ async function refreshFromOrganigram(rec){
 async function deleteEmployee(id){
   state.index = state.index.filter(e => e.id !== id);
   await saveIndex();
+  try{ if(fileApi && fileApi.delRecord) await fileApi.delRecord(id); }catch(e){}
   try{ await window.storage.delete(recordKey(id), true); }catch(e){}
   render();
 }
@@ -5007,6 +5235,11 @@ async function openDetail(id){
     </div>`;
     return;
   }
+  fileApi = {   // personální oddělení (přihlášení): čtení a mazání příloh
+    async get(id){ const { data, error } = await sb.from('onboarding_files').select('data,mime,name').eq('id', id).maybeSingle(); if(error) throw error; return data; },
+    async del(recId, id){ const { error } = await sb.from('onboarding_files').delete().eq('id', id).eq('rec_id', recId); if(error) throw error; },
+    async delRecord(recId){ const { error } = await sb.from('onboarding_files').delete().eq('rec_id', recId); if(error) throw error; },
+  };
   window.storage = {
     async get(key, shared){
       const { data, error } = await sb.from('kv_store').select('value').eq('key', key).maybeSingle();
@@ -5132,6 +5365,18 @@ async function openDetail(id){
     };
     if(!opened) return failScreen('Odkaz nebyl nalezen', 'Zkontrolujte prosím, že jste odkaz zkopíroval/a celý. Pokud problém trvá, kontaktujte personální oddělení.');
     state.infoOnly = !!opened.infoOnly;   // dotazník uzavřen (vypršela platnost / údaje smazány): jen „Co potřebujete vědět“
+    fileApi = {   // zaměstnanec: nahrávání a mazání vlastních příloh přes funkce chráněné tokenem
+      async put(recId, fid, kind, name, mime, b64){
+        const { data, error } = await sb.rpc('emp_file_put', { p_id: empId, p_token: empToken, p_fid: fid, p_kind: kind, p_name: name, p_mime: mime, p_data: b64 });
+        if(error) throw error;
+        if(!data) throw new Error('Nahrání bylo zamítnuto (odkaz vypršel, spis je uzamčen nebo je příloh příliš mnoho).');
+      },
+      async del(recId, fid){
+        const { data, error } = await sb.rpc('emp_file_del', { p_id: empId, p_token: empToken, p_fid: fid });
+        if(error) throw error;
+        if(!data) throw new Error('denied');
+      },
+    };
     const cache = {};
     cache[recordKey(empId)] = JSON.stringify(opened.record);
     if(opened.settings) cache[STORAGE_SETTINGS_KEY] = opened.settings;
@@ -5193,11 +5438,12 @@ const HELP_EMP = [
  {g:'Jednotlivé kroky',items:[
   ['🪪','Základní údaje','Jméno, příjmení, tituly, rodné číslo <b>bez lomítka</b> (např. 9001011234), místo narození a státní příslušnost. Datum narození se z rodného čísla doplní samo a aplikace ho zkontroluje.'],
   ['🏠','Bydliště a kontakt','Trvalé bydliště, soukromý telefon a e-mail. Doručovací adresu vyplňte jen tehdy, pokud je jiná než trvalá. Kontakt pro mimořádnou událost je doplňkový (koho zavolat, kdyby se vám něco stalo).'],
-  ['🏦','Pojišťovna a účet','Zdravotní pojišťovnu vyberte ze seznamu. Číslo účtu zadejte bez lomítka a kódu banky, kód banky vyplňte zvlášť (např. 0100). Po zadání čísla účtu se zobrazí tři souhlasy se zasíláním platu, cestovních náhrad a příspěvku na stravování na tento účet.'],
+  ['🏦','Pojišťovna a účet','Zdravotní pojišťovnu vyberte ze seznamu. <b>Nahrajte kartičku pojišťovny</b> (povinné): tlačítkem <b>📷 Vyfotit kamerou</b> ji vyfotíte kamerou počítače (prohlížeč se zeptá na povolení kamery), nebo <b>📎 Nahrát soubor</b> / přetažením vložíte hotovou fotografii či sken (JPG, PNG, PDF). Fotografie se před odesláním zmenší. Nahraný soubor můžete tlačítkem <b>Smazat</b> nahradit jiným. Číslo účtu zadejte bez lomítka a kódu banky, kód banky vyplňte zvlášť (např. 0100). Po zadání čísla účtu se zobrazí tři souhlasy se zasíláním platu, cestovních náhrad a příspěvku na stravování na tento účet.'],
   ['👪','Rodina a děti','Rodinný stav je povinný. Krok <b>Děti</b> je doplňkový – pokud děti nemáte, jen pokračujte dál. Další dítě přidáte tlačítkem <b>+ Přidat dítě</b>.'],
   ['🎓','Vzdělání','Údaje o vašem dosaženém vzdělání – vyplňte podle pokynů u polí.'],
   ['💼','Praxe','Předchozí zaměstnání a činnosti. Uveďte <b>alespoň jedno</b>; další přidáte tlačítkem <b>+ Přidat zaměstnání</b>.'],
-  ['🌍','Jazyky a další údaje','Jazykové znalosti jsou doplňkové. V kroku <b>Další údaje</b> jsou dodatečné údaje, které úřad ze zákona potřebuje; vyplňte je podle pokynů u polí.']]},
+  ['🌍','Jazyky a ZOZ','Jazykové znalosti jsou doplňkové. Máte-li <b>osvědčení o zkoušce odborné způsobilosti (ZOZ)</b>, nahrajte jeho sken tlačítkem <b>+ Přidat ZOZ</b> (lze více osvědčení). Může se uznat jako část praxe a ovlivnit platový stupeň. Nepovinné.'],
+  ['🗂️','Další údaje','V kroku <b>Další údaje</b> jsou dodatečné údaje, které úřad ze zákona potřebuje; vyplňte je podle pokynů u polí.']]},
  {g:'Odeslání a kontrola',items:[
   ['✅','Souhrn a odeslání','Poslední krok je <b>Souhrn</b>. Pokud chybí povinné údaje, aplikace vypíše, ve kterých krocích. Až je vše hotové, klikněte na <b>Odeslat personálnímu oddělení</b> a potvrďte.'],
   ['🔒','Po odeslání','Formulář se zamkne a personální oddělení údaje zkontroluje. Zjistíte-li chybu, můžete ho sami odemknout tlačítkem <b>Stáhnout zpět a opravit</b> (pokud ho už neschválilo).'],
@@ -5226,6 +5472,7 @@ const HELP = [
  {g:'Spis – údaje personálního oddělení',items:[
   ['📝','Osobní údaje','Formulář je rozdělen do sekcí. Povinné údaje jsou označeny <b style="color:#C62828">*</b>; chybějící jsou po pokusu o schválení zvýrazněny červeně a nad formulářem je výpis sekcí, kde ještě něco chybí.'],
   ['👔','Pracovní poměr','Typ poměru je předvyplněn jako <b>HPP</b> (lze změnit). <b>Zkušební doba:</b> u služebního poměru 6 nebo 8 měsíců – správná hodnota se předvyplní podle toho, zda je pozice vedoucí; u pracovního poměru se počet měsíců vybírá po jednom. Vedoucí pozice a platová třída se berou z Organigramu. <b>Tarifní plat</b> se dopočítá sám z tabulky tarifů (pracovní / služební poměr) podle platové třídy a platového stupně 1. <b>Platový stupeň</b> je předvyplněn na 1 (lze změnit, tarif se přepočte). Při otevření spisu se z Organigramu doplní chybějící vedoucí pozice a platová třída. Další položky pro Vemu (klasifikace, platová skupina, skupina prací, způsob odměňování aj.) se doplňují automaticky a najdete je v sbalené sekci <b>Automaticky doplňované hodnoty pro Vemu</b> na konci formuláře (jen ke kontrole).'],
+  ['📎','Přílohy od zaměstnance','Zaměstnanec v dotazníku nahrává <b>kartičku zdravotní pojišťovny</b> (povinné, krok Pojišťovna a účet) a případná <b>osvědčení o ZOZ</b> (nepovinné, krok Jazyky a ZOZ). Ve spisu je vidíte v těchto krocích a tlačítkem <b>Zobrazit</b> je otevřete. Soubory jsou uložené odděleně v databázi, přístupné jen přihlášeným zaměstnancům a <b>mažou se spolu s osobními údaji</b> (ručně tlačítkem Smazat osobní údaje i automaticky po 60 dnech). Do tabulek pro Vemu nejdou a do zálohy (json) se neukládají.'],
   ['🪪','Rodné číslo','Aplikace kontroluje rodné číslo a z něj dopočítá datum narození; nesrovnalosti zobrazí jako upozornění u pole.'],
   ['✉️','Stávající e-mail','Navrhuje se podle pravidel z Nastavení (zdrojový úřad, jméno, příjmení). Je potřeba pro odeslání odkazu e-mailem.']]},
  {g:'Odkaz pro zaměstnance',items:[
