@@ -1,4 +1,4 @@
-const APP_VERSION = '2026-10-15.4';
+const APP_VERSION = '2026-10-15.5';
 const STORAGE_INDEX_KEY = 'onboarding:index';
 const STORAGE_INFO_KEY = 'onboarding:info-content';
 const STORAGE_SETTINGS_KEY = 'onboarding:settings';
@@ -3233,16 +3233,16 @@ function attachHandlers(){
   attachFileHandlers();
 
   app.querySelectorAll('[data-role]').forEach(el => {
-    el.addEventListener('click', () => { state.role = el.getAttribute('data-role'); state.view='list'; state.colFilters = {pozice:'', pracoviste:'', personal:'', it:'', assigned:''}; render(); });
+    el.addEventListener('click', () => guardSettingsLeave(() => { state.role = el.getAttribute('data-role'); state.view='list'; state.colFilters = {pozice:'', pracoviste:'', personal:'', it:'', assigned:''}; render(); }));
   });
 
   const newBtn = document.getElementById('btn-new');
   if(newBtn) newBtn.addEventListener('click', openNewModal);
 
   const openSettingsBtn = document.getElementById('btn-open-settings');
-  if(openSettingsBtn) openSettingsBtn.addEventListener('click', () => { state.view = 'settings'; state.settingsDraft = null; render(); });
+  if(openSettingsBtn) openSettingsBtn.addEventListener('click', () => { if(state.view === 'settings') return; state.view = 'settings'; state.settingsDraft = null; render(); });
   const backSettingsBtn = document.getElementById('btn-back-settings');
-  if(backSettingsBtn) backSettingsBtn.addEventListener('click', () => { state.view = 'list'; state.settingsDraft = null; render(); });
+  if(backSettingsBtn) backSettingsBtn.addEventListener('click', () => guardSettingsLeave(() => { state.view = 'list'; state.settingsDraft = null; render(); }));
   const gotoInfoAdminBtn = document.getElementById('btn-goto-info-admin');
   if(gotoInfoAdminBtn) gotoInfoAdminBtn.addEventListener('click', () => { state.view = 'info-admin'; state.editingInfo = true; render(); });
   const backInfoAdminBtn = document.getElementById('btn-back-info-admin');
@@ -3399,24 +3399,7 @@ function attachHandlers(){
   if(catAddBtn) catAddBtn.addEventListener('click', () => { state.settingsDraft.categories.push({name:'', systems:[]}); render(); });
 
   const saveSettingsBtn = document.getElementById('btn-save-settings');
-  if(saveSettingsBtn) saveSettingsBtn.addEventListener('click', async () => {
-    const listFields = [
-      ['workplaces','Pracoviště'], ['positions','Pracovní pozice'], ['admins','Administrátoři systémů'],
-      ['supervisors','Nadřízení'], ['departments','Odbory / oddělení'], ['facilityStaff','Pracovníci provozu'],
-    ];
-    const shrinking = listFields.filter(([k]) => (state.settings[k]||[]).length >= 3 && (state.settingsDraft[k]||[]).length === 0);
-    if(shrinking.length > 0){
-      const names = shrinking.map(([,label]) => label).join(', ');
-      if(!confirm(`Pozor: chystáte se uložit prázdný seznam u „${names}" — dřív tam přitom položky byly. Opravdu chcete pokračovat a smazat je?`)) return;
-    }
-    { const inp = document.querySelector('[data-persnum-start]'); if(inp){ const n = parseInt(String(inp.value).replace(/\D/g,''),10); state.settingsDraft.personalNumberStart = n > 0 ? String(n) : ''; } }
-    state.settingsDraft.burnedNumbers = state.settings.burnedNumbers || [];
-    state.settings = JSON.parse(JSON.stringify(state.settingsDraft));
-    await saveSettings();
-    state.settingsDraft = null;
-    state.view = 'list';
-    render();
-  });
+  if(saveSettingsBtn) saveSettingsBtn.addEventListener('click', () => saveSettingsDraft());
 
   const deleteAllBtn = document.getElementById('btn-delete-all');
   if(deleteAllBtn) deleteAllBtn.addEventListener('click', openDeleteAllModal);
@@ -3638,7 +3621,7 @@ function attachHandlers(){
   });
 
   const logoutBtn = document.getElementById('btn-logout');
-  if(logoutBtn) logoutBtn.addEventListener('click', (ev) => { ev.preventDefault(); if(window.appLogout) window.appLogout(); });
+  if(logoutBtn) logoutBtn.addEventListener('click', (ev) => { ev.preventDefault(); guardSettingsLeave(() => { if(window.appLogout) window.appLogout(); }); });
 
   app.querySelectorAll('[data-open]').forEach(el => {
     el.addEventListener('click', (ev) => {
@@ -5799,6 +5782,63 @@ document.addEventListener('visibilitychange', () => { if(!document.hidden) refre
 window.addEventListener('focus', () => refreshFromServer(false));
 setInterval(() => refreshFromServer(false), 45000);
 
+// ---------------- Nastavení: uložení a hlídání neuložených změn ----------------
+function syncSettingsDraftFromDom(){
+  if(document.activeElement && document.activeElement.blur) document.activeElement.blur(); // vyvolá „change“ u rozepsaného pole
+  const inp = document.querySelector('[data-persnum-start]');
+  if(inp && state.settingsDraft){ const n = parseInt(String(inp.value).replace(/\D/g,''),10); state.settingsDraft.personalNumberStart = n > 0 ? String(n) : ''; }
+}
+function settingsDirty(){
+  if(state.view !== 'settings' || !state.settingsDraft || !state.settings) return false;
+  syncSettingsDraftFromDom();
+  const strip = (o) => { const c = JSON.parse(JSON.stringify(o)); delete c.burnedNumbers; if(!c.personalNumberStart) delete c.personalNumberStart; return JSON.stringify(c); };
+  return strip(state.settingsDraft) !== strip(state.settings);
+}
+async function saveSettingsDraft(){
+  syncSettingsDraftFromDom();
+  const listFields = [
+    ['workplaces','Pracoviště'], ['positions','Pracovní pozice'], ['admins','Administrátoři systémů'],
+    ['supervisors','Nadřízení'], ['departments','Odbory / oddělení'], ['facilityStaff','Pracovníci provozu'],
+  ];
+  const shrinking = listFields.filter(([k]) => (state.settings[k]||[]).length >= 3 && (state.settingsDraft[k]||[]).length === 0);
+  if(shrinking.length > 0){
+    const names = shrinking.map(([,label]) => label).join(', ');
+    if(!confirm(`Pozor: chystáte se uložit prázdný seznam u „${names}" — dřív tam přitom položky byly. Opravdu chcete pokračovat a smazat je?`)) return false;
+  }
+  state.settingsDraft.burnedNumbers = state.settings.burnedNumbers || [];
+  state.settings = JSON.parse(JSON.stringify(state.settingsDraft));
+  await saveSettings();
+  state.settingsDraft = null;
+  state.view = 'list';
+  render();
+  return true;
+}
+// Pokud jsou v Nastavení neuložené změny, zeptá se: uložit / zahodit / zůstat. Pak provede „proceed“.
+function guardSettingsLeave(proceed){
+  if(!settingsDirty()){ proceed(); return; }
+  const backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+  backdrop.innerHTML = `
+    <div class="modal">
+      <h3>Neuložené změny v Nastavení</h3>
+      <p style="font-size:13.5px;color:var(--ink-soft);">V Nastavení jsou změny, které ještě nejsou uložené. Chcete je před odchodem uložit?</p>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="sl-stay">Zůstat v Nastavení</button>
+        <button class="btn btn-danger" id="sl-discard">Zahodit změny</button>
+        <button class="btn btn-primary" id="sl-save">Uložit a pokračovat</button>
+      </div>
+    </div>`;
+  document.body.appendChild(backdrop);
+  document.getElementById('sl-stay').addEventListener('click', () => backdrop.remove());
+  document.getElementById('sl-discard').addEventListener('click', () => { backdrop.remove(); state.settingsDraft = null; proceed(); });
+  document.getElementById('sl-save').addEventListener('click', async () => {
+    backdrop.remove();
+    const wasView = state.view;
+    const ok = await saveSettingsDraft();
+    if(ok){ state.view = wasView === 'settings' ? 'list' : state.view; proceed(); }
+  });
+}
+
 // ---------------- Osobní čísla (automatické přidělování) ----------------
 function personalNumberStart(){
   const n = parseInt(state.settings && state.settings.personalNumberStart, 10);
@@ -6129,7 +6169,7 @@ const HELP = [
   ['🙋','Co dělá zaměstnanec','Vyplní průvodce, potvrdí souhlas se zpracováním osobních údajů a odešle. Po odeslání je formulář zamčen; zaměstnanec ho může sám stáhnout zpět a opravit, pokud ho ještě nezkontrolujete.']]},
  {g:'Výstupy',items:[
   ['📊','Generovat tabulky pro VEMU','V rejstříku zaškrtněte zkontrolované spisy (výběr lze udělat hromadně v záhlaví) a použijte <b>Generovat tabulky pro VEMU</b>. Stav „Vygenerováno“ se u spisu zapamatuje; po nahrání do Vemy a kontrole tlačítkem <b>Potvrdit nahrání do Vemy</b> (vedle Generovat) přejde na „Nahráno“. Když tabulky vygenerujete znovu, stav se vrátí na „Vygenerováno“. Pevné hodnoty a kódy pracovišť se nastavují v Nastavení.'],
-  ['🔢','Osobní čísla','Osobní číslo se novému spisu <b>přidělí automaticky</b> při založení i při importu – vždy nejnižší volné číslo od začátku zadaného v <b>Nastavení → Osobní čísla</b> (tak se vynechá interval čísel zaměstnanců DESÚ, kteří je už mají). V rejstříku je pod jménem místo kódu spisu a ve spisu je pole <b>Osobní číslo</b> jen ke čtení. Smažete-li spis dřív, než se pro něj vygenerují tabulky pro Vemu, číslo se uvolní a přidělí se dalšímu; po vygenerování tabulek se znovu nepoužije. Spisům založeným dřív se číslo samo nepřidělí (smažte je a založte znovu); pokud není začátek v Nastavení vyplněný, čísla se nepřidělují.'],
+  ['🔢','Osobní čísla','Osobní číslo se novému spisu <b>přidělí automaticky</b> při založení i při importu – vždy nejnižší volné číslo od začátku zadaného v <b>Nastavení → Osobní čísla</b> (tak se vynechá interval čísel zaměstnanců DESÚ, kteří je už mají). V rejstříku je pod jménem místo kódu spisu a ve spisu je pole <b>Osobní číslo</b> jen ke čtení. Smažete-li spis dřív, než se pro něj vygenerují tabulky pro Vemu, číslo se uvolní a přidělí se dalšímu; po vygenerování tabulek se znovu nepoužije. Při odchodu z Nastavení s neuloženými změnami (Zpět, přepnutí pohledu, Odhlásit) se aplikace zeptá, zda změny uložit, zahodit, nebo zůstat. Spisům založeným dřív se číslo samo nepřidělí (smažte je a založte znovu); pokud není začátek v Nastavení vyplněný, čísla se nepřidělují.'],
   ['📄','Dokumenty podle vzorů','U spisu ve stavu <b>Nahráno</b> je ve spisu (sekce s podklady) tlačítko <b>Dokumenty podle vzorů</b>. Otevře se seznam všech vzorů se zaškrtávátky a volbou <b>Označit vše</b>; předem jsou zaškrtnuté ty, které odpovídají typu poměru (pracovní: platový výměr, pracovní smlouva; služební: informace o pracovním poměru; všichni: kritéria hodnocení, portrétní fotografie, školení BOZP, interní předpisy; dle potřeby: osvědčení o rovnocennosti zkoušek, dohoda o výkonu služby z jiného místa a její příloha). Tlačítkem <b>Vygenerovat</b> se každý dokument vyplní z údajů ve spisu a vytvoří se Word i PDF. U každého je <b>Zobrazit PDF</b>, <b>⬇ PDF</b> a <b>⬇ Word</b>; všechno najednou stáhnete jako <b>ZIP</b>. Názvy souborů jsou ve tvaru <b>Příjmení_Jméno_název.docx / .pdf</b>. Údaje, které ve spisu nejsou (č. j., datum podpisu, osobní číslo, které se nevyplnilo), zůstanou k ručnímu doplnění. PDF se vytváří přímo v prohlížeči, takže se může od Wordu lehce lišit zalomením stránek – Word je přesný. Vzory jsou ve složce <code>templates</code> a po změně vzoru se nahradí příslušný soubor. Dokumenty se generují z osobních údajů, proto je vytvořte před smazáním údajů.'],
   ['🧹','Smazání osobních údajů','Po nahrání do Vemy a ověření, že je vše správně, vyberte v rejstříku spisy a klikněte na <b>Smazat osobní údaje</b>. Tlačítko je aktivní jen u spisů ve stavu <b>Nahráno</b>. Smažte až po vygenerování dokumentů (z údajů se pak už znovu vytvořit nedají). Nevratně se smažou osobní údaje zaměstnance (zůstane jméno, pozice, pracoviště, datum nástupu a stavy) a jeho odkaz dál otevře jen záložku „Co potřebujete vědět“. Pokud smazání zapomenete, proběhne automaticky 60 dní po vygenerování tabulek.'],
   ['🖨️','Tištěné podklady','Ve spisu <b>Tisk podkladů</b>: A – Osobní dotazník, B – Prohlášení o předchozích zaměstnáních, C – Souhlas se zasíláním platu na účet. Předvyplněno z formuláře; lze tisknout/uložit jako PDF nebo odeslat e-mailem (potřebuje přidělený e-mail zaměstnance).']]},
