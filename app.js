@@ -1,4 +1,4 @@
-const APP_VERSION = '2026-10-15.2';
+const APP_VERSION = '2026-10-15.3';
 const STORAGE_INDEX_KEY = 'onboarding:index';
 const STORAGE_INFO_KEY = 'onboarding:info-content';
 const STORAGE_SETTINGS_KEY = 'onboarding:settings';
@@ -392,7 +392,7 @@ const PERSONAL_SECTIONS = [
     {id:'kurzy_dovednosti', label:'Kurzy, specifické odborné znalosti a dovednosti', full:true},
   ]},
   { id:'pracovni_pomer', label:'Pracovní poměr', owner:'hr', fields:[
-    {id:'osobni_cislo', label:'Osobní číslo (vyplní personální oddělení)', essential:true},
+    {id:'osobni_cislo', label:'Osobní číslo (přidělí se automaticky)', essential:true, readonly:true},
     {id:'zdrojovy_urad', label:'Zdrojový úřad', essential:true, type:'select', options:['', ...ZDROJOVE_URADY]},
     {id:'email_stavajici', label:'Stávající pracovní e-mail (u zdrojového úřadu)', type:'email', validate:'email'},
     {id:'duvod_vzniku_pomeru', label:'Důvod vzniku pracovního poměru', essential:true, type:'select', options:['','Absolvent školy','Nástup z evidence úřadu práce','Ostatní osoby nastupující poprvé','Osoba měnící zaměstnání','Nástup z výběrového řízení','Opětovné přijetí do pracovního poměru']},
@@ -1335,7 +1335,7 @@ function getFilteredSortedRows(){
   let rows = state.index.slice();
   const text = (state.filterText || '').trim().toLowerCase();
   if(text){
-    rows = rows.filter(r => `${r.jmeno||''} ${r.prijmeni||''} ${r.pozice||''} ${r.pracoviste||''} ${r.zdrojovyUrad||''} ${r.assignedAdmin||''} ${r.ref||''}`.toLowerCase().includes(text));
+    rows = rows.filter(r => `${r.jmeno||''} ${r.prijmeni||''} ${r.pozice||''} ${r.pracoviste||''} ${r.zdrojovyUrad||''} ${r.assignedAdmin||''} ${r.ref||''} ${r.osobniCislo||''}`.toLowerCase().includes(text));
   }
   const cf = state.colFilters;
   if(cf.pozice) rows = rows.filter(r => (r.pozice||'') === cf.pozice);
@@ -1476,7 +1476,7 @@ function renderList(){
               ${canCreate ? `<td><input type="checkbox" data-export-select="${r.id}" ${state.selectedExport[r.id]?'checked':''} ${isReviewed?'':'disabled'}></td>` : ''}
               ${isAdmin ? `<td><input type="checkbox" data-assign-select="${r.id}" ${state.selectedAssign[r.id]?'checked':''}></td>` : ''}
               ${canCreate ? `<td style="text-align:center;"><button class="btn-quickedit-icon" data-quickedit="${r.id}" title="Rychle doplnit základní údaje">✎</button></td>` : ''}
-              <td><div class="index-name">${esc(r.jmeno)} ${esc(r.prijmeni)}</div><div class="index-ref">${esc(r.ref)}</div></td>
+              <td><div class="index-name">${esc(r.jmeno)} ${esc(r.prijmeni)}</div><div class="index-ref" title="${r.osobniCislo ? esc('Osobní číslo (kód spisu ' + r.ref + ')') : 'Kód spisu'}">${esc(r.osobniCislo || r.ref)}</div></td>
               <td>${esc(r.pozice || '—')}</td>
               <td>${esc(r.pracoviste || '—')}</td>
               <td>${esc(r.zdrojovyUrad || '—')}</td>
@@ -1524,7 +1524,7 @@ function renderDetail(){
   if(!r) return `<p>Záznam nenalezen.</p>`;
   const idxEntry = state.index.find(e => e.id === state.currentId);
   const displayName = `${r.personal.jmeno||''} ${r.personal.prijmeni||''}`.trim();
-  const displayRef = idxEntry ? idxEntry.ref : '';
+  const displayRef = idxEntry ? (idxEntry.osobniCislo || idxEntry.ref) : '';
   const displayDatumNastupu = idxEntry ? idxEntry.datumNastupu : r.personal.datum_nastupu;
   const itTotals = checklistTotals(r.checklist, r.personal.kategorie, 'it');
   const provozTotals = checklistTotals(r.checklist, r.personal.kategorie, 'provoz');
@@ -2014,6 +2014,17 @@ function renderSettingsPage(){
         </div>
       `).join('')}
       <button class="btn btn-ghost btn-sm" type="button" id="btn-facility-add">+ Přidat pracovníka provozu</button>
+      ${settingsPanelEnd()}
+    </div>
+
+    <div class="panel" style="margin-bottom:20px;">
+      ${settingsPanelStart('persnum', 'Osobní čísla')}
+      <p style="font-size:12.5px;color:var(--ink-faint);margin:0 0 12px;">Osobní číslo se novému spisu přidělí automaticky – vždy nejnižší volné číslo od zadaného začátku. Nastavte začátek tak, aby se vynechal interval čísel zaměstnanců DESÚ, kteří je už mají. Číslo smazaného spisu lze znovu použít, pokud se k němu ještě negenerovaly tabulky pro Vemu. Stávajícím spisům se číslo samo nepřidělí, změna začátku už přidělená čísla nemění. Když je pole prázdné, čísla se nepřidělují.</p>
+      <div class="contact-edit-row" style="grid-template-columns:280px 1fr;">
+        <label style="font-size:13px;align-self:center;">Přidělovat od čísla</label>
+        <input data-persnum-start inputmode="numeric" value="${esc(draft.personalNumberStart||'')}" placeholder="např. 5000">
+      </div>
+      ${(state.settings.burnedNumbers||[]).length ? `<p style="font-size:12.5px;color:var(--ink-faint);margin:10px 0 0;">Už použitá a nepřidělitelná čísla smazaných spisů: ${esc([...(state.settings.burnedNumbers)].sort((a,b)=>a-b).join(', '))}</p>` : ''}
       ${settingsPanelEnd()}
     </div>
 
@@ -2593,7 +2604,7 @@ function sectionFieldsHtmlCore(sec, r, editable){
         <label>${esc(f.label)}${(f.essential||f.required)?' <span class="essential-dot" title="Povinný údaj">*</span>':''}</label>
         ${hrFlagMode ? `<button type="button" class="flag-toggle ${flagged?'active':''}" data-flag-toggle="${f.id}" title="Označit pole jako problém">⚑ ${flagged ? 'Označeno' : 'Označit'}</button>` : ''}
       </div>
-      ${fieldMarkup(f, displayVal, !editable || lockedByDep)}
+      ${fieldMarkup(f, displayVal, !editable || lockedByDep || f.readonly)}
       ${isMissing ? `<div class="field-missing-note">Povinný údaj — nevyplněno</div>` : ''}
       ${validationNoteHtml(f, displayVal, ctxWithPending)}
       ${editable ? autofillButtonHtml(f, ctxWithPending, 'field', f.id) : ''}
@@ -3327,6 +3338,9 @@ function attachHandlers(){
       state.settingsDraft.workplaceLocations[w][key] = el.value;
     });
   });
+  app.querySelectorAll('[data-persnum-start]').forEach(el => {
+    el.addEventListener('change', () => { const n = parseInt(String(el.value).replace(/\D/g,''),10); state.settingsDraft.personalNumberStart = n > 0 ? String(n) : ''; el.value = state.settingsDraft.personalNumberStart; });
+  });
   app.querySelectorAll('[data-vemaconst-input]').forEach(el => {
     el.addEventListener('change', () => { state.settingsDraft.vemaConstants[el.getAttribute('data-vemaconst-input')] = el.value; });
   });
@@ -3392,6 +3406,7 @@ function attachHandlers(){
       const names = shrinking.map(([,label]) => label).join(', ');
       if(!confirm(`Pozor: chystáte se uložit prázdný seznam u „${names}" — dřív tam přitom položky byly. Opravdu chcete pokračovat a smazat je?`)) return;
     }
+    state.settingsDraft.burnedNumbers = state.settings.burnedNumbers || [];
     state.settings = JSON.parse(JSON.stringify(state.settingsDraft));
     await saveSettings();
     state.settingsDraft = null;
@@ -4532,7 +4547,6 @@ const IMPORT_FIELD_TARGETS = [
   { key:'email_soukromy', label:'E-mail (soukromý)', apply:(r,v) => { r.personal.email_soukromy = String(v||'').trim(); } },
   { key:'email_prideleny', label:'Přidělený pracovní e-mail', apply:(r,v) => { r.checklist.email.value = String(v||'').trim(); if(r.checklist.email.value) r.checklist.email.checked = true; } },
   { key:'telefon_soukromy', label:'Telefon (soukromý)', apply:(r,v) => { r.personal.telefon_soukromy = String(v||'').trim(); } },
-  { key:'osobni_cislo', label:'Osobní číslo', apply:(r,v) => { r.personal.osobni_cislo = String(v||'').trim(); } },
   { key:'odbor_oddeleni', label:'Odbor / oddělení', apply:(r,v) => { r.personal.odbor_oddeleni = String(v||'').trim(); } },
   { key:'pracoviste', label:'Pracoviště', apply:(r,v) => { r.personal.pracoviste = String(v||'').trim(); } },
   { key:'pozice', label:'Pracovní pozice', apply:(r,v) => { r.personal.pozice = String(v||'').trim(); } },
@@ -4587,7 +4601,6 @@ function guessFieldTarget(header){
   if(has('titul')) return 'titul_pred';
   if(has('mail')) return 'email_soukromy';
   if(has('telefon','mobil')) return 'telefon_soukromy';
-  if(has('osobni cislo')) return 'osobni_cislo';
   if(has('oddeleni','utvar','organizacni')) return 'odbor_oddeleni';
   if(has('pozice')) return 'pozice';
   if(has('pomer','sluzebni')) return 'rezim_zamestnani';
@@ -4783,6 +4796,7 @@ async function runImportBatch(){
   const year = new Date().getFullYear();
   let seqBase = state.index.filter(e => e.ref && e.ref.startsWith('OB-'+year)).length;
   const batch = [];
+  const takenNums = new Set();
   cur.rows.forEach((row, i) => {
     const id = 'e' + Date.now().toString(36) + Math.random().toString(36).slice(2,8) + i;
     seqBase += 1;
@@ -4809,10 +4823,9 @@ async function runImportBatch(){
     syncZkusebniDoba(record.personal);
     ensureExistingEmail(record);
     const {total, done} = checklistTotals(record.checklist, record.personal.kategorie, 'it');
-    batch.push({
-      id, record,
-      entry: { id, ref, jmeno: record.personal.jmeno||'', prijmeni: record.personal.prijmeni||'', pozice: record.personal.pozice||'', pracoviste: record.personal.pracoviste||'', datumNastupu: record.personal.datum_nastupu||'', zdrojovyUrad: record.personal.zdrojovy_urad||'', created: Date.now()+i, personalStatus:'draft', itTotal: total, itDone: done, hrMissingCount: missingHrRequiredFields(record).length, linkGeneratedAt: null, orgPersonId: record.orgPersonId || null }
-    });
+    const entry = { id, ref, jmeno: record.personal.jmeno||'', prijmeni: record.personal.prijmeni||'', pozice: record.personal.pozice||'', pracoviste: record.personal.pracoviste||'', datumNastupu: record.personal.datum_nastupu||'', zdrojovyUrad: record.personal.zdrojovy_urad||'', created: Date.now()+i, personalStatus:'draft', itTotal: total, itDone: done, hrMissingCount: missingHrRequiredFields(record).length, linkGeneratedAt: null, orgPersonId: record.orgPersonId || null };
+    assignPersonalNumber(record, entry, takenNums);
+    batch.push({ id, record, entry });
   });
   let saved = 0;
   for(const item of batch){
@@ -5464,7 +5477,9 @@ function openNewModal(){
     record.personal.datum_nastupu = datum;
     ensureSuggestedEmail(record);
     const {total, done} = checklistTotals(record.checklist, kategorie, 'it');
-    state.index.push({ id, ref, jmeno, prijmeni, pozice, pracoviste, datumNastupu: datum, created: Date.now(), personalStatus:'draft', itTotal: total, itDone: done, hrMissingCount: missingHrRequiredFields(record).length, linkGeneratedAt: null });
+    const newEntry = { id, ref, jmeno, prijmeni, pozice, pracoviste, datumNastupu: datum, created: Date.now(), personalStatus:'draft', itTotal: total, itDone: done, hrMissingCount: missingHrRequiredFields(record).length, linkGeneratedAt: null };
+    assignPersonalNumber(record, newEntry);
+    state.index.push(newEntry);
     await saveIndex();
     await saveRecord(id, record);
     backdrop.remove();
@@ -5583,6 +5598,7 @@ function openDeleteAllModal(){
 }
 
 async function deleteAllEmployees(){
+  burnPersonalNumbers(state.index);
   const ids = state.index.map(e => e.id);
   state.index = [];
   await saveIndex();
@@ -5779,7 +5795,42 @@ document.addEventListener('visibilitychange', () => { if(!document.hidden) refre
 window.addEventListener('focus', () => refreshFromServer(false));
 setInterval(() => refreshFromServer(false), 45000);
 
+// ---------------- Osobní čísla (automatické přidělování) ----------------
+function personalNumberStart(){
+  const n = parseInt(state.settings && state.settings.personalNumberStart, 10);
+  return n > 0 ? n : 0;
+}
+// nejnižší volné číslo od zadaného začátku; obsazená jsou čísla ve spisech, „spálená“ (už byla ve Vemě) a čísla přidělená v rámci rozpracované dávky
+function nextPersonalNumber(taken){
+  const start = personalNumberStart();
+  if(!start) return '';
+  const used = new Set((state.settings.burnedNumbers || []).map(String));
+  state.index.forEach(e => { if(e.osobniCislo) used.add(String(e.osobniCislo)); });
+  if(taken) taken.forEach(n => used.add(String(n)));
+  let n = start;
+  while(used.has(String(n))) n++;
+  return String(n);
+}
+function assignPersonalNumber(record, entry, taken){
+  const n = nextPersonalNumber(taken);
+  if(!n) return '';
+  record.personal.osobni_cislo = n;
+  entry.osobniCislo = n;
+  if(taken) taken.add(n);
+  return n;
+}
+// při smazání spisu: číslo, které už šlo do Vemy, se znovu nepoužije
+function burnPersonalNumbers(entries){
+  const add = entries.filter(e => e.osobniCislo && e.vemaExportedAt).map(e => String(e.osobniCislo));
+  if(!add.length) return;
+  const set = new Set((state.settings.burnedNumbers || []).map(String));
+  add.forEach(n => set.add(n));
+  state.settings.burnedNumbers = [...set];
+  saveSettings();
+}
+
 async function deleteEmployee(id){
+  burnPersonalNumbers(state.index.filter(e => e.id === id));
   state.index = state.index.filter(e => e.id !== id);
   await saveIndex();
   try{ if(fileApi && fileApi.delRecord) await fileApi.delRecord(id); }catch(e){}
@@ -6074,6 +6125,7 @@ const HELP = [
   ['🙋','Co dělá zaměstnanec','Vyplní průvodce, potvrdí souhlas se zpracováním osobních údajů a odešle. Po odeslání je formulář zamčen; zaměstnanec ho může sám stáhnout zpět a opravit, pokud ho ještě nezkontrolujete.']]},
  {g:'Výstupy',items:[
   ['📊','Generovat tabulky pro VEMU','V rejstříku zaškrtněte zkontrolované spisy (výběr lze udělat hromadně v záhlaví) a použijte <b>Generovat tabulky pro VEMU</b>. Stav „Vygenerováno“ se u spisu zapamatuje; po nahrání do Vemy a kontrole tlačítkem <b>Potvrdit nahrání do Vemy</b> (vedle Generovat) přejde na „Nahráno“. Když tabulky vygenerujete znovu, stav se vrátí na „Vygenerováno“. Pevné hodnoty a kódy pracovišť se nastavují v Nastavení.'],
+  ['🔢','Osobní čísla','Osobní číslo se novému spisu <b>přidělí automaticky</b> při založení i při importu – vždy nejnižší volné číslo od začátku zadaného v <b>Nastavení → Osobní čísla</b> (tak se vynechá interval čísel zaměstnanců DESÚ, kteří je už mají). V rejstříku je pod jménem místo kódu spisu a ve spisu je pole <b>Osobní číslo</b> jen ke čtení. Smažete-li spis dřív, než se pro něj vygenerují tabulky pro Vemu, číslo se uvolní a přidělí se dalšímu; po vygenerování tabulek se znovu nepoužije. Spisům založeným dřív se číslo samo nepřidělí; pokud není začátek v Nastavení vyplněný, čísla se nepřidělují.'],
   ['📄','Dokumenty podle vzorů','U spisu ve stavu <b>Nahráno</b> je ve spisu (sekce s podklady) tlačítko <b>Dokumenty podle vzorů</b>. Otevře se seznam všech vzorů se zaškrtávátky a volbou <b>Označit vše</b>; předem jsou zaškrtnuté ty, které odpovídají typu poměru (pracovní: platový výměr, pracovní smlouva; služební: informace o pracovním poměru; všichni: kritéria hodnocení, portrétní fotografie, školení BOZP, interní předpisy; dle potřeby: osvědčení o rovnocennosti zkoušek, dohoda o výkonu služby z jiného místa a její příloha). Tlačítkem <b>Vygenerovat</b> se každý dokument vyplní z údajů ve spisu a vytvoří se Word i PDF. U každého je <b>Zobrazit PDF</b>, <b>⬇ PDF</b> a <b>⬇ Word</b>; všechno najednou stáhnete jako <b>ZIP</b>. Názvy souborů jsou ve tvaru <b>Příjmení_Jméno_název.docx / .pdf</b>. Údaje, které ve spisu nejsou (č. j., datum podpisu, osobní číslo, které se nevyplnilo), zůstanou k ručnímu doplnění. PDF se vytváří přímo v prohlížeči, takže se může od Wordu lehce lišit zalomením stránek – Word je přesný. Vzory jsou ve složce <code>templates</code> a po změně vzoru se nahradí příslušný soubor. Dokumenty se generují z osobních údajů, proto je vytvořte před smazáním údajů.'],
   ['🧹','Smazání osobních údajů','Po nahrání do Vemy a ověření, že je vše správně, vyberte v rejstříku spisy a klikněte na <b>Smazat osobní údaje</b>. Tlačítko je aktivní jen u spisů ve stavu <b>Nahráno</b>. Smažte až po vygenerování dokumentů (z údajů se pak už znovu vytvořit nedají). Nevratně se smažou osobní údaje zaměstnance (zůstane jméno, pozice, pracoviště, datum nástupu a stavy) a jeho odkaz dál otevře jen záložku „Co potřebujete vědět“. Pokud smazání zapomenete, proběhne automaticky 60 dní po vygenerování tabulek.'],
   ['🖨️','Tištěné podklady','Ve spisu <b>Tisk podkladů</b>: A – Osobní dotazník, B – Prohlášení o předchozích zaměstnáních, C – Souhlas se zasíláním platu na účet. Předvyplněno z formuláře; lze tisknout/uložit jako PDF nebo odeslat e-mailem (potřebuje přidělený e-mail zaměstnance).']]},
