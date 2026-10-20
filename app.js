@@ -1,4 +1,4 @@
-const APP_VERSION = '2026-10-20.1';
+const APP_VERSION = '2026-10-20.2';
 const STORAGE_INDEX_KEY = 'onboarding:index';
 const STORAGE_INFO_KEY = 'onboarding:info-content';
 const STORAGE_SETTINGS_KEY = 'onboarding:settings';
@@ -486,7 +486,7 @@ const PERSONAL_SECTIONS = [
     {id:'pracoviste', label:'Pracoviště', type:'select', options: [''], required:true},
     {id:'typ_nastupu', label:'Typ nástupu', type:'select', options: ['', ...ONBOARDING_TYPES], required:true},
     {id:'kategorie', label:'Kategorie (dle vykonávané práce)', type:'select', options: [''], required:true},
-    {id:'odbor_oddeleni', label:'Odbor / oddělení', essential:true, type:'select', options:['']},
+    {id:'odbor_oddeleni', label:'Odbor / oddělení', essential:true, datalist:'utvar', placeholder:'vyberte, nebo zadejte název či kód útvaru', autocomplete:'off'},
     {id:'nadrizeny', label:'Přímý nadřízený', essential:true, type:'select', options:['']},
     {id:'rezim_zamestnani', label:'Typ úvazku', essential:true, type:'select', options:['','Pracovní poměr','Služební poměr']},
     {id:'typ_pomeru', label:'Typ pracovního poměru', essential:true, type:'select', options:['','HPP','DPP','DPČ'], default:'HPP'},
@@ -968,7 +968,20 @@ function autofillButtonHtml(f, ctx, targetAttr, targetKey){
 function autocompleteItemsFor(kind){
   if(kind === 'bank') return BANK_CODES.map(([code,name]) => ({value: code, display: code, sub: name}));
   if(kind === 'insurance') return INSURANCE_CODES.map(([code,name]) => ({value: `${code} — ${name}`, display: code, sub: name}));
+  if(kind === 'utvar') return departmentList().filter(Boolean).map(n => ({value: n, display: departmentCode(n) || '—', sub: n}));
   return (DATALIST_OPTIONS[kind] || []).map(v => ({value: v, display: v, sub: null}));
+}
+// Do pole Odbor / oddělení lze zapsat přímo kód útvaru (nebo název bez ohledu na velikost písmen) – převede se na název z číselníku.
+function normalizeDepartmentInput(v){
+  const t = String(v||'').trim();
+  if(!t) return '';
+  const list = departmentList().filter(Boolean);
+  const byCode = list.filter(n => departmentCode(n) === t);
+  if(byCode.length === 1) return byCode[0];
+  const m = /^(\d{1,3})\s*[–—-]\s*(.+)$/.exec(t);     // „821 – Oddělení právní“
+  if(m){ const hit = list.find(n => departmentCode(n) === m[1] || n === m[2].trim()); if(hit) return hit; }
+  const ci = list.find(n => normDeptName(n) === normDeptName(t));
+  return ci || t;
 }
 function closeAutocomplete(){
   if(window.__activeAutocomplete){
@@ -981,7 +994,7 @@ function openAutocomplete(input, kind){
   closeAutocomplete();
   const items = autocompleteItemsFor(kind);
   const q = input.value.trim().toLowerCase();
-  const filtered = (q ? items.filter(it => it.display.toLowerCase().includes(q) || (it.sub && it.sub.toLowerCase().includes(q))) : items).slice(0,50);
+  const filtered = (q ? items.filter(it => it.display.toLowerCase().includes(q) || (it.sub && it.sub.toLowerCase().includes(q))) : items).slice(0,100);
   if(filtered.length === 0) return;
   const popup = document.createElement('div');
   popup.className = 'autocomplete-popup';
@@ -3977,6 +3990,7 @@ function attachHandlers(){
 
   app.querySelectorAll('[data-autocomplete]').forEach(input => {
     const kind = input.getAttribute('data-autocomplete');
+    if(kind === 'utvar') input.addEventListener('change', () => { const n = normalizeDepartmentInput(input.value); if(n !== input.value) input.value = n; }, true);
     input.addEventListener('input', () => openAutocomplete(input, kind));
     input.addEventListener('focus', () => openAutocomplete(input, kind));
   });
@@ -6315,7 +6329,7 @@ const HELP = [
   ['✅','Schválit údaje','Dostupné ve stavu Odesláno / Vráceno, pokud jsou vyplněna všechna povinná pole. Po schválení má spis stav Zkontrolováno.'],
   ['🙋','Co dělá zaměstnanec','Vyplní průvodce, potvrdí souhlas se zpracováním osobních údajů a odešle. Po odeslání je formulář zamčen; zaměstnanec ho může sám stáhnout zpět a opravit, pokud ho ještě nezkontrolujete.']]},
  {g:'Výstupy',items:[
-  ['📊','Generovat tabulky pro VEMU','V rejstříku zaškrtněte zkontrolované spisy (výběr lze udělat hromadně v záhlaví) a použijte <b>Generovat tabulky pro VEMU</b>. Stav „Vygenerováno“ se u spisu zapamatuje; po nahrání do Vemy a kontrole tlačítkem <b>Potvrdit nahrání do Vemy</b> (vedle Generovat) přejde na „Nahráno“. Když tabulky vygenerujete znovu, stav se vrátí na „Vygenerováno“. Výsledkem je <b>ZIP s datem a časem generování v názvu</b> (např. VEMA_export_20261020-1015.zip); každá tabulka je v něm samostatný soubor .xlsx (ZHLAV, Adresy, Bankovni_ucty, Deti, Vzdelani, Predchozi_zamestnani, Znalosti_jazyky a číselníky Ciselnik_pracovist a Ciselnik_utvaru). Datumy jsou ve tvaru DDMMRR, zkušební doba (zkusd) a platová skupina (plasku) jsou číslo (bez zkušební doby = 0) a útvar (utvar) je číselný kód z číselníku útvarů Vemy. Kódy útvarů se předvyplňují podle názvu a jdou upravit v Nastavení → Odbory / oddělení (tlačítko <b>Doplnit z číselníku Vemy</b> přidá chybějící útvary). Pevné hodnoty a kódy pracovišť se nastavují v Nastavení.'],
+  ['📊','Generovat tabulky pro VEMU','V rejstříku zaškrtněte zkontrolované spisy (výběr lze udělat hromadně v záhlaví) a použijte <b>Generovat tabulky pro VEMU</b>. Stav „Vygenerováno“ se u spisu zapamatuje; po nahrání do Vemy a kontrole tlačítkem <b>Potvrdit nahrání do Vemy</b> (vedle Generovat) přejde na „Nahráno“. Když tabulky vygenerujete znovu, stav se vrátí na „Vygenerováno“. Výsledkem je <b>ZIP s datem a časem generování v názvu</b> (např. VEMA_export_20261020-1015.zip); každá tabulka je v něm samostatný soubor .xlsx (ZHLAV, Adresy, Bankovni_ucty, Deti, Vzdelani, Predchozi_zamestnani, Znalosti_jazyky a číselníky Ciselnik_pracovist a Ciselnik_utvaru). Datumy jsou ve tvaru DDMMRR, zkušební doba (zkusd) a platová skupina (plasku) jsou číslo (bez zkušební doby = 0) a útvar (utvar) je číselný kód z číselníku útvarů Vemy. Ve spisu (pole Odbor / oddělení) se v nabídce zobrazuje i kód útvaru a do pole lze přímo napsat kód (např. 821) nebo část názvu. Kódy útvarů se předvyplňují podle názvu a jdou upravit v Nastavení → Odbory / oddělení (tlačítko <b>Doplnit z číselníku Vemy</b> přidá chybějící útvary). Pevné hodnoty a kódy pracovišť se nastavují v Nastavení.'],
   ['🔢','Osobní čísla','Osobní číslo se novému spisu <b>přidělí automaticky</b> při založení i při importu – vždy nejnižší volné číslo od začátku zadaného v <b>Nastavení → Osobní čísla</b> (tak se vynechá interval čísel zaměstnanců DESÚ, kteří je už mají). V rejstříku je pod jménem místo kódu spisu a ve spisu je pole <b>Osobní číslo</b> jen ke čtení. Smažete-li spis dřív, než se pro něj vygenerují tabulky pro Vemu, číslo se uvolní a přidělí se dalšímu; po vygenerování tabulek se znovu nepoužije. Při odchodu z Nastavení s neuloženými změnami (Zpět, přepnutí pohledu, Odhlásit) se aplikace zeptá, zda změny uložit, zahodit, nebo zůstat. Spisům založeným dřív se číslo samo nepřidělí (smažte je a založte znovu); pokud není začátek v Nastavení vyplněný, čísla se nepřidělují.'],
   ['📄','Dokumenty podle vzorů','U spisu ve stavu <b>Nahráno</b> je ve spisu (sekce s podklady) tlačítko <b>Dokumenty podle vzorů</b>. Otevře se seznam všech vzorů se zaškrtávátky a volbou <b>Označit vše</b>; předem jsou zaškrtnuté ty, které odpovídají typu poměru (pracovní: platový výměr, pracovní smlouva; služební: informace o pracovním poměru; všichni: kritéria hodnocení, portrétní fotografie, školení BOZP, interní předpisy; dle potřeby: osvědčení o rovnocennosti zkoušek, dohoda o výkonu služby z jiného místa a její příloha). Tlačítkem <b>Vygenerovat</b> se každý dokument vyplní z údajů ve spisu a vytvoří se Word i PDF. U každého je <b>Zobrazit PDF</b>, <b>⬇ PDF</b> a <b>⬇ Word</b>; všechno najednou stáhnete jako <b>ZIP</b>. Názvy souborů jsou ve tvaru <b>Příjmení_Jméno_název.docx / .pdf</b>. Údaje, které ve spisu nejsou (č. j., datum podpisu, osobní číslo, které se nevyplnilo), zůstanou k ručnímu doplnění. PDF se vytváří přímo v prohlížeči, takže se může od Wordu lehce lišit zalomením stránek – Word je přesný. Vzory jsou ve složce <code>templates</code> a po změně vzoru se nahradí příslušný soubor. Dokumenty se generují z osobních údajů, proto je vytvořte před smazáním údajů.'],
   ['🧹','Smazání osobních údajů','Po nahrání do Vemy a ověření, že je vše správně, vyberte v rejstříku spisy a klikněte na <b>Smazat osobní údaje</b>. Tlačítko je aktivní jen u spisů ve stavu <b>Nahráno</b>. Smažte až po vygenerování dokumentů (z údajů se pak už znovu vytvořit nedají). Nevratně se smažou osobní údaje zaměstnance (zůstane jméno, pozice, pracoviště, datum nástupu a stavy) a jeho odkaz dál otevře jen záložku „Co potřebujete vědět“. Pokud smazání zapomenete, proběhne automaticky 60 dní po vygenerování tabulek.'],
