@@ -1,4 +1,4 @@
-const APP_VERSION = '2026-10-15.5';
+const APP_VERSION = '2026-10-20.1';
 const STORAGE_INDEX_KEY = 'onboarding:index';
 const STORAGE_INFO_KEY = 'onboarding:info-content';
 const STORAGE_SETTINGS_KEY = 'onboarding:settings';
@@ -7,6 +7,91 @@ const recordKey = id => 'onboarding:record:' + id;
 const OWNER_LABEL = { hr:'Personální oddělení', employee:'Zaměstnanec', admin:'IT a provoz' };
 
 const DEFAULT_WORKPLACES = ['MD', 'Letenská', 'Olomouc', 'Plzeň', 'Brno', 'České Budějovice', 'Letiště'];
+// Číselník útvarů Vemy (kód, název) – podle číselníku ve Vemě. Kód se v Nastavení u každého odboru/oddělení dá upravit.
+const VEMA_UTVARY = [
+  ['001','Dopravní energetický a stavební úřad'],
+  ['020','Samostatné oddělení ekonomické a provozní'],
+  ['021','Podatelna, Výpravna'],
+  ['030','Samostatné oddělení personální'],
+  ['031','Samostatné oddělení vyvlastnění a právních činností Čechy'],
+  ['032','Samostatné oddělení vyvlastnění a právních činností Morava'],
+  ['041','Samostatné oddělení ochrany veřejného zdraví'],
+  ['100','Sekce vyhrazených staveb'],
+  ['111','Samostatné oddělení staveb pozemních komunikací I'],
+  ['112','Samostatné oddělení staveb pozemních komunikací II.'],
+  ['120','Odbor staveb drah'],
+  ['121','Oddělení staveb drah Praha'],
+  ['122','Oddělení staveb drah Olomouc'],
+  ['123','Oddělení staveb drah Plzeň'],
+  ['124','Oddělení pražských městských drah'],
+  ['130','Samostatné oddělení civilních leteckých staveb'],
+  ['200','Sekce 1. místopředsedy'],
+  ['210','Odbor energetických staveb'],
+  ['211','Oddělení energetických liniových staveb'],
+  ['212','Oddělení staveb výroben energie'],
+  ['220','Odbor staveb pro bydlení'],
+  ['221','Oddělení staveb obnovitelných zdrojů energie'],
+  ['222','Oddělení průmyslových a těžebních staveb'],
+  ['225','Oddělení staveb pro bydlení Praha'],
+  ['226','Oddělení staveb pro bydlení Plzeň/České Budějovice'],
+  ['227','Oddělení staveb pro bydlení Olomouc'],
+  ['250','Odbor personální, ekonomický a provozní'],
+  ['251','Oddělení ekonomické'],
+  ['253','Oddělení provozu digitálních služeb'],
+  ['280','Samostatné oddělení právní'],
+  ['800','Sekce metodická, legislativní a ochrany veřejných zájmů'],
+  ['810','Odbor plánování a správy NGÚP'],
+  ['811','Oddělení koncepční a metodické'],
+  ['812','Oddělení plánování'],
+  ['813','Oddělení provozních činností a digitalizace'],
+  ['820','Odbor metodiky stavebního řádu'],
+  ['821','Oddělení právní'],
+  ['822','Oddělení technické'],
+  ['823','Oddělení metodické'],
+  ['830','Odbor odvolací a přezkumné agendy I'],
+  ['831','Oddělení odvolací a přezkumné agendy I'],
+  ['832','Oddělení odvolací a přezkumné agendy II'],
+  ['833','Oddělení odvolací a přezkumné agendy III'],
+  ['840','Odbor zpracování územně plánovací dokumentace'],
+  ['841','Oddělení informací o územním rozvoji'],
+  ['842','Oddělení územního rozvoje'],
+  ['850','Odbor transformace státní stavební správy'],
+  ['851','Oddělení implementace'],
+  ['852','Oddělení realizace'],
+  ['853','Oddělení transformace území 1'],
+  ['854','Oddělení transformace území 2'],
+  ['855','Oddělení transformace území 3'],
+  ['856','Oddělení transformace území 4'],
+  ['860','Odbor legislativní'],
+  ['861','Oddělení národní legislativy'],
+  ['862','Oddělení evropské legislativy'],
+  ['880','Odbor ochrany životního prostředí'],
+  ['881','Oddělení ochrany životního prostředí 1'],
+  ['882','Oddělení ochrany životního prostředí 2'],
+  ['883','Oddělení ochrany životního prostředí 3'],
+  ['890','Odbor ochrany ostatních chráněných veřejných zájmů'],
+  ['891','Oddělení ochrany ostatních chráněných veřejných zájmů 1'],
+  ['892','Oddělení ochrany ostatních chráněných veřejných zájmů 2'],
+  ['901','Samostatné oddělení odvolacích řízení - dopravní stavby'],
+  ['902','Samostatné oddělení odvolacích řízení - energetické stavby']
+];
+// Dřívější / jiné názvy téhož útvaru v seznamu odborů (z organigramu)
+const VEMA_UTVARY_ALIASY = {
+  'Odbor metodiky územního plánování a rozvoje': '810',
+  'Odbor pořizování územně plánovací dokumentace': '840',
+};
+function normDeptName(x){ return String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim(); }
+function departmentCodeFrom(settings, name){
+  if(!name) return '';
+  const own = settings && settings.departmentCodes && settings.departmentCodes[name];
+  if(own) return String(own).trim();
+  if(VEMA_UTVARY_ALIASY[name]) return VEMA_UTVARY_ALIASY[name];
+  const n = normDeptName(name);
+  const hit = VEMA_UTVARY.find(([,nm]) => normDeptName(nm) === n);
+  return hit ? hit[0] : '';
+}
+function departmentCode(name){ return departmentCodeFrom(state.settings, name); }
+
 const DEFAULT_POSITIONS = ['Referent','Analytik','Metodik','Právník','Ekonom','Architekt','Specialista IT','Personalista','Asistent/ka','Vedoucí oddělení'];
 const DEFAULT_ADMINS = [];
 const DEFAULT_SUPERVISORS = [];
@@ -220,7 +305,7 @@ function vemaAuto(p){
   else if(prac){ klas = p.doba_trvani_pomeru === 'Na dobu neurčitou' ? '1111' : (p.doba_trvani_pomeru === 'Na dobu určitou' ? '1112' : ''); }
   return {
     czicse: klas,
-    plasku: sluz ? '14' : (prac ? '2' : ''),
+    plasku: sluz ? '14' : '2',   // vždy číslo: služební poměr 14, jinak 2
     plastu: String(parseInt(p.platovy_stupen,10) || 1),
     tarif: tarifniPlat(p, parseInt(p.platovy_stupen,10) || 1),
     skupzm: (tr >= 6 && tr <= 9) ? '3' : ((tr >= 10 && tr <= 16) ? '4' : ''),
@@ -1993,14 +2078,16 @@ function renderSettingsPage(){
 
     <div class="panel" style="margin-bottom:20px;">
       ${settingsPanelStart('departments', 'Odbory / oddělení', {field:'departments', label:'Odbory / oddělení'})}
-      <p style="font-size:12.5px;color:var(--ink-faint);margin:0 0 12px;">Seznam pro výběr odboru/oddělení v sekci Pracovní poměr.</p>
+      <p style="font-size:12.5px;color:var(--ink-faint);margin:0 0 12px;">Seznam pro výběr odboru/oddělení v sekci Pracovní poměr. Číslo vlevo je kód útvaru ve Vemě (číselník útvarů) – použije se při exportu do Vemy (sloupec utvar). Kód se předvyplní podle názvu, lze ho přepsat.</p>
       ${draft.departments.map((w,i) => `
-        <div class="contact-edit-row" style="grid-template-columns:1fr auto;">
+        <div class="contact-edit-row" style="grid-template-columns:90px 1fr auto;">
+          <input data-department-code="${i}" value="${esc(departmentCodeFrom(draft, w))}" placeholder="kód" title="Kód útvaru ve Vemě (číselník útvarů)" inputmode="numeric" ${w ? '' : 'disabled'}>
           <input data-department-input="${i}" value="${esc(w)}" placeholder="Název odboru / oddělení">
           <button class="btn btn-ghost btn-sm" type="button" data-department-remove="${i}">Odebrat</button>
         </div>
       `).join('')}
       <button class="btn btn-ghost btn-sm" type="button" id="btn-department-add">+ Přidat odbor / oddělení</button>
+      <button class="btn btn-ghost btn-sm" type="button" id="btn-department-fill" title="Přidá do seznamu útvary z číselníku Vemy, které v něm zatím nejsou (včetně kódů).">Doplnit z číselníku Vemy</button>
       ${settingsPanelEnd()}
     </div>
 
@@ -3317,10 +3404,33 @@ function attachHandlers(){
   });
 
   app.querySelectorAll('[data-department-input]').forEach(el => {
-    el.addEventListener('change', () => { state.settingsDraft.departments[el.getAttribute('data-department-input')] = el.value; });
+    el.addEventListener('change', () => {
+      const d = state.settingsDraft, i = el.getAttribute('data-department-input');
+      const old = d.departments[i], code = departmentCodeFrom(d, old);
+      d.departments[i] = el.value;
+      if(!d.departmentCodes) d.departmentCodes = {};
+      if(code && el.value && !d.departmentCodes[el.value]) d.departmentCodes[el.value] = code;   // přejmenování zachová kód
+    });
   });
   app.querySelectorAll('[data-department-remove]').forEach(el => {
     el.addEventListener('click', () => { state.settingsDraft.departments.splice(el.getAttribute('data-department-remove'), 1); render(); });
+  });
+  app.querySelectorAll('[data-department-code]').forEach(el => {
+    el.addEventListener('change', () => {
+      const d = state.settingsDraft, name = d.departments[el.getAttribute('data-department-code')];
+      if(!name) return;
+      if(!d.departmentCodes) d.departmentCodes = {};
+      d.departmentCodes[name] = el.value.trim();
+    });
+  });
+  const departmentFillBtn = document.getElementById('btn-department-fill');
+  if(departmentFillBtn) departmentFillBtn.addEventListener('click', () => {
+    const d = state.settingsDraft;
+    syncSettingsDraftFromDom();
+    if(!d.departmentCodes) d.departmentCodes = {};
+    const have = new Set(d.departments.filter(Boolean).map(x => normDeptName(x)));
+    VEMA_UTVARY.forEach(([code, name]) => { if(!have.has(normDeptName(name))){ d.departments.push(name); d.departmentCodes[name] = code; } });
+    render();
   });
   const departmentAddBtn = document.getElementById('btn-department-add');
   if(departmentAddBtn) departmentAddBtn.addEventListener('click', () => { state.settingsDraft.departments.push(''); render(); });
@@ -3495,7 +3605,8 @@ function attachHandlers(){
     state.exporting = true;
     render();
     try{
-      await generateVemaExport(ids);
+      const warns = await generateVemaExport(ids);
+      if(warns && warns.length) setTimeout(() => alert('Tabulky byly vygenerovány, ale pozor:\n\n' + warns.join('\n')), 300);
     }catch(e){
       console.error('generateVemaExport failed:', e);
       state.error = 'Generování tabulek se nezdařilo. Zkuste to prosím znovu.';
@@ -4913,7 +5024,7 @@ function zhlavColumns(){
     {code:'csmlouva', get:p=>''},
     {code:'zkusd', get:p=>zkusdMonths(p)},
     {code:'pracvz', get:p=>workplaceVemaCode(p.pracoviste)},
-    {code:'utvar', get:p=>p.odbor_oddeleni},
+    {code:'utvar', get:p=>departmentCode(p.odbor_oddeleni)},   // číselný kód útvaru podle číselníku Vemy
     {code:'ppvdr', get:p=>ppvdrCode(p)},
     {code:'osvpoj', get:p=>'0'},
     {code:'eviod', get:p=>'0'},
@@ -5059,6 +5170,23 @@ const SATELLITE_TABLES = [
   },
 ];
 
+// Datum pro Vemu ve tvaru DDMMRR (text, aby se neztratila úvodní nula). Hodnoty, které nejsou datum, se nemění.
+function vemaDate(v){
+  if(typeof v !== 'string') return v;
+  let m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v.trim());
+  if(m) return m[3] + m[2] + m[1].slice(2);
+  m = /^(\d{1,2})\.\s*(\d{1,2})\.\s*(\d{4})$/.exec(v.trim());
+  if(m) return m[1].padStart(2,'0') + m[2].padStart(2,'0') + m[3].slice(2);
+  return v;
+}
+// Sloupce, které Vema bere jako číslo (ne text)
+const ZHLAV_NUMERIC = new Set(['zkusd','plasku']);
+function vemaNumber(v){
+  if(v === '' || v == null) return '';
+  const n = Number(String(v).replace(',','.'));
+  return Number.isFinite(n) ? n : v;
+}
+
 async function generateVemaExport(ids){
   const records = [];
   for(const id of ids){
@@ -5066,49 +5194,67 @@ async function generateVemaExport(ids){
     const entry = state.index.find(e => e.id === id);
     records.push({ id, entry, record });
   }
-  const workbook = new ExcelJS.Workbook();
-
+  const warnings = [];
   const cols = zhlavColumns();
-  const sheetZhlav = workbook.addWorksheet('ZHLAV');
-  sheetZhlav.addRow(cols.map(c => c.code + '-A'));
-  records.forEach(({record}) => {
-    sheetZhlav.addRow(cols.map(c => { try{ return c.get(record.personal) ?? ''; }catch(e){ return ''; } }));
-  });
-  sheetZhlav.getRow(1).eachCell((cell, colIdx) => {
-    const povinne = ZHLAV_POVINNE_KODY.has(cols[colIdx-1].code);
-    cell.fill = { type:'pattern', pattern:'solid', fgColor: { argb: povinne ? 'FFFF0000' : 'FF70AD47' } };
-    cell.font = { bold:true, color: { argb: povinne ? 'FFFFFFFF' : 'FF000000' } };
-  });
-  for(let i=0; i<cols.length; i++) sheetZhlav.getColumn(i+1).width = 14;
+  const tables = [];
 
-  SATELLITE_TABLES.forEach(sheetDef => {
-    const ws = workbook.addWorksheet(sheetDef.name);
-    ws.addRow(sheetDef.header);
+  // ZHLAV
+  const zhlavRows = records.map(({record}) => cols.map(c => {
+    let v; try{ v = c.get(record.personal) ?? ''; }catch(e){ v = ''; }
+    if(ZHLAV_NUMERIC.has(c.code)) return vemaNumber(v);
+    return vemaDate(v);
+  }));
+  const utvarIdx = cols.findIndex(c => c.code === 'utvar');
+  records.forEach(({record}, i) => {
+    const nm = record.personal.odbor_oddeleni;
+    if(nm && !zhlavRows[i][utvarIdx]) warnings.push(`${record.personal.prijmeni || ''} ${record.personal.jmeno || ''}: útvar „${nm}“ nemá kód (doplňte ho v Nastavení → Odbory / oddělení).`);
+  });
+  tables.push({
+    name: 'ZHLAV', header: cols.map(c => c.code + '-A'), rows: zhlavRows,
+    styleHeader: (cell, colIdx) => {
+      const povinne = ZHLAV_POVINNE_KODY.has(cols[colIdx-1].code);
+      cell.fill = { type:'pattern', pattern:'solid', fgColor: { argb: povinne ? 'FFFF0000' : 'FF70AD47' } };
+      cell.font = { bold:true, color: { argb: povinne ? 'FFFFFFFF' : 'FF000000' } };
+    }
+  });
+
+  // satelitní tabulky
+  SATELLITE_TABLES.forEach(def => {
+    const rows = [];
     records.forEach(({record}) => {
       const oscis = record.personal.osobni_cislo || '';
-      sheetDef.rows(oscis, record.personal).forEach(row => ws.addRow(row));
+      def.rows(oscis, record.personal).forEach(r => rows.push(r.map(vemaDate)));
     });
-    for(let i=0; i<sheetDef.header.length; i++) ws.getColumn(i+1).width = 14;
+    tables.push({ name: def.name, header: def.header, rows });
   });
 
-  const sheetCiselnik = workbook.addWorksheet('Ciselnik_pracovist');
-  sheetCiselnik.addRow(['kod', 'nazev']);
-  workplaceList().forEach((w, i) => sheetCiselnik.addRow([i + 1, w]));
-  sheetCiselnik.getColumn(1).width = 10;
-  sheetCiselnik.getColumn(2).width = 45;
+  // číselníky (pro kontrolu ve Vemě)
+  tables.push({ name: 'Ciselnik_pracovist', header: ['kod','nazev'], rows: workplaceList().map((w, i) => [i + 1, w]), widths: [10, 45] });
+  const depRows = departmentList().filter(Boolean).map(n => [departmentCode(n), n]).filter(r => r[0]);
+  tables.push({ name: 'Ciselnik_utvaru', header: ['kod','nazev'], rows: depRows, widths: [10, 60] });
+
+  // každá tabulka = samostatný soubor .xlsx, všechny dohromady v ZIPu s datem generování
+  const files = [];
+  for(const t of tables){
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet(t.name);
+    ws.addRow(t.header);
+    t.rows.forEach(r => ws.addRow(r));
+    if(t.styleHeader) ws.getRow(1).eachCell((cell, colIdx) => t.styleHeader(cell, colIdx));
+    t.header.forEach((h, i) => { ws.getColumn(i+1).width = (t.widths && t.widths[i]) || 14; });
+    // datumy (DDMMRR) a kódy musí zůstat text – nastavit textový formát buněk s úvodní nulou
+    ws.eachRow((row, rn) => { if(rn > 1) row.eachCell(cell => { if(typeof cell.value === 'string' && /^0\d*$/.test(cell.value)) cell.numFmt = '@'; }); });
+    const buf = await wb.xlsx.writeBuffer();
+    files.push({ name: t.name + '.xlsx', blob: new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }) });
+  }
+  if(typeof DocGen === 'undefined') throw new Error('Modul pro ZIP se nenačetl');
+  DocGen.init({ version: APP_VERSION });
+  const zip = await DocGen.zipFiles(files);
 
   const now = new Date();
-  const stamp = now.toISOString().slice(0,16).replace(/[-:T]/g,'').replace(/(\d{8})(\d{4})/, '$1-$2');
-  const buffer = await workbook.xlsx.writeBuffer();
-  const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `VEMA_export_${stamp}.xlsx`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  const p2 = n => String(n).padStart(2,'0');
+  const stamp = `${now.getFullYear()}${p2(now.getMonth()+1)}${p2(now.getDate())}-${p2(now.getHours())}${p2(now.getMinutes())}`;
+  downloadBlob(zip, `VEMA_export_${stamp}.zip`);
 
   const nowIso = now.toISOString();
   for(const {id, record} of records){
@@ -5119,6 +5265,7 @@ async function generateVemaExport(ids){
     if(idxEntry){ idxEntry.vemaExportedAt = nowIso; idxEntry.vemaUploadedAt = null; }
   }
   await saveIndex();
+  return warnings;
 }
 
 // ---------------- Dokumenty podle vzorů (Word + PDF) ----------------
@@ -6168,7 +6315,7 @@ const HELP = [
   ['✅','Schválit údaje','Dostupné ve stavu Odesláno / Vráceno, pokud jsou vyplněna všechna povinná pole. Po schválení má spis stav Zkontrolováno.'],
   ['🙋','Co dělá zaměstnanec','Vyplní průvodce, potvrdí souhlas se zpracováním osobních údajů a odešle. Po odeslání je formulář zamčen; zaměstnanec ho může sám stáhnout zpět a opravit, pokud ho ještě nezkontrolujete.']]},
  {g:'Výstupy',items:[
-  ['📊','Generovat tabulky pro VEMU','V rejstříku zaškrtněte zkontrolované spisy (výběr lze udělat hromadně v záhlaví) a použijte <b>Generovat tabulky pro VEMU</b>. Stav „Vygenerováno“ se u spisu zapamatuje; po nahrání do Vemy a kontrole tlačítkem <b>Potvrdit nahrání do Vemy</b> (vedle Generovat) přejde na „Nahráno“. Když tabulky vygenerujete znovu, stav se vrátí na „Vygenerováno“. Pevné hodnoty a kódy pracovišť se nastavují v Nastavení.'],
+  ['📊','Generovat tabulky pro VEMU','V rejstříku zaškrtněte zkontrolované spisy (výběr lze udělat hromadně v záhlaví) a použijte <b>Generovat tabulky pro VEMU</b>. Stav „Vygenerováno“ se u spisu zapamatuje; po nahrání do Vemy a kontrole tlačítkem <b>Potvrdit nahrání do Vemy</b> (vedle Generovat) přejde na „Nahráno“. Když tabulky vygenerujete znovu, stav se vrátí na „Vygenerováno“. Výsledkem je <b>ZIP s datem a časem generování v názvu</b> (např. VEMA_export_20261020-1015.zip); každá tabulka je v něm samostatný soubor .xlsx (ZHLAV, Adresy, Bankovni_ucty, Deti, Vzdelani, Predchozi_zamestnani, Znalosti_jazyky a číselníky Ciselnik_pracovist a Ciselnik_utvaru). Datumy jsou ve tvaru DDMMRR, zkušební doba (zkusd) a platová skupina (plasku) jsou číslo (bez zkušební doby = 0) a útvar (utvar) je číselný kód z číselníku útvarů Vemy. Kódy útvarů se předvyplňují podle názvu a jdou upravit v Nastavení → Odbory / oddělení (tlačítko <b>Doplnit z číselníku Vemy</b> přidá chybějící útvary). Pevné hodnoty a kódy pracovišť se nastavují v Nastavení.'],
   ['🔢','Osobní čísla','Osobní číslo se novému spisu <b>přidělí automaticky</b> při založení i při importu – vždy nejnižší volné číslo od začátku zadaného v <b>Nastavení → Osobní čísla</b> (tak se vynechá interval čísel zaměstnanců DESÚ, kteří je už mají). V rejstříku je pod jménem místo kódu spisu a ve spisu je pole <b>Osobní číslo</b> jen ke čtení. Smažete-li spis dřív, než se pro něj vygenerují tabulky pro Vemu, číslo se uvolní a přidělí se dalšímu; po vygenerování tabulek se znovu nepoužije. Při odchodu z Nastavení s neuloženými změnami (Zpět, přepnutí pohledu, Odhlásit) se aplikace zeptá, zda změny uložit, zahodit, nebo zůstat. Spisům založeným dřív se číslo samo nepřidělí (smažte je a založte znovu); pokud není začátek v Nastavení vyplněný, čísla se nepřidělují.'],
   ['📄','Dokumenty podle vzorů','U spisu ve stavu <b>Nahráno</b> je ve spisu (sekce s podklady) tlačítko <b>Dokumenty podle vzorů</b>. Otevře se seznam všech vzorů se zaškrtávátky a volbou <b>Označit vše</b>; předem jsou zaškrtnuté ty, které odpovídají typu poměru (pracovní: platový výměr, pracovní smlouva; služební: informace o pracovním poměru; všichni: kritéria hodnocení, portrétní fotografie, školení BOZP, interní předpisy; dle potřeby: osvědčení o rovnocennosti zkoušek, dohoda o výkonu služby z jiného místa a její příloha). Tlačítkem <b>Vygenerovat</b> se každý dokument vyplní z údajů ve spisu a vytvoří se Word i PDF. U každého je <b>Zobrazit PDF</b>, <b>⬇ PDF</b> a <b>⬇ Word</b>; všechno najednou stáhnete jako <b>ZIP</b>. Názvy souborů jsou ve tvaru <b>Příjmení_Jméno_název.docx / .pdf</b>. Údaje, které ve spisu nejsou (č. j., datum podpisu, osobní číslo, které se nevyplnilo), zůstanou k ručnímu doplnění. PDF se vytváří přímo v prohlížeči, takže se může od Wordu lehce lišit zalomením stránek – Word je přesný. Vzory jsou ve složce <code>templates</code> a po změně vzoru se nahradí příslušný soubor. Dokumenty se generují z osobních údajů, proto je vytvořte před smazáním údajů.'],
   ['🧹','Smazání osobních údajů','Po nahrání do Vemy a ověření, že je vše správně, vyberte v rejstříku spisy a klikněte na <b>Smazat osobní údaje</b>. Tlačítko je aktivní jen u spisů ve stavu <b>Nahráno</b>. Smažte až po vygenerování dokumentů (z údajů se pak už znovu vytvořit nedají). Nevratně se smažou osobní údaje zaměstnance (zůstane jméno, pozice, pracoviště, datum nástupu a stavy) a jeho odkaz dál otevře jen záložku „Co potřebujete vědět“. Pokud smazání zapomenete, proběhne automaticky 60 dní po vygenerování tabulek.'],
