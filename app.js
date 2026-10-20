@@ -1,4 +1,4 @@
-const APP_VERSION = '2026-10-20.2';
+const APP_VERSION = '2026-10-20.3';
 const STORAGE_INDEX_KEY = 'onboarding:index';
 const STORAGE_INFO_KEY = 'onboarding:info-content';
 const STORAGE_SETTINGS_KEY = 'onboarding:settings';
@@ -7,87 +7,106 @@ const recordKey = id => 'onboarding:record:' + id;
 const OWNER_LABEL = { hr:'Personální oddělení', employee:'Zaměstnanec', admin:'IT a provoz' };
 
 const DEFAULT_WORKPLACES = ['MD', 'Letenská', 'Olomouc', 'Plzeň', 'Brno', 'České Budějovice', 'Letiště'];
-// Číselník útvarů Vemy (kód, název) – podle číselníku ve Vemě. Kód se v Nastavení u každého odboru/oddělení dá upravit.
+// Číselník útvarů (kód = Ext. ID OJ, název) podle systemizační tabulky ÚRÚ ČR od 1. 1. 2027, v pořadí organizační struktury.
+// Kód se v Nastavení u každého odboru/oddělení dá upravit.
+const DEPT_VERSION = '2027-systemizace';
 const VEMA_UTVARY = [
-  ['001','Dopravní energetický a stavební úřad'],
-  ['020','Samostatné oddělení ekonomické a provozní'],
-  ['021','Podatelna, Výpravna'],
-  ['030','Samostatné oddělení personální'],
-  ['031','Samostatné oddělení vyvlastnění a právních činností Čechy'],
-  ['032','Samostatné oddělení vyvlastnění a právních činností Morava'],
-  ['041','Samostatné oddělení ochrany veřejného zdraví'],
-  ['100','Sekce vyhrazených staveb'],
-  ['111','Samostatné oddělení staveb pozemních komunikací I'],
-  ['112','Samostatné oddělení staveb pozemních komunikací II.'],
-  ['120','Odbor staveb drah'],
-  ['121','Oddělení staveb drah Praha'],
-  ['122','Oddělení staveb drah Olomouc'],
-  ['123','Oddělení staveb drah Plzeň'],
-  ['124','Oddělení pražských městských drah'],
-  ['130','Samostatné oddělení civilních leteckých staveb'],
-  ['200','Sekce 1. místopředsedy'],
-  ['210','Odbor energetických staveb'],
-  ['211','Oddělení energetických liniových staveb'],
-  ['212','Oddělení staveb výroben energie'],
-  ['220','Odbor staveb pro bydlení'],
-  ['221','Oddělení staveb obnovitelných zdrojů energie'],
-  ['222','Oddělení průmyslových a těžebních staveb'],
-  ['225','Oddělení staveb pro bydlení Praha'],
-  ['226','Oddělení staveb pro bydlení Plzeň/České Budějovice'],
-  ['227','Oddělení staveb pro bydlení Olomouc'],
-  ['250','Odbor personální, ekonomický a provozní'],
-  ['251','Oddělení ekonomické'],
-  ['253','Oddělení provozu digitálních služeb'],
-  ['280','Samostatné oddělení právní'],
-  ['800','Sekce metodická, legislativní a ochrany veřejných zájmů'],
-  ['810','Odbor plánování a správy NGÚP'],
-  ['811','Oddělení koncepční a metodické'],
-  ['812','Oddělení plánování'],
-  ['813','Oddělení provozních činností a digitalizace'],
-  ['820','Odbor metodiky stavebního řádu'],
-  ['821','Oddělení právní'],
-  ['822','Oddělení technické'],
-  ['823','Oddělení metodické'],
-  ['830','Odbor odvolací a přezkumné agendy I'],
-  ['831','Oddělení odvolací a přezkumné agendy I'],
-  ['832','Oddělení odvolací a přezkumné agendy II'],
-  ['833','Oddělení odvolací a přezkumné agendy III'],
-  ['840','Odbor zpracování územně plánovací dokumentace'],
-  ['841','Oddělení informací o územním rozvoji'],
-  ['842','Oddělení územního rozvoje'],
-  ['850','Odbor transformace státní stavební správy'],
-  ['851','Oddělení implementace'],
-  ['852','Oddělení realizace'],
-  ['853','Oddělení transformace území 1'],
-  ['854','Oddělení transformace území 2'],
-  ['855','Oddělení transformace území 3'],
-  ['856','Oddělení transformace území 4'],
-  ['860','Odbor legislativní'],
-  ['861','Oddělení národní legislativy'],
-  ['862','Oddělení evropské legislativy'],
-  ['880','Odbor ochrany životního prostředí'],
-  ['881','Oddělení ochrany životního prostředí 1'],
-  ['882','Oddělení ochrany životního prostředí 2'],
-  ['883','Oddělení ochrany životního prostředí 3'],
-  ['890','Odbor ochrany ostatních chráněných veřejných zájmů'],
-  ['891','Oddělení ochrany ostatních chráněných veřejných zájmů 1'],
-  ['892','Oddělení ochrany ostatních chráněných veřejných zájmů 2'],
-  ['901','Samostatné oddělení odvolacích řízení - dopravní stavby'],
-  ['902','Samostatné oddělení odvolacích řízení - energetické stavby']
+  ["2","Oddělení kancelář předsedy"],
+  ["129967460","Sekce - 1. místopředseda"],
+  ["129967461","Odbor transformace státní stavební správy"],
+  ["129967462","Oddělení implementace"],
+  ["129967463","Oddělení realizace"],
+  ["15","Oddělení transformace území 1"],
+  ["16","Oddělení transformace území 2"],
+  ["17","Oddělení transformace území 3"],
+  ["18","Oddělení transformace území 4"],
+  ["76505712","Odbor odvolací a přezkumné agendy"],
+  ["129097316","Oddělení odvolací a přezkumné agendy I"],
+  ["76505637","Oddělení odvolací a přezkumné agendy II"],
+  ["76505775","Oddělení odvolací a přezkumné agendy III"],
+  ["3","Odbor staveb pro bydlení"],
+  ["4","Oddělení staveb pro bydlení Praha"],
+  ["5","Oddělení staveb pro bydlení Plzeň/ČB"],
+  ["6","Oddělení staveb pro bydlení Olomouc"],
+  ["7","Odbor zpracování územně plánovací dokumentace"],
+  ["8","Oddělení informací o územním rozvoji"],
+  ["9","Oddělení územního rozvoje"],
+  ["10","Odbor personální, ekonomický a provozní"],
+  ["11","Oddělení personální"],
+  ["12","Oddělení ekonomické"],
+  ["13","Oddělení provozu digitálních služeb"],
+  ["14","Oddělení provozní a IT"],
+  ["19","Samostatné oddělení právní"],
+  ["23","Sekce metodická, legislativní a ochrany veřejných zájmů"],
+  ["76505694","Odbor územního plánování"],
+  ["129922901","Oddělení provozních činností a digitalizace"],
+  ["129965771","Oddělení koncepční a metodické"],
+  ["129965772","Oddělení plánování"],
+  ["76505706","Odbor metodiky stavebního řádu"],
+  ["129509560","Oddělení metodické"],
+  ["98335883","Oddělení právní"],
+  ["98335904","Oddělení technické"],
+  ["24","Odbor ochrany životního prostředí"],
+  ["25","Oddělení ochrany životního prostředí 1"],
+  ["26","Oddělení ochrany životního prostředí 2"],
+  ["27","Oddělení ochrany životního prostředí 3"],
+  ["28","Odbor ochrany ostatních chráněných veřejných zájmů"],
+  ["29","Oddělení ochrany ostatních chráněných veřejných zájmů 1"],
+  ["30","Oddělení ochrany ostatních chráněných veřejných zájmů 2"],
+  ["00041","Oddělení ochrany veřejného zdraví"],
+  ["31","Odbor legislativní"],
+  ["32","Oddělení národní legislativy"],
+  ["33","Oddělení evropské legislativy"],
+  ["00100","Sekce vyhrazených staveb"],
+  ["00031","Samostatné oddělení vyvlastnění a právních činností Čechy I"],
+  ["00032","Samostatné oddělení vyvlastnění a právních činností Morava"],
+  ["00111","Samostatné oddělení staveb pozemních komunikací I"],
+  ["00112","Samostatné oddělení staveb pozemních komunikací II"],
+  ["00120","Odbor staveb drah"],
+  ["00121","Oddělení staveb drah Praha"],
+  ["00122","Oddělení staveb drah Olomouc"],
+  ["00123","Oddělení staveb drah Plzeň"],
+  ["00124","Oddělení pražských městských drah"],
+  ["00130","Samostatné oddělení civilních leteckých staveb"],
+  ["00210","Odbor energetických a průmyslových staveb"],
+  ["00211","Oddělení energetických liniových staveb"],
+  ["00212","Oddělení staveb výroben energie"],
+  ["00221","Oddělení staveb obnovitelných zdrojů energie"],
+  ["00222","Oddělení průmyslových a těžebních staveb"],
+  ["20","Samostatné oddělení staveb vodních děl a staveb pro vodní dopravu"],
+  ["21","Samostatné oddělení odvolacích řízení - dopravní stavby"],
+  ["22","Samostatné oddělení odvolacích řízení - energetické stavby"]
 ];
-// Dřívější / jiné názvy téhož útvaru v seznamu odborů (z organigramu)
+// Dřívější názvy útvarů (z organigramu / z DESÚ) → název v systemizaci
 const VEMA_UTVARY_ALIASY = {
-  'Odbor metodiky územního plánování a rozvoje': '810',
-  'Odbor pořizování územně plánovací dokumentace': '840',
+  'Kancelář předsedy': 'Oddělení kancelář předsedy',
+  'Odbor metodiky územního plánování a rozvoje': 'Odbor územního plánování',
+  'Odbor pořizování územně plánovací dokumentace': 'Odbor zpracování územně plánovací dokumentace',
+  'Odbor energetických staveb': 'Odbor energetických a průmyslových staveb',
+  'Odbor odvolací a přezkumné agendy I': 'Odbor odvolací a přezkumné agendy',
+  'Oddělení staveb pro bydlení Plzeň/České Budějovice': 'Oddělení staveb pro bydlení Plzeň/ČB',
+  'Samostatné oddělení vyvlastnění a právních činností Čechy': 'Samostatné oddělení vyvlastnění a právních činností Čechy I',
+  'Samostatné oddělení staveb pozemních komunikací II.': 'Samostatné oddělení staveb pozemních komunikací II',
+  'Oddělení provozu digitálních služeb': 'Oddělení provozu digitálních služeb',
 };
 function normDeptName(x){ return String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim(); }
+// Název útvaru v systemizaci (zohlední starší názvy a rozdíly ve velikosti písmen/mezerách)
+function canonicalDepartment(name){
+  const t = String(name||'').replace(/\s+/g,' ').trim();
+  if(!t) return '';
+  if(VEMA_UTVARY_ALIASY[t]) return VEMA_UTVARY_ALIASY[t];
+  const n = normDeptName(t);
+  const hit = VEMA_UTVARY.find(([,nm]) => normDeptName(nm) === n);
+  return hit ? hit[1] : t;
+}
 function departmentCodeFrom(settings, name){
   if(!name) return '';
   const own = settings && settings.departmentCodes && settings.departmentCodes[name];
   if(own) return String(own).trim();
-  if(VEMA_UTVARY_ALIASY[name]) return VEMA_UTVARY_ALIASY[name];
-  const n = normDeptName(name);
-  const hit = VEMA_UTVARY.find(([,nm]) => normDeptName(nm) === n);
+  const canon = canonicalDepartment(name);
+  const own2 = settings && settings.departmentCodes && settings.departmentCodes[canon];
+  if(own2) return String(own2).trim();
+  const hit = VEMA_UTVARY.find(([,nm]) => nm === canon);
   return hit ? hit[0] : '';
 }
 function departmentCode(name){ return departmentCodeFrom(state.settings, name); }
@@ -95,66 +114,7 @@ function departmentCode(name){ return departmentCodeFrom(state.settings, name); 
 const DEFAULT_POSITIONS = ['Referent','Analytik','Metodik','Právník','Ekonom','Architekt','Specialista IT','Personalista','Asistent/ka','Vedoucí oddělení'];
 const DEFAULT_ADMINS = [];
 const DEFAULT_SUPERVISORS = [];
-const DEFAULT_DEPARTMENTS = [
-  'Kancelář předsedy',
-  'Interní audit',
-  'Odbor metodiky stavebního řádu',
-  'Oddělení právní',
-  'Oddělení metodické',
-  'Oddělení technické',
-  'Odbor metodiky územního plánování a rozvoje',
-  'Oddělení plánování',
-  'Oddělení provozních činností a digitalizace',
-  'Oddělení koncepční a metodické',
-  'Odbor pořizování územně plánovací dokumentace',
-  'Oddělení informací o územním rozvoji',
-  'Oddělení územního rozvoje',
-  'Odbor ochrany životního prostředí',
-  'Oddělení ochrany životního prostředí 1',
-  'Oddělení ochrany životního prostředí 2',
-  'Oddělení ochrany životního prostředí 3',
-  'Odbor ochrany ostatních chráněných veřejných zájmů',
-  'Oddělení ochrany ostatních chráněných veřejných zájmů 1',
-  'Oddělení ochrany ostatních chráněných veřejných zájmů 2',
-  'Oddělení ochrany veřejného zdraví',
-  'Odbor stavebně správní',
-  'Oddělení územně a stavebně správní I',
-  'Oddělení územně a stavebně správní II',
-  'Oddělení územně a stavebně správní III',
-  'Odbor legislativní a právní',
-  'Oddělení právní (zastupování před soudy)',
-  'Oddělení legislativní',
-  'Odbor transformace státní stavební správy',
-  'Oddělení implementace',
-  'Oddělení realizace',
-  'Oddělení staveb pozemních komunikací I',
-  'Oddělení staveb pozemních komunikací II',
-  'Odbor staveb drah',
-  'Oddělení staveb drah Praha',
-  'Oddělení staveb drah Olomouc',
-  'Oddělení staveb drah Plzeň',
-  'Oddělení pražských městských drah',
-  'Samostatné oddělení civilních leteckých staveb',
-  'Samostatné oddělení staveb vodních děl a staveb pro vodní dopravu',
-  'Odbor energetických a průmyslových staveb',
-  'Oddělení energetických liniových staveb',
-  'Oddělení staveb obnovitelných zdrojů energie',
-  'Oddělení průmyslových a těžebních staveb',
-  'Oddělení staveb výroben energie',
-  'Odbor staveb pro bydlení',
-  'Oddělení staveb pro bydlení Praha',
-  'Oddělení staveb pro bydlení Plzeň/ČB',
-  'Oddělení staveb pro bydlení Olomouc',
-  'Oddělení vyvlastnění a právních činností Čechy I',
-  'Oddělení vyvlastnění a právních činností Morava',
-  'Samostatné oddělení odvolacích řízení - dopravní stavby',
-  'Samostatné oddělení odvolacích řízení - energetické stavby',
-  'Odbor personální, ekonomický a provozní',
-  'Oddělení personální',
-  'Oddělení ekonomické',
-  'Oddělení provozu digitálních služeb',
-  'Oddělení provozní a IT',
-];
+const DEFAULT_DEPARTMENTS = VEMA_UTVARY.map(([,n]) => n);
 const DEFAULT_FACILITY_STAFF = [];
 const DEFAULT_OFFICES = {};
 const DEFAULT_WORKPLACE_VEMA_CODES = {};
@@ -856,6 +816,12 @@ async function loadSettings(){
   if(!Array.isArray(state.settings.admins)) state.settings.admins = [...DEFAULT_ADMINS];
   if(!Array.isArray(state.settings.supervisors)) state.settings.supervisors = [...DEFAULT_SUPERVISORS];
   if(!Array.isArray(state.settings.departments)) state.settings.departments = [...DEFAULT_DEPARTMENTS];
+  if(state.settings.departmentsVersion !== DEPT_VERSION){   // jednorázová aktualizace seznamu útvarů a jejich kódů podle systemizace
+    state.settings.departments = [...DEFAULT_DEPARTMENTS];
+    state.settings.departmentCodes = {};
+    state.settings.departmentsVersion = DEPT_VERSION;
+    if(!state.employeeMode && state.role === 'hr') setTimeout(() => { saveSettings(); }, 0);
+  }
   if(!Array.isArray(state.settings.facilityStaff)) state.settings.facilityStaff = [...DEFAULT_FACILITY_STAFF];
   if(!state.settings.offices || typeof state.settings.offices !== 'object') state.settings.offices = {};
   workplaceList().forEach(w => { if(!Array.isArray(state.settings.offices[w])) state.settings.offices[w] = []; });
@@ -981,7 +947,9 @@ function normalizeDepartmentInput(v){
   const m = /^(\d{1,3})\s*[–—-]\s*(.+)$/.exec(t);     // „821 – Oddělení právní“
   if(m){ const hit = list.find(n => departmentCode(n) === m[1] || n === m[2].trim()); if(hit) return hit; }
   const ci = list.find(n => normDeptName(n) === normDeptName(t));
-  return ci || t;
+  if(ci) return ci;
+  const canon = canonicalDepartment(t);
+  return list.includes(canon) ? canon : t;
 }
 function closeAutocomplete(){
   if(window.__activeAutocomplete){
@@ -2091,7 +2059,7 @@ function renderSettingsPage(){
 
     <div class="panel" style="margin-bottom:20px;">
       ${settingsPanelStart('departments', 'Odbory / oddělení', {field:'departments', label:'Odbory / oddělení'})}
-      <p style="font-size:12.5px;color:var(--ink-faint);margin:0 0 12px;">Seznam pro výběr odboru/oddělení v sekci Pracovní poměr. Číslo vlevo je kód útvaru ve Vemě (číselník útvarů) – použije se při exportu do Vemy (sloupec utvar). Kód se předvyplní podle názvu, lze ho přepsat.</p>
+      <p style="font-size:12.5px;color:var(--ink-faint);margin:0 0 12px;">Seznam pro výběr odboru/oddělení v sekci Pracovní poměr. Číslo vlevo je kód útvaru (Ext. ID OJ ze systemizace) – použije se při exportu do Vemy (sloupec utvar). Kód se předvyplní podle názvu, lze ho přepsat.</p>
       ${draft.departments.map((w,i) => `
         <div class="contact-edit-row" style="grid-template-columns:90px 1fr auto;">
           <input data-department-code="${i}" value="${esc(departmentCodeFrom(draft, w))}" placeholder="kód" title="Kód útvaru ve Vemě (číselník útvarů)" inputmode="numeric" ${w ? '' : 'disabled'}>
@@ -2100,7 +2068,7 @@ function renderSettingsPage(){
         </div>
       `).join('')}
       <button class="btn btn-ghost btn-sm" type="button" id="btn-department-add">+ Přidat odbor / oddělení</button>
-      <button class="btn btn-ghost btn-sm" type="button" id="btn-department-fill" title="Přidá do seznamu útvary z číselníku Vemy, které v něm zatím nejsou (včetně kódů).">Doplnit z číselníku Vemy</button>
+      <button class="btn btn-ghost btn-sm" type="button" id="btn-department-fill" title="Přidá do seznamu útvary ze systemizace, které v něm zatím nejsou (včetně kódů).">Doplnit podle systemizace</button>
       ${settingsPanelEnd()}
     </div>
 
@@ -4659,7 +4627,7 @@ const IMPORT_FIELD_TARGETS = [
   { key:'email_soukromy', label:'E-mail (soukromý)', apply:(r,v) => { r.personal.email_soukromy = String(v||'').trim(); } },
   { key:'email_prideleny', label:'Přidělený pracovní e-mail', apply:(r,v) => { r.checklist.email.value = String(v||'').trim(); if(r.checklist.email.value) r.checklist.email.checked = true; } },
   { key:'telefon_soukromy', label:'Telefon (soukromý)', apply:(r,v) => { r.personal.telefon_soukromy = String(v||'').trim(); } },
-  { key:'odbor_oddeleni', label:'Odbor / oddělení', apply:(r,v) => { r.personal.odbor_oddeleni = String(v||'').trim(); } },
+  { key:'odbor_oddeleni', label:'Odbor / oddělení', apply:(r,v) => { r.personal.odbor_oddeleni = canonicalDepartment(String(v||'')); } },
   { key:'pracoviste', label:'Pracoviště', apply:(r,v) => { r.personal.pracoviste = String(v||'').trim(); } },
   { key:'pozice', label:'Pracovní pozice', apply:(r,v) => { r.personal.pozice = String(v||'').trim(); } },
   { key:'vedouci', label:'Vedoucí pozice (Ano/Ne)', apply:(r,v) => { const s=String(v||'').trim().toLowerCase(); if(s==='ano'||s==='a'||s==='1') r.personal.vedouci='Ano'; else if(s==='ne'||s==='n'||s==='0') r.personal.vedouci='Ne'; } },
@@ -6329,7 +6297,7 @@ const HELP = [
   ['✅','Schválit údaje','Dostupné ve stavu Odesláno / Vráceno, pokud jsou vyplněna všechna povinná pole. Po schválení má spis stav Zkontrolováno.'],
   ['🙋','Co dělá zaměstnanec','Vyplní průvodce, potvrdí souhlas se zpracováním osobních údajů a odešle. Po odeslání je formulář zamčen; zaměstnanec ho může sám stáhnout zpět a opravit, pokud ho ještě nezkontrolujete.']]},
  {g:'Výstupy',items:[
-  ['📊','Generovat tabulky pro VEMU','V rejstříku zaškrtněte zkontrolované spisy (výběr lze udělat hromadně v záhlaví) a použijte <b>Generovat tabulky pro VEMU</b>. Stav „Vygenerováno“ se u spisu zapamatuje; po nahrání do Vemy a kontrole tlačítkem <b>Potvrdit nahrání do Vemy</b> (vedle Generovat) přejde na „Nahráno“. Když tabulky vygenerujete znovu, stav se vrátí na „Vygenerováno“. Výsledkem je <b>ZIP s datem a časem generování v názvu</b> (např. VEMA_export_20261020-1015.zip); každá tabulka je v něm samostatný soubor .xlsx (ZHLAV, Adresy, Bankovni_ucty, Deti, Vzdelani, Predchozi_zamestnani, Znalosti_jazyky a číselníky Ciselnik_pracovist a Ciselnik_utvaru). Datumy jsou ve tvaru DDMMRR, zkušební doba (zkusd) a platová skupina (plasku) jsou číslo (bez zkušební doby = 0) a útvar (utvar) je číselný kód z číselníku útvarů Vemy. Ve spisu (pole Odbor / oddělení) se v nabídce zobrazuje i kód útvaru a do pole lze přímo napsat kód (např. 821) nebo část názvu. Kódy útvarů se předvyplňují podle názvu a jdou upravit v Nastavení → Odbory / oddělení (tlačítko <b>Doplnit z číselníku Vemy</b> přidá chybějící útvary). Pevné hodnoty a kódy pracovišť se nastavují v Nastavení.'],
+  ['📊','Generovat tabulky pro VEMU','V rejstříku zaškrtněte zkontrolované spisy (výběr lze udělat hromadně v záhlaví) a použijte <b>Generovat tabulky pro VEMU</b>. Stav „Vygenerováno“ se u spisu zapamatuje; po nahrání do Vemy a kontrole tlačítkem <b>Potvrdit nahrání do Vemy</b> (vedle Generovat) přejde na „Nahráno“. Když tabulky vygenerujete znovu, stav se vrátí na „Vygenerováno“. Výsledkem je <b>ZIP s datem a časem generování v názvu</b> (např. VEMA_export_20261020-1015.zip); každá tabulka je v něm samostatný soubor .xlsx (ZHLAV, Adresy, Bankovni_ucty, Deti, Vzdelani, Predchozi_zamestnani, Znalosti_jazyky a číselníky Ciselnik_pracovist a Ciselnik_utvaru). Datumy jsou ve tvaru DDMMRR, zkušební doba (zkusd) a platová skupina (plasku) jsou číslo (bez zkušební doby = 0) a útvar (utvar) je číselný kód z číselníku útvarů Vemy. Ve spisu (pole Odbor / oddělení) se v nabídce zobrazuje i kód útvaru a do pole lze přímo napsat kód (např. 821) nebo část názvu. Kódy útvarů se předvyplňují podle názvu a jdou upravit v Nastavení → Odbory / oddělení (tlačítko <b>Doplnit podle systemizace</b> přidá chybějící útvary). Pevné hodnoty a kódy pracovišť se nastavují v Nastavení.'],
   ['🔢','Osobní čísla','Osobní číslo se novému spisu <b>přidělí automaticky</b> při založení i při importu – vždy nejnižší volné číslo od začátku zadaného v <b>Nastavení → Osobní čísla</b> (tak se vynechá interval čísel zaměstnanců DESÚ, kteří je už mají). V rejstříku je pod jménem místo kódu spisu a ve spisu je pole <b>Osobní číslo</b> jen ke čtení. Smažete-li spis dřív, než se pro něj vygenerují tabulky pro Vemu, číslo se uvolní a přidělí se dalšímu; po vygenerování tabulek se znovu nepoužije. Při odchodu z Nastavení s neuloženými změnami (Zpět, přepnutí pohledu, Odhlásit) se aplikace zeptá, zda změny uložit, zahodit, nebo zůstat. Spisům založeným dřív se číslo samo nepřidělí (smažte je a založte znovu); pokud není začátek v Nastavení vyplněný, čísla se nepřidělují.'],
   ['📄','Dokumenty podle vzorů','U spisu ve stavu <b>Nahráno</b> je ve spisu (sekce s podklady) tlačítko <b>Dokumenty podle vzorů</b>. Otevře se seznam všech vzorů se zaškrtávátky a volbou <b>Označit vše</b>; předem jsou zaškrtnuté ty, které odpovídají typu poměru (pracovní: platový výměr, pracovní smlouva; služební: informace o pracovním poměru; všichni: kritéria hodnocení, portrétní fotografie, školení BOZP, interní předpisy; dle potřeby: osvědčení o rovnocennosti zkoušek, dohoda o výkonu služby z jiného místa a její příloha). Tlačítkem <b>Vygenerovat</b> se každý dokument vyplní z údajů ve spisu a vytvoří se Word i PDF. U každého je <b>Zobrazit PDF</b>, <b>⬇ PDF</b> a <b>⬇ Word</b>; všechno najednou stáhnete jako <b>ZIP</b>. Názvy souborů jsou ve tvaru <b>Příjmení_Jméno_název.docx / .pdf</b>. Údaje, které ve spisu nejsou (č. j., datum podpisu, osobní číslo, které se nevyplnilo), zůstanou k ručnímu doplnění. PDF se vytváří přímo v prohlížeči, takže se může od Wordu lehce lišit zalomením stránek – Word je přesný. Vzory jsou ve složce <code>templates</code> a po změně vzoru se nahradí příslušný soubor. Dokumenty se generují z osobních údajů, proto je vytvořte před smazáním údajů.'],
   ['🧹','Smazání osobních údajů','Po nahrání do Vemy a ověření, že je vše správně, vyberte v rejstříku spisy a klikněte na <b>Smazat osobní údaje</b>. Tlačítko je aktivní jen u spisů ve stavu <b>Nahráno</b>. Smažte až po vygenerování dokumentů (z údajů se pak už znovu vytvořit nedají). Nevratně se smažou osobní údaje zaměstnance (zůstane jméno, pozice, pracoviště, datum nástupu a stavy) a jeho odkaz dál otevře jen záložku „Co potřebujete vědět“. Pokud smazání zapomenete, proběhne automaticky 60 dní po vygenerování tabulek.'],
