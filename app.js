@@ -1,4 +1,4 @@
-const APP_VERSION = '2026-10-22.6';
+const APP_VERSION = '2026-10-22.7';
 const STORAGE_INDEX_KEY = 'onboarding:index';
 const STORAGE_INFO_KEY = 'onboarding:info-content';
 const STORAGE_SETTINGS_KEY = 'onboarding:settings';
@@ -5082,20 +5082,20 @@ async function generateVemaExport(ids){
 // Vzory jsou ve složce templates/ jako .docx se zástupnými poli {{pole}} (viz tools/build_templates.py).
 // when: both = všichni, pracovni / sluzebni = podle typu poměru, optional = dle potřeby (nezaškrtnuté předem).
 const DOC_TEMPLATES = [
-  { id:'smlouva',  base:'02_Pracovní_smlouva',                    title:'Pracovní smlouva',                                          file:'templates/02_pracovni_smlouva.docx',                   when:'both' },
-  { id:'vymer',    base:'01_Platový_výměr',                       title:'Platový výměr',                                             file:'templates/01_platovy_vymer.docx',                      when:'both' },
-  { id:'dohoda',   base:'Dohoda_o_výkonu_služby_z_jiného_místa',  title:'Dohoda o výkonu služby z jiného místa',                     file:'templates/dohoda_o_vykonu_sluzby_z_jineho_mista.docx', when:'optional' },
-  { id:'hodnoceni',base:'03_Kritéria_hodnocení',                  title:'Prohlášení o seznámení s kritérii hodnocení',               file:'templates/03_hodnotici_kriteria.docx',                 when:'both' },
-  { id:'foto',     base:'04_Portrétní_fotografie',                title:'Informace – pořízení portrétní fotografie',                 file:'templates/04_portretni_fotografie.docx',               when:'both' },
-  { id:'bozp',     base:'05_Poučení_BOZP_PO',                     title:'Vstupní školení BOZP a požární ochrany',                    file:'templates/05_pouceni_BOZP_PO.docx',                    when:'both' },
+  { id:'smlouva',  base:'01_Pracovní_smlouva',                    title:'Pracovní smlouva',                                          file:'templates/02_pracovni_smlouva.docx',                   when:'both' },
+  { id:'vymer',    base:'02_Platový_výměr',                       title:'Platový výměr',                                             file:'templates/01_platovy_vymer.docx',                      when:'both' },
+  { id:'dohoda',   base:'03_Dohoda_o_výkonu_služby_z_jiného_místa',  title:'Dohoda o výkonu služby z jiného místa',                     file:'templates/dohoda_o_vykonu_sluzby_z_jineho_mista.docx', when:'optional' },
+  { id:'hodnoceni',base:'04_Kritéria_hodnocení',                  title:'Prohlášení o seznámení s kritérii hodnocení',               file:'templates/03_hodnotici_kriteria.docx',                 when:'both' },
+  { id:'foto',     base:'05_Portrétní_fotografie',                title:'Informace – pořízení portrétní fotografie',                 file:'templates/04_portretni_fotografie.docx',               when:'both' },
+  { id:'bozp',     base:'06_Poučení_BOZP_PO',                     title:'Vstupní školení BOZP a požární ochrany',                    file:'templates/05_pouceni_BOZP_PO.docx',                    when:'both' },
   { id:'info',     base:'07_Informace_o_pracovním_poměru',        title:'Informace o pracovním poměru státního zaměstnance',         file:'templates/07_informace_o_pracovnim_pomeru.docx',       when:'sluzebni' },
   { id:'predpisy', base:'08_Prohlášení_interní_předpisy',         title:'Prohlášení o seznámení s interními předpisy (BOZP, etický kodex)', file:'templates/08_prohlaseni_interni_predpisy.docx',  when:'both' },
-  { id:'osv_oc',   base:'Osvědčení_obecná_část',                  title:'Osvědčení o rovnocennosti obecné části úřednické zkoušky',  file:'templates/osvedceni_obecna_cast.docx',                 when:'optional' },
-  { id:'osv_zc',   base:'Osvědčení_zvláštní_část',                title:'Osvědčení o rovnocennosti zvláštní části úřednické zkoušky',file:'templates/osvedceni_zvlastni_cast.docx',               when:'optional' },
-  { id:'dotaznik', base:'09_Osobní_dotazník',                     title:'Osobní dotazník (A)',                                       file:'templates/09_osobni_dotaznik.docx',                    when:'both' },
-  { id:'praxe',    base:'10_Prohlášení_o_praxi',                  title:'Prohlášení o průběhu předchozích zaměstnání a činností (B)',file:'templates/10_prohlaseni_o_praxi.docx',                 when:'both' },
-  { id:'ucet',     base:'11_Souhlas_s_bezhotovostním_zasíláním',  title:'Souhlas se zasíláním platu na osobní účet (C)',             file:'templates/11_souhlas_s_bezhotovostnim_zasilanim.docx', when:'both' },
-  { id:'priloha',  base:'Příloha_1_Prohlášení_BOZP',              title:'Příloha č. 1 – Prohlášení k dodržování BOZP (služba z jiného místa)', file:'templates/priloha_1_prohlaseni_BOZP.docx',   when:'optional' },
+  { id:'osv_oc',   base:'09_Osvědčení_obecná_část',                  title:'Osvědčení o rovnocennosti obecné části úřednické zkoušky',  file:'templates/osvedceni_obecna_cast.docx',                 when:'optional' },
+  { id:'osv_zc',   base:'10_Osvědčení_zvláštní_část',                title:'Osvědčení o rovnocennosti zvláštní části úřednické zkoušky',file:'templates/osvedceni_zvlastni_cast.docx',               when:'optional' },
+  { id:'dotaznik', base:'11_Osobní_dotazník',                     title:'Osobní dotazník (A)',                                       file:'templates/09_osobni_dotaznik.docx',                    when:'both' },
+  { id:'praxe',    base:'12_Prohlášení_o_praxi',                  title:'Prohlášení o průběhu předchozích zaměstnání a činností (B)',file:'templates/10_prohlaseni_o_praxi.docx',                 when:'both' },
+  { id:'ucet',     base:'13_Souhlas_s_bezhotovostním_zasíláním',  title:'Souhlas se zasíláním platu na osobní účet (C)',             file:'templates/11_souhlas_s_bezhotovostnim_zasilanim.docx', when:'both' },
+  { id:'priloha',  base:'14_Příloha_1_Prohlášení_BOZP',              title:'Příloha č. 1 – Prohlášení k dodržování BOZP (služba z jiného místa)', file:'templates/priloha_1_prohlaseni_BOZP.docx',   when:'optional' },
 ];
 // Pracovní smlouva (č.j.) + Platový výměr (č.j./A) + Dohoda o výkonu služby z jiného místa (č.j./B) se vybírají a číslují společně
 const DOC_CJ_GROUP = ['smlouva', 'vymer', 'dohoda'];
