@@ -79,6 +79,18 @@
 
   /** Vyplní zástupná pole {{pole}} v šabloně .docx hodnotami; vrací Blob (.docx).
    *  src = adresa šablony (řetězec) nebo její obsah (ArrayBuffer / Blob). */
+  /** Řádky tabulky s poli {{skupina_pole}} se zopakují pro každou položku values.__rows[skupina] (pole objektů); bez položek zůstane jeden prázdný řádek. */
+  function expandRows(xml, rows){
+    return xml.replace(/<w:tr[ >][\s\S]*?<\/w:tr>/g, tr => {
+      for(const g of Object.keys(rows)){
+        if(tr.indexOf('{{' + g + '_') < 0) continue;
+        const items = rows[g].length ? rows[g] : [{}];
+        return items.map(it => tr.replace(/\{\{\s*(\w+)\s*\}\}/g, (m, k) => k.indexOf(g + '_') === 0 ? xmlEsc(it[k.slice(g.length + 1)]) : m)).join('');
+      }
+      return tr;
+    });
+  }
+
   async function fillTemplate(src, values){
     await ensureZip();
     let buf = src;
@@ -88,6 +100,7 @@
     const parts = Object.keys(zip.files).filter(n => TEMPLATE_PARTS.test(n));
     for(const n of parts){
       let xml = mergeSplitTokens(await zip.file(n).async('string'));
+      xml = expandRows(xml, values.__rows || {});
       xml = xml.replace(/\{\{\s*(\w+)\s*\}\}/g, (m, k) => xmlEsc(values[k]));
       zip.file(n, xml);
     }
