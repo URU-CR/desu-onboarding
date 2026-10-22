@@ -83,8 +83,25 @@ def append_text(root, contains, token, nth=0):
     t = OxmlElement('w:t'); t.text = token; t.set('{http://www.w3.org/XML/1998/namespace}space', 'preserve'); r.append(t)
     p.append(r)
 
+def add_cj(root, after_contains, token, center=False):
+    """Vloží za odstavec (obsahující `after_contains`) nový odstavec „Č. j.: <pole>“ ve formátu jeho prvního běhu."""
+    p = find_par(root, after_contains)
+    newp = copy.deepcopy(p)
+    runs = [r for r in newp.iter(W('w:r'))]
+    for r in runs[1:]: r.getparent().remove(r)
+    for t in runs[0].findall(W('w:t')): runs[0].remove(t)
+    rpr = runs[0].find(W('w:rPr'))
+    if rpr is not None:
+        for tag in ('w:b', 'w:bCs'):
+            for e in rpr.findall(W(tag)): rpr.remove(e)
+        for e in rpr.findall(W('w:sz')): e.set(W('w:val'), '20')
+        for e in rpr.findall(W('w:szCs')): e.set(W('w:val'), '20')
+    t = OxmlElement('w:t'); t.text = 'Č. j.: ' + token; t.set('{http://www.w3.org/XML/1998/namespace}space', 'preserve'); runs[0].append(t)
+    p.addnext(newp)
+
 def f_vymer(b):
     """Platový výměr – státní zaměstnanci (vzor A, 10/2026)."""
+    add_cj(b, 'PLATOVÝ VÝMĚR', '{{cj_a}}')
     append_text(b, 'Příjmení a jméno, titul:', '{{prijmeni_jmeno_titul}}')
     append_text(b, 'Datum narození:', '{{datum_narozeni}}')
     append_text(b, 'Osobní číslo:', '{{osobni_cislo}}')
@@ -100,6 +117,7 @@ def f_vymer(b):
 
 def f_smlouva(b):
     """Pracovní smlouva – státní zaměstnanci (vzor B, 10/2026)."""
+    append_text(b, 'Číslo jednací:', '{{cj}}')
     edit(b, 'Osobní číslo', 'xxxx', '{{osobni_cislo}}')
     edit(b, 'a paní / pan', 'paní / pan', '{{pan_pani}}')
     append_text(b, 'jméno a příjmení:', '{{jmeno_cele}}')
@@ -116,6 +134,7 @@ def f_smlouva(b):
 def f_name_table(b): name_cells(b)
 
 def f_dohoda(b):
+    edit(b, 'Č.j.:', 'DESU', '{{cj_b}}')
     edit(b, 'titul, jméno a příjmení:', 'XXX', '{{jmeno_cele}}')
     edit(b, 'adresa trvalého pobytu', 'XXX', '{{adresa_trvala}}')
     edit(b, 'osobní číslo státního', 'XXX', '{{osobni_cislo}}')

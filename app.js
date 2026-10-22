@@ -1,4 +1,4 @@
-const APP_VERSION = '2026-10-22.4';
+const APP_VERSION = '2026-10-22.5';
 const STORAGE_INDEX_KEY = 'onboarding:index';
 const STORAGE_INFO_KEY = 'onboarding:info-content';
 const STORAGE_SETTINGS_KEY = 'onboarding:settings';
@@ -5082,8 +5082,9 @@ async function generateVemaExport(ids){
 // Vzory jsou ve složce templates/ jako .docx se zástupnými poli {{pole}} (viz tools/build_templates.py).
 // when: both = všichni, pracovni / sluzebni = podle typu poměru, optional = dle potřeby (nezaškrtnuté předem).
 const DOC_TEMPLATES = [
-  { id:'vymer',    base:'01_Platový_výměr',                       title:'Platový výměr',                                             file:'templates/01_platovy_vymer.docx',                      when:'both' },
   { id:'smlouva',  base:'02_Pracovní_smlouva',                    title:'Pracovní smlouva',                                          file:'templates/02_pracovni_smlouva.docx',                   when:'both' },
+  { id:'vymer',    base:'01_Platový_výměr',                       title:'Platový výměr',                                             file:'templates/01_platovy_vymer.docx',                      when:'both' },
+  { id:'dohoda',   base:'Dohoda_o_výkonu_služby_z_jiného_místa',  title:'Dohoda o výkonu služby z jiného místa',                     file:'templates/dohoda_o_vykonu_sluzby_z_jineho_mista.docx', when:'optional' },
   { id:'hodnoceni',base:'03_Kritéria_hodnocení',                  title:'Prohlášení o seznámení s kritérii hodnocení',               file:'templates/03_hodnotici_kriteria.docx',                 when:'both' },
   { id:'foto',     base:'04_Portrétní_fotografie',                title:'Informace – pořízení portrétní fotografie',                 file:'templates/04_portretni_fotografie.docx',               when:'both' },
   { id:'bozp',     base:'05_Poučení_BOZP_PO',                     title:'Vstupní školení BOZP a požární ochrany',                    file:'templates/05_pouceni_BOZP_PO.docx',                    when:'both' },
@@ -5091,12 +5092,13 @@ const DOC_TEMPLATES = [
   { id:'predpisy', base:'08_Prohlášení_interní_předpisy',         title:'Prohlášení o seznámení s interními předpisy (BOZP, etický kodex)', file:'templates/08_prohlaseni_interni_predpisy.docx',  when:'both' },
   { id:'osv_oc',   base:'Osvědčení_obecná_část',                  title:'Osvědčení o rovnocennosti obecné části úřednické zkoušky',  file:'templates/osvedceni_obecna_cast.docx',                 when:'optional' },
   { id:'osv_zc',   base:'Osvědčení_zvláštní_část',                title:'Osvědčení o rovnocennosti zvláštní části úřednické zkoušky',file:'templates/osvedceni_zvlastni_cast.docx',               when:'optional' },
-  { id:'dohoda',   base:'Dohoda_o_výkonu_služby_z_jiného_místa',  title:'Dohoda o výkonu služby z jiného místa',                     file:'templates/dohoda_o_vykonu_sluzby_z_jineho_mista.docx', when:'optional' },
   { id:'dotaznik', base:'09_Osobní_dotazník',                     title:'Osobní dotazník (A)',                                       file:'templates/09_osobni_dotaznik.docx',                    when:'both' },
   { id:'praxe',    base:'10_Prohlášení_o_praxi',                  title:'Prohlášení o průběhu předchozích zaměstnání a činností (B)',file:'templates/10_prohlaseni_o_praxi.docx',                 when:'both' },
   { id:'ucet',     base:'11_Souhlas_s_bezhotovostním_zasíláním',  title:'Souhlas se zasíláním platu na osobní účet (C)',             file:'templates/11_souhlas_s_bezhotovostnim_zasilanim.docx', when:'both' },
   { id:'priloha',  base:'Příloha_1_Prohlášení_BOZP',              title:'Příloha č. 1 – Prohlášení k dodržování BOZP (služba z jiného místa)', file:'templates/priloha_1_prohlaseni_BOZP.docx',   when:'optional' },
 ];
+// Pracovní smlouva (č.j.) + Platový výměr (č.j./A) + Dohoda o výkonu služby z jiného místa (č.j./B) se vybírají a číslují společně
+const DOC_CJ_GROUP = ['smlouva', 'vymer', 'dohoda'];
 const DOC_WHEN_LABEL = { both:'všichni', pracovni:'pracovní poměr', sluzebni:'služební poměr', optional:'dle potřeby' };
 
 function csDate(iso){
@@ -5138,7 +5140,11 @@ function docValues(r){
   const dots = '……………………';
   const yn = (v, yes, no) => { const x = String(v || '').trim().toLowerCase(); return x === yes.toLowerCase() ? yes : x === no.toLowerCase() ? no : yes + ' / ' + no; };
   const dash = v => (String(v == null ? '' : v).trim()) || '—';
+  const cj = String(r.cisloJednaci || '').trim();
   return {
+    cj: cj || dots,
+    cj_a: (cj || dots) + '/A',
+    cj_b: (cj || dots) + '/B',
     __rows: {
       deti: (p.deti || []).map(d => ({ jmeno: [d.jmeno, d.prijmeni].filter(Boolean).join(' '), datum: csDate(d.datum_narozeni), rodne_cislo: d.rodne_cislo || '', bydliste: d.bydliste || '' })),
       praxe: (p.praxe || []).map(x => ({ organizace: (x.druh && x.druh !== 'Zaměstnání' ? x.druh + (x.organizace ? ' – ' : '') : '') + (x.organizace || '') + (x.sidlo ? ', ' + x.sidlo : ''), zarazeni: x.pracovni_zarazeni || '', od: csDate(x.od), do: csDate(x.do) })),
@@ -5290,6 +5296,7 @@ const TEMPLATE_TOKENS = [
   ['doba_trvani_mala','„určitou“ / „neurčitou“ (malé písmeno)'],
   ['zkusebni_doba','Zkušební doba (text z formuláře)'],
   ['zkusebni_doba_text','Zkušební doba ve měsících se správným tvarem (např. 6 měsíců)'],
+  ['cj','Číslo jednací pracovní smlouvy (zadává se v okně Dokumenty)'],['cj_a','Číslo jednací platového výměru (č.j./A)'],['cj_b','Číslo jednací dohody o výkonu služby z jiného místa (č.j./B)'],
   ['rodne_prijmeni','Rodné příjmení'],['misto_narozeni','Místo narození (včetně okresu)'],['statni_prislusnost','Státní občanství'],['rodinny_stav','Rodinný stav'],['rodne_cislo','Rodné číslo'],
   ['adresa_trvala_plna','Trvalý pobyt včetně kraje a státu'],['dorucovaci_adresa','Kontaktní adresa (jinak „—“)'],['telefon','Soukromý telefon'],['email_soukromy','Soukromý e-mail'],['nouzovy_kontakt','Kontaktní osoba pro mimořádnou událost'],
   ['manzel_jmeno','Manžel(ka), druh, družka – jméno'],['manzel_datum_narozeni','Manžel(ka) – datum narození'],['manzel_obcanstvi','Manžel(ka) – státní občanství'],['manzel_bydliste','Manžel(ka) – bydliště'],
@@ -5413,7 +5420,10 @@ async function openDocsModal(id){
   backdrop.className = 'modal-backdrop';
   const results = {};          // id -> { docx, pdf, err }
   const urls = [];
-  const rowsHtml = DOC_TEMPLATES.map(t => `<label class="docs-row"><input type="checkbox" data-doc="${t.id}" ${preset(t) ? 'checked' : ''}><span class="docs-row-main"><span class="docs-row-title">${esc(t.title)}</span><span class="docs-row-hint">${esc(DOC_WHEN_LABEL[t.when])}</span></span></label>`).join('');
+  const rowHtml = (t, title, hint, extra) => `<label class="docs-row"><input type="checkbox" data-doc="${t.id}" ${preset(t) ? 'checked' : ''}><span class="docs-row-main"><span class="docs-row-title">${title}</span><span class="docs-row-hint">${hint}</span></span></label>${extra || ''}`;
+  const rowsHtml = DOC_TEMPLATES.filter(t => !DOC_CJ_GROUP.includes(t.id) || t.id === DOC_CJ_GROUP[0]).map(t => t.id === DOC_CJ_GROUP[0]
+    ? rowHtml(t, 'Pracovní smlouva + Platový výměr (č.j./A) + Dohoda o výkonu služby z jiného místa (č.j./B)', 'společné číslo jednací', `<div class="docs-cj"><label for="docs-cj">Číslo jednací (ze spisové služby)</label><input type="text" id="docs-cj" value="${esc(rec.cisloJednaci || '')}" placeholder="např. DESU-12345/2026"><span class="docs-row-hint">Smlouva dostane toto č.j., výměr č.j./A a dohoda č.j./B. Nevyplněné zůstane k ručnímu doplnění.</span></div>`)
+    : rowHtml(t, esc(t.title), esc(DOC_WHEN_LABEL[t.when]))).join('');
   backdrop.innerHTML = `
     <div class="modal docs-modal">
       <h3>Dokumenty – ${esc(name)}</h3>
@@ -5433,10 +5443,11 @@ async function openDocsModal(id){
   document.body.appendChild(backdrop);
   const $ = sel => backdrop.querySelector(sel);
   const boxes = () => [...backdrop.querySelectorAll('[data-doc]')];
+  const isChosen = t => boxes().some(b => b.checked && (b.getAttribute('data-doc') === t.id || (b.getAttribute('data-doc') === DOC_CJ_GROUP[0] && DOC_CJ_GROUP.includes(t.id))));
   const close = () => { urls.forEach(u => URL.revokeObjectURL(u)); backdrop.remove(); };
   const refreshPick = () => {
-    const sel = boxes().filter(b => b.checked).length;
-    $('#docs-all').checked = sel === boxes().length;
+    const sel = DOC_TEMPLATES.filter(isChosen).length;
+    $('#docs-all').checked = sel === DOC_TEMPLATES.length;
     $('#docs-run').disabled = sel === 0;
     $('#docs-run').textContent = sel ? `Vygenerovat (${sel})` : 'Vygenerovat';
   };
@@ -5492,12 +5503,17 @@ async function openDocsModal(id){
   }
 
   $('#docs-run').addEventListener('click', async () => {
-    const chosen = DOC_TEMPLATES.filter(t => boxes().some(b => b.checked && b.getAttribute('data-doc') === t.id));
+    const chosen = DOC_TEMPLATES.filter(isChosen);
     if(!chosen.length) return;
     if(typeof DocGen === 'undefined'){ $('#docs-status').textContent = 'Modul pro dokumenty se nenačetl. Obnovte prosím stránku.'; return; }
     DocGen.init({ version: APP_VERSION });
     $('#docs-run').disabled = true; $('#docs-close').disabled = true;
     Object.keys(results).forEach(k => delete results[k]);
+    const cjVal = ($('#docs-cj') ? $('#docs-cj').value : '').trim();
+    if(cjVal !== String(rec.cisloJednaci || '')){
+      rec.cisloJednaci = cjVal;
+      try{ await saveRecord(id, rec); }catch(e){ console.error('cj save failed', e); }
+    }
     const values = docValues(rec);
     let n = 0;
     for(const t of chosen){
@@ -6314,7 +6330,7 @@ const HELP = [
   ['📊','Generovat tabulky pro VEMU','V rejstříku zaškrtněte zkontrolované spisy (výběr lze udělat hromadně v záhlaví) a použijte <b>Generovat tabulky pro VEMU</b>. Stav „Vygenerováno“ se u spisu zapamatuje; po nahrání do Vemy a kontrole tlačítkem <b>Potvrdit nahrání do Vemy</b> (vedle Generovat) přejde na „Nahráno“. Když tabulky vygenerujete znovu, stav se vrátí na „Vygenerováno“. Výsledkem je <b>ZIP s datem a časem generování v názvu</b> (např. VEMA_export_20261020-1015.zip); každá tabulka je v něm samostatný soubor .xlsx (ZHLAV, Adresy, Bankovni_ucty, Deti, Vzdelani, Predchozi_zamestnani, Znalosti_jazyky a číselníky Ciselnik_pracovist a Ciselnik_utvaru). Datumy jsou ve tvaru DDMMRR, zkušební doba (zkusd) a platová skupina (plasku) jsou číslo (bez zkušební doby = 0) a útvar (utvar) je číselný kód z číselníku útvarů Vemy. Ve spisu (pole Odbor / oddělení) se v nabídce zobrazuje i kód útvaru a do pole lze přímo napsat kód (např. 821) nebo část názvu. Kódy útvarů se předvyplňují podle názvu a jdou upravit v Nastavení → Odbory / oddělení (tlačítko <b>Doplnit podle systemizace</b> přidá chybějící útvary). Pevné hodnoty a kódy pracovišť se nastavují v Nastavení.'],
   ['🔢','Osobní čísla','Osobní číslo se novému spisu <b>přidělí automaticky</b> při založení i při importu – vždy nejnižší volné číslo od začátku zadaného v <b>Nastavení → Osobní čísla</b> (tak se vynechá interval čísel zaměstnanců DESÚ, kteří je už mají). V rejstříku je pod jménem místo kódu spisu a ve spisu je pole <b>Osobní číslo</b> jen ke čtení. Smažete-li spis dřív, než se pro něj vygenerují tabulky pro Vemu, číslo se uvolní a přidělí se dalšímu; po vygenerování tabulek se znovu nepoužije. Při odchodu z Nastavení s neuloženými změnami (Zpět, přepnutí pohledu, Odhlásit) se aplikace zeptá, zda změny uložit, zahodit, nebo zůstat. Spisům založeným dřív se číslo samo nepřidělí (smažte je a založte znovu); pokud není začátek v Nastavení vyplněný, čísla se nepřidělují.'],
   ['🗂️','Vzory dokumentů (Nastavení)','V <b>Nastavení → Vzory dokumentů</b> je seznam všech vzorů, ze kterých se dokumenty generují. U každého jde <b>Stáhnout</b> aktuální vzor, <b>Nahradit…</b> ho novou verzí (soubor Word .docx) a <b>Vrátit výchozí</b> (smaže nahraný vzor a vrátí vzor dodaný s aplikací). Nahraný vzor platí hned pro další generování; ukládá se okamžitě, není potřeba Uložit nastavení. Před nahráním aplikace zkontroluje soubor a vypíše nalezená zástupná pole <code>{{pole}}</code> a upozorní na neznámá. Přehled polí je v rozbalovací části „Zástupná pole pro vzory“. Už vygenerované dokumenty se nemění.'],
-  ['📄','Dokumenty podle vzorů','Po <b>schválení údajů</b> je ve spisu tlačítko <b>Dokumenty podle vzorů</b> (samostatné „podklady k podpisu“ už neexistují – jsou součástí téhož výběru). Otevře se seznam všech vzorů se zaškrtávátky; <b>předem je zaškrtnuté všechno</b> (nepotřebné odškrtněte). U vzorů je poznámka, pro jaký poměr jsou (všichni / služební poměr / dle potřeby – platový výměr a pracovní smlouva platí pro oba poměry), včetně podkladů k podpisu A, B, C. Tlačítkem <b>Vygenerovat</b> se každý dokument vyplní z údajů ve spisu a vytvoří se Word i PDF. U každého je <b>Zobrazit PDF</b>, <b>⬇ PDF</b> a <b>⬇ Word</b>; všechno najednou stáhnete jako <b>ZIP</b>. Názvy souborů jsou ve tvaru <b>Příjmení_Jméno_název.docx / .pdf</b>. Údaje, které ve spisu nejsou (č. j., datum podpisu, osobní číslo, které se nevyplnilo), zůstanou k ručnímu doplnění. PDF se vytváří přímo v prohlížeči, takže se může od Wordu lehce lišit zalomením stránek – Word je přesný. Vzory jsou ve složce <code>templates</code> a po změně vzoru se nahradí příslušný soubor. Dokumenty se generují z osobních údajů, proto je vytvořte před smazáním údajů.'],
+  ['📄','Dokumenty podle vzorů','Po <b>schválení údajů</b> je ve spisu tlačítko <b>Dokumenty podle vzorů</b> (samostatné „podklady k podpisu“ už neexistují – jsou součástí téhož výběru). Nahoře je společná trojice <b>Pracovní smlouva + Platový výměr + Dohoda o výkonu služby z jiného místa</b> s jedním zaškrtávátkem a polem <b>Číslo jednací</b> (vygenerované ve spisové službě): smlouva dostane toto č.j., platový výměr č.j./A a dohoda č.j./B. Č.j. se u spisu zapamatuje; nevyplněné zůstane k ručnímu doplnění. Otevře se seznam všech vzorů se zaškrtávátky; <b>předem je zaškrtnuté všechno</b> (nepotřebné odškrtněte). U vzorů je poznámka, pro jaký poměr jsou (všichni / služební poměr / dle potřeby – platový výměr a pracovní smlouva platí pro oba poměry), včetně podkladů k podpisu A, B, C. Tlačítkem <b>Vygenerovat</b> se každý dokument vyplní z údajů ve spisu a vytvoří se Word i PDF. U každého je <b>Zobrazit PDF</b>, <b>⬇ PDF</b> a <b>⬇ Word</b>; všechno najednou stáhnete jako <b>ZIP</b>. Názvy souborů jsou ve tvaru <b>Příjmení_Jméno_název.docx / .pdf</b>. Údaje, které ve spisu nejsou (č. j., datum podpisu, osobní číslo, které se nevyplnilo), zůstanou k ručnímu doplnění. PDF se vytváří přímo v prohlížeči, takže se může od Wordu lehce lišit zalomením stránek – Word je přesný. Vzory jsou ve složce <code>templates</code> a po změně vzoru se nahradí příslušný soubor. Dokumenty se generují z osobních údajů, proto je vytvořte před smazáním údajů.'],
   ['🧹','Smazání osobních údajů','Po nahrání do Vemy a ověření, že je vše správně, vyberte v rejstříku spisy a klikněte na <b>Smazat osobní údaje</b>. Tlačítko je aktivní jen u spisů ve stavu <b>Nahráno</b>. Smažte až po vygenerování dokumentů (z údajů se pak už znovu vytvořit nedají). Nevratně se smažou osobní údaje zaměstnance (zůstane jméno, pozice, pracoviště, datum nástupu a stavy) a jeho odkaz dál otevře jen záložku „Co potřebujete vědět“. Pokud smazání zapomenete, proběhne automaticky 60 dní po vygenerování tabulek.']]},
  {g:'IT a provoz (stručně)',items:[
   ['💻','Přiřazení administrátora','V pohledu IT a provoz lze spisy hromadně přiřadit administrátorovi systémů. Záložky <b>IT a přístupy</b> a <b>Provoz</b> obsahují checklisty podle kategorie zaměstnance.']]},
