@@ -83,6 +83,34 @@ def append_text(root, contains, token, nth=0):
     t = OxmlElement('w:t'); t.text = token; t.set('{http://www.w3.org/XML/1998/namespace}space', 'preserve'); r.append(t)
     p.append(r)
 
+import zipfile, shutil
+
+def _rewrite_zip(path, fn):
+    tmp = path + '.tmp'
+    with zipfile.ZipFile(path) as zin, zipfile.ZipFile(tmp, 'w', zipfile.ZIP_DEFLATED) as zout:
+        for it in zin.infolist():
+            data = zin.read(it.filename)
+            if re.match(r'word/(document|header\d*)\.xml$', it.filename):
+                data = fn(it.filename, data.decode('utf-8')).encode('utf-8')
+            zout.writestr(it, data)
+    shutil.move(tmp, path)
+
+def post_vymer(path):
+    """Č. j. platového výměru patří do záhlaví (řádek „Č.j.:“), ne do těla dokumentu."""
+    def fn(name, x):
+        if name.startswith('word/header'): x = re.sub(r'(Č\.j\.: )(</w:t>)', r'\1{{cj_a}}\2', x)
+        return x
+    _rewrite_zip(path, fn)
+
+def post_dohoda(path):
+    """Řádek „Č.j.:“ v dohodě má být černý (vzor ho má červeně jako místo k vyplnění)."""
+    def fn(name, x):
+        if name == 'word/document.xml':
+            i = x.find('{{cj_b}}'); a = x.rfind('<w:p ', 0, i); b = x.find('</w:p>', i)
+            x = x[:a] + x[a:b].replace('<w:color w:val="FF0000"/>', '') + x[b:]
+        return x
+    _rewrite_zip(path, fn)
+
 def add_cj(root, after_contains, token, center=False):
     """Vloží za odstavec (obsahující `after_contains`) nový odstavec „Č. j.: <pole>“ ve formátu jeho prvního běhu."""
     p = find_par(root, after_contains)
@@ -101,7 +129,6 @@ def add_cj(root, after_contains, token, center=False):
 
 def f_vymer(b):
     """Platový výměr – státní zaměstnanci (vzor A, 10/2026)."""
-    add_cj(b, 'PLATOVÝ VÝMĚR', '{{cj_a}}')
     append_text(b, 'Příjmení a jméno, titul:', '{{prijmeni_jmeno_titul}}')
     append_text(b, 'Datum narození:', '{{datum_narozeni}}')
     append_text(b, 'Osobní číslo:', '{{osobni_cislo}}')
@@ -184,6 +211,8 @@ if __name__ == '__main__' and sys.argv[1] != '--signing':
         if fn: doc_edit(m[0], dst, fn)
         else:
             import shutil; shutil.copy(m[0], dst)
+        if key == 'vymer': post_vymer(dst)
+        if key == 'dohoda': post_dohoda(dst)
         print('OK', key, '->', out)
 
 
