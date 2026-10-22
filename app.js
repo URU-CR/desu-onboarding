@@ -1,4 +1,4 @@
-const APP_VERSION = '2026-10-22.5';
+const APP_VERSION = '2026-10-22.6';
 const STORAGE_INDEX_KEY = 'onboarding:index';
 const STORAGE_INFO_KEY = 'onboarding:info-content';
 const STORAGE_SETTINGS_KEY = 'onboarding:settings';
@@ -5422,7 +5422,7 @@ async function openDocsModal(id){
   const urls = [];
   const rowHtml = (t, title, hint, extra) => `<label class="docs-row"><input type="checkbox" data-doc="${t.id}" ${preset(t) ? 'checked' : ''}><span class="docs-row-main"><span class="docs-row-title">${title}</span><span class="docs-row-hint">${hint}</span></span></label>${extra || ''}`;
   const rowsHtml = DOC_TEMPLATES.filter(t => !DOC_CJ_GROUP.includes(t.id) || t.id === DOC_CJ_GROUP[0]).map(t => t.id === DOC_CJ_GROUP[0]
-    ? rowHtml(t, 'Pracovní smlouva + Platový výměr (č.j./A) + Dohoda o výkonu služby z jiného místa (č.j./B)', 'společné číslo jednací', `<div class="docs-cj"><label for="docs-cj">Číslo jednací (ze spisové služby)</label><input type="text" id="docs-cj" value="${esc(rec.cisloJednaci || '')}" placeholder="např. DESU-12345/2026"><span class="docs-row-hint">Smlouva dostane toto č.j., výměr č.j./A a dohoda č.j./B. Nevyplněné zůstane k ručnímu doplnění.</span></div>`)
+    ? rowHtml(t, 'Pracovní smlouva + Platový výměr (č.j./A) + Dohoda o výkonu služby z jiného místa (č.j./B)', 'společné číslo jednací', `<div class="docs-cj"><label for="docs-cj">Číslo jednací (ze spisové služby)</label><input type="text" id="docs-cj" value="${esc(rec.cisloJednaci || '')}"><span class="docs-row-hint">Výměr dostane č.j./A, dohoda č.j./B. Nevyplněné zůstane k ručnímu doplnění.</span></div>`)
     : rowHtml(t, esc(t.title), esc(DOC_WHEN_LABEL[t.when]))).join('');
   backdrop.innerHTML = `
     <div class="modal docs-modal">
