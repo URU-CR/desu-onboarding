@@ -37,17 +37,79 @@
     return tplCache[url];
   }
 
-  /** Vyplní zástupná pole {{pole}} v šabloně .docx hodnotami; vrací Blob (.docx). */
-  async function fillTemplate(url, values){
+  /** Word někdy rozdělí zápis {{pole}} do více úseků textu (kvůli formátování/kontrole pravopisu) – tady se zase spojí. */
+  function mergeSplitTokens(xml){
+    return xml.replace(/<w:p[ >][\s\S]*?<\/w:p>/g, para => {
+      const re = /(<w:t(?: [^>]*)?>)([^<]*)(<\/w:t>)/g;
+      const parts = []; let m;
+      while((m = re.exec(para))) parts.push({ index: m.index, len: m[0].length, text: m[2] });
+      if(parts.length < 2) return para;
+      const full = parts.map(p => p.text).join('');
+      if(full.indexOf('{{') < 0) return para;
+      const starts = []; let off = 0;
+      parts.forEach(p => { starts.push(off); off += p.text.length; });
+      const partAt = pos => { let i = parts.length - 1; while(i > 0 && starts[i] > pos) i--; return i; };
+      const emit = {}, skip = new Set();
+      const tre = /\{\{\s*\w+\s*\}\}/g; let t, changed = false;
+      while((t = tre.exec(full))){
+        const s0 = t.index, e0 = t.index + t[0].length;
+        if(partAt(s0) === partAt(e0 - 1)) continue;
+        changed = true;
+        emit[s0] = t[0].replace(/\s+/g, '');
+        for(let k = s0; k < e0; k++) skip.add(k);
+      }
+      const texts = parts.map(() => '');
+      for(let pos = 0; pos < full.length; pos++){
+        const k = partAt(pos);
+        if(pos in emit) texts[k] += emit[pos];
+        else if(!skip.has(pos)) texts[k] += full[pos];
+      }
+      if(!changed) return para;
+      let out = '', last = 0;
+      parts.forEach((p, k) => {
+        const orig = para.slice(p.index, p.index + p.len);
+        const open = orig.slice(0, orig.indexOf('>') + 1).replace(/^<w:t(?: [^>]*)?>/, '<w:t xml:space="preserve">');
+        out += para.slice(last, p.index) + open + texts[k] + '</w:t>';
+        last = p.index + p.len;
+      });
+      return out + para.slice(last);
+    });
+  }
+  const TEMPLATE_PARTS = /^word\/(document|header\d*|footer\d*|footnotes)\.xml$/;
+
+  /** Vyplní zástupná pole {{pole}} v šabloně .docx hodnotami; vrací Blob (.docx).
+   *  src = adresa šablony (řetězec) nebo její obsah (ArrayBuffer / Blob). */
+  async function fillTemplate(src, values){
     await ensureZip();
-    const zip = await JSZip.loadAsync(await fetchTemplate(url));
-    const parts = Object.keys(zip.files).filter(n => /^word\/(document|header\d*|footer\d*|footnotes)\.xml$/.test(n));
+    let buf = src;
+    if(typeof src === 'string') buf = await fetchTemplate(src);
+    else if(typeof Blob !== 'undefined' && src instanceof Blob) buf = await src.arrayBuffer();
+    const zip = await JSZip.loadAsync(buf);
+    const parts = Object.keys(zip.files).filter(n => TEMPLATE_PARTS.test(n));
     for(const n of parts){
-      let xml = await zip.file(n).async('string');
-      xml = xml.replace(/\{\{(\w+)\}\}/g, (m, k) => xmlEsc(values[k]));
+      let xml = mergeSplitTokens(await zip.file(n).async('string'));
+      xml = xml.replace(/\{\{\s*(\w+)\s*\}\}/g, (m, k) => xmlEsc(values[k]));
       zip.file(n, xml);
     }
     return zip.generateAsync({ type: 'blob', mimeType: DOCX_MIME, compression: 'DEFLATE' });
+  }
+
+  /** Zkontroluje nahrávaný vzor: je to platný .docx a jaká zástupná pole obsahuje. */
+  async function inspectTemplate(buf){
+    await ensureZip();
+    let zip;
+    try{ zip = await JSZip.loadAsync(buf); }catch(e){ return { ok: false, error: 'Soubor není platný dokument Word (.docx).' }; }
+    if(!zip.file('word/document.xml')) return { ok: false, error: 'Soubor není platný dokument Word (.docx) – chybí word/document.xml.' };
+    const tokens = new Set();
+    for(const n of Object.keys(zip.files).filter(n => TEMPLATE_PARTS.test(n))){
+      const xml = mergeSplitTokens(await zip.file(n).async('string'));
+      (xml.match(/\{\{\s*\w+\s*\}\}/g) || []).forEach(t => tokens.add(t.replace(/[{}\s]/g, '')));
+      // zbylé neúplné zápisy typu {{pole
+      const text = (xml.match(/<w:t(?: [^>]*)?>[^<]*<\/w:t>/g) || []).map(x => x.replace(/<[^>]+>/g, '')).join('');
+      if(/\{\{(?![^{}]*\}\})/.test(text) || /(?<!\{\{[^{}]*)\}\}/.test(text)) tokens.add('?neuplne');
+    }
+    const broken = tokens.delete('?neuplne');
+    return { ok: true, tokens: [...tokens], broken };
   }
 
   /* ---------------------------------------------------------------- PDF */
@@ -145,7 +207,13 @@
       idoc.open(); idoc.write('<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;padding:0;background:#fff;}</style></head><body></body></html>'); idoc.close();
       const iwin = iframe.contentWindow;
       const host = idoc.createElement('div'); idoc.body.appendChild(host);
-      await docx.renderAsync(docxBlob, host, null, { className: 'docx', inWrapper: false, breakPages: true, ignoreLastRenderedPageBreak: true, useBase64URL: true, renderHeaders: true, renderFooters: true, renderFootnotes: true, renderEndnotes: true });
+      await docx.renderAsync(docxBlob, host, null, { className: 'docx', inWrapper: false, breakPages: true, experimental: true, ignoreLastRenderedPageBreak: true, useBase64URL: true, renderHeaders: true, renderFooters: true, renderFootnotes: true, renderEndnotes: true });
+      // tabulátory podle zarážek (docx-preview je dopočítává se zpožděním ~0,5 s)
+      if(host.querySelector('.docx-tab-stop')){
+        const t0 = Date.now();
+        while(Date.now() - t0 < 900 && ![...host.querySelectorAll('.docx-tab-stop')].some(e => e.style.wordSpacing)) await new Promise(r => setTimeout(r, 50));
+        await new Promise(r => setTimeout(r, 60));
+      }
       // písma: místo systémových (Arial, Calibri…) se použije Liberation (metricky shodná s Arial/Times) – rozložení je pak na každém počítači stejné jako písmo v PDF
       {
         const base = new URL('vendor/fonts/', location.href).href;
@@ -530,5 +598,5 @@
     return zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
   }
 
-  window.DocGen = { init(o){ ver = (o && o.version) || ''; }, fillTemplate, docxToPdf, zipFiles, DOCX_MIME };
+  window.DocGen = { init(o){ ver = (o && o.version) || ''; }, fillTemplate, inspectTemplate, docxToPdf, zipFiles, DOCX_MIME };
 })();

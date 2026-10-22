@@ -84,6 +84,16 @@ input:-ms-input-placeholder,textarea:-ms-input-placeholder{color:var(--line-stro
 .search-clear-btn{position:absolute;right:4px;top:50%;transform:translateY(-50%);background:none;border:none;font-size:18px;line-height:1;color:var(--ink-faint);cursor:pointer;padding:2px 6px;}
 .search-clear-btn:hover{color:var(--ink);}
 .index-filter-row th{padding:0 10px 8px;border-bottom:1px solid var(--line-strong);font-weight:400;}
+.tpl-row{display:flex;gap:12px;align-items:center;justify-content:space-between;padding:9px 0;border-bottom:1px solid var(--line,#e4e0d6);flex-wrap:wrap;}
+.tpl-main{min-width:240px;flex:1 1 320px;}
+.tpl-title{font-weight:600;font-size:13.5px;}
+.tpl-meta{font-size:12px;color:var(--ink-faint);margin-top:2px;}
+.tpl-actions{display:flex;gap:6px;flex-wrap:wrap;}
+.tpl-tokens{margin-top:14px;}
+.tpl-tokens summary{cursor:pointer;font-weight:600;font-size:13px;}
+.tpl-token-table{border-collapse:collapse;font-size:12.5px;width:100%;}
+.tpl-token-table td{padding:3px 10px 3px 0;vertical-align:top;border-bottom:1px solid var(--line,#eee9dd);}
+.tpl-token-table code,.tpl-tokens code{font-size:12px;}
 .export-btns{display:flex;gap:8px;margin-left:auto;justify-content:flex-end;flex-wrap:wrap;}
 .export-bar{display:flex;justify-content:space-between;align-items:center;background:var(--paper-alt);border-radius:var(--radius);padding:10px 14px;margin-bottom:14px;flex-wrap:wrap;gap:10px;}
 .index-filters input,.index-filters select{padding:8px 10px;border:1px solid var(--line-strong);border-radius:var(--radius);font-family:var(--font-body);font-size:13.5px;background:var(--card);color:var(--ink);}
@@ -371,8 +381,8 @@ input:-webkit-autofill,input:-webkit-autofill:hover,input:-webkit-autofill:focus
 <body>
 <div id="app"></div>
 
-<script src="config.js?v=75"></script>
-<script src="docgen.js?v=75"></script>
-<script src="app.js?v=75"></script>
+<script src="config.js?v=76"></script>
+<script src="docgen.js?v=76"></script>
+<script src="app.js?v=76"></script>
 </body>
 </html>

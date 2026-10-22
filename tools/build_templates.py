@@ -72,35 +72,46 @@ def doc_edit(src, dst, fn):
     unmark_tokens(d.element.body)
     d.save(dst)
 
+def append_text(root, contains, token, nth=0):
+    """Připojí na konec odstavce (obsahujícího `contains`) text/pole ve formátu posledního běhu odstavce."""
+    p = [q for q in all_pars(root) if contains in ptext(q)][nth]
+    runs = [r for r in p.iter(W('w:r')) if r.find(W('w:t')) is not None]
+    src = runs[-1] if runs else None
+    r = OxmlElement('w:r')
+    if src is not None and src.find(W('w:rPr')) is not None:
+        r.append(copy.deepcopy(src.find(W('w:rPr'))))
+    t = OxmlElement('w:t'); t.text = token; t.set('{http://www.w3.org/XML/1998/namespace}space', 'preserve'); r.append(t)
+    p.append(r)
+
 def f_vymer(b):
-    # šedé stínování polí vzniklo při převodu ze starého .doc (ve Wordu je to jen stínování formulářových polí na obrazovce)
-    for shd in list(b.iter(W('w:shd'))):
-        if (shd.get(W('w:fill')) or '').upper() == 'F3F3F3': shd.getparent().remove(shd)
-    edit(b, 'paní:', '…', '{{jmeno_cele}}', 0)
-    edit(b, 'paní:', 'paní', '{{pan_pani}}')
-    edit(b, 'Osobní číslo', '…', '{{osobni_cislo}}', 0)
-    pp = find_par(b, 'Osobní číslo')
-    for tb in list(pp.iter(W('w:tab'))): tb.getparent().remove(tb)
-    replace(pp, 'Osobní číslo:', '      Osobní číslo:')
-    edit(b, 'funkce:', '…', '{{pozice}}')
-    edit(b, 'útvar:', '…', '{{utvar}}')
-    edit(b, 'účinností od', '…', '{{datum_nastupu}}')
-    edit(b, 'v platové třídě', ':…', ': {{platova_trida}}')
-    edit(b, 'v platovém stupni', '…', '{{platovy_stupen}}')
-    edit(b, 'tarifní plat ve výši', '0 Kč', '{{tarif}} Kč')
-    edit(b, 'celkem', '0 Kč', '{{celkem}} Kč')
+    """Platový výměr – státní zaměstnanci (vzor A, 10/2026)."""
+    append_text(b, 'Příjmení a jméno, titul:', '{{prijmeni_jmeno_titul}}')
+    append_text(b, 'Datum narození:', '{{datum_narozeni}}')
+    append_text(b, 'Osobní číslo:', '{{osobni_cislo}}')
+    append_text(b, 'Pozice:', '{{pozice}}')
+    edit(b, 'ode dne', '01.11.2026', '{{datum_nastupu}}')
+    append_text(b, 'Platová třída/stupeň:', '{{platova_trida}} / {{platovy_stupen}}')
+    append_text(b, 'Při úvazku/hod. týdně:', '{{uvazek_hodiny}}')
+    append_text(b, 'ZÁKLADNÍ PLAT', '{{tarif}} Kč')
+    append_text(b, 'OSOBNÍ PŘÍPLATEK', '0 Kč')
+    append_text(b, 'CELKEM', '{{celkem}} Kč')
+    edit(b, 'je zaměstnán', 'xxxxxx', '{{pozice}}')
+    append_text(b, 'V Praze dne', '……………………')
 
 def f_smlouva(b):
-    edit(b, 'Zaměstnanec:', 'xxx', '{{jmeno_cele}}')
-    edit(b, 'Narozena', 'Narozena', '{{narozen_a}}')
-    edit(b, '{{narozen_a}}', 'xxx', '{{datum_narozeni}}')
-    edit(b, 'Trvale bytem', 'xxx', '{{adresa_trvala}}')
-    edit(b, 'nastoupí do práce', 'xxx', '{{datum_nastupu}}')
-    edit(b, 'bude vykonávat práci', 'xxx', '{{pozice}}')
-    edit(b, 'Zkušební doba', 'xxx', '{{zkusebni_doba}}')
-    edit(b, 'se sjednává na dobu', 'Neurčitou', '{{doba_trvani}}')
-    edit(b, 'Týdenní pracovní doba', '40 hodin', '{{tydenni_hodiny}} hodin')
-    edit(b, 'pravidelné pracoviště', 'xxx', '{{pracoviste}}')
+    """Pracovní smlouva – státní zaměstnanci (vzor B, 10/2026)."""
+    edit(b, 'Osobní číslo', 'xxxx', '{{osobni_cislo}}')
+    edit(b, 'a paní / pan', 'paní / pan', '{{pan_pani}}')
+    append_text(b, 'jméno a příjmení:', '{{jmeno_cele}}')
+    append_text(b, 'nar.:', '{{datum_narozeni}}')
+    append_text(b, 'bytem:', '{{adresa_trvala}}')
+    edit(b, 'syst.', 'název pozice', '{{pozice}}')
+    edit(b, 'syst.', 'xxx', '…………')
+    edit(b, 'Místem výkonu práce', 'xxx', '{{misto_vykonu}}')
+    edit(b, 'Pravidelným pracovištěm', 'xxx', '{{pracoviste_adresa}}')
+    edit(b, 'Nástupní den', 'xx.xx.xxxx', '{{datum_nastupu}}')
+    edit(b, 'se sjednává na dobu', 'neurčitou', '{{doba_trvani_mala}}')
+    edit(b, 'zkušební doba činí', '6 měsíců', '{{zkusebni_doba_text}}')
 
 def f_name_table(b): name_cells(b)
 
@@ -127,8 +138,8 @@ def f_priloha(b):
 
 # id -> (hledaný fragment názvu souboru, výstupní název, úprava)
 JOBS = [
-    ('vymer',   '01_Platovy',   '01_platovy_vymer.docx',            f_vymer),
-    ('smlouva', '02_pracovn',   '02_pracovni_smlouva.docx',         f_smlouva),
+    ('vymer',   'A_Platov',     '01_platovy_vymer.docx',            f_vymer),
+    ('smlouva', 'B_Pracovn',    '02_pracovni_smlouva.docx',         f_smlouva),
     ('hodnoceni','03_hodnot',   '03_hodnotici_kriteria.docx',       f_name_table),
     ('foto',    '04_po',        '04_portretni_fotografie.docx',     f_name_table),
     ('bozp',    '05_Pou',       '05_pouceni_BOZP_PO.docx',          None),
@@ -143,11 +154,12 @@ JOBS = [
 if __name__ == '__main__':
     src_dir, out_dir = sys.argv[1], sys.argv[2]
     os.makedirs(out_dir, exist_ok=True)
-    files = sorted(glob.glob(os.path.join(src_dir, '*.docx')))
+    files = sorted(glob.glob(os.path.join(src_dir, '*.docx')))   # lze zadat i složku jen s některými vzory – ostatní se přeskočí
     import unicodedata
     norm = lambda s: unicodedata.normalize('NFC', s)
     for key, frag, out, fn in JOBS:
-        m = [f for f in files if norm(os.path.basename(f)).startswith(norm(frag))]
+        m = [f for f in files if norm(frag) in norm(os.path.basename(f))]
+        if len(m) == 0: print('PŘESKOČENO (vzor nenalezen):', frag); continue
         if len(m) != 1: raise SystemExit(f'Vzor {frag}: nalezeno {len(m)}')
         dst = os.path.join(out_dir, out)
         if fn: doc_edit(m[0], dst, fn)

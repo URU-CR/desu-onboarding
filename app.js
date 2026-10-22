@@ -1,4 +1,4 @@
-const APP_VERSION = '2026-10-20.3';
+const APP_VERSION = '2026-10-22.1';
 const STORAGE_INDEX_KEY = 'onboarding:index';
 const STORAGE_INFO_KEY = 'onboarding:info-content';
 const STORAGE_SETTINGS_KEY = 'onboarding:settings';
@@ -2116,6 +2116,12 @@ function renderSettingsPage(){
     </div>
 
     <div class="panel" style="margin-bottom:20px;">
+      ${settingsPanelStart('templates', 'Vzory dokumentů')}
+      ${templatesPanelHtml()}
+      ${settingsPanelEnd()}
+    </div>
+
+    <div class="panel" style="margin-bottom:20px;">
       ${settingsPanelStart('vemaconst', 'Pevné hodnoty pro export do Vemy')}
       <p style="font-size:12.5px;color:var(--ink-faint);margin:0 0 12px;">Hodnoty stejné pro všechny zaměstnance úřadu — vyplňte jednou, appka je pak sama doplní do každého generovaného Zaváděcího formuláře.</p>
       <div class="contact-edit-row" style="grid-template-columns:280px 1fr;">
@@ -3432,6 +3438,10 @@ function attachHandlers(){
       state.settingsDraft.workplaceLocations[w][key] = el.value;
     });
   });
+  app.querySelectorAll('[data-tpl-download]').forEach(el => el.addEventListener('click', () => downloadTemplateFile(el.getAttribute('data-tpl-download')).catch(e => alert('Vzor se nepodařilo stáhnout: ' + e.message))));
+  app.querySelectorAll('[data-tpl-upload]').forEach(el => el.addEventListener('click', () => { const f = app.querySelector(`[data-tpl-file="${el.getAttribute('data-tpl-upload')}"]`); if(f) f.click(); }));
+  app.querySelectorAll('[data-tpl-file]').forEach(el => el.addEventListener('change', () => { const f = el.files && el.files[0]; const id = el.getAttribute('data-tpl-file'); el.value = ''; if(f) uploadTemplateFile(id, f); }));
+  app.querySelectorAll('[data-tpl-restore]').forEach(el => el.addEventListener('click', () => restoreTemplateFile(el.getAttribute('data-tpl-restore'))));
   app.querySelectorAll('[data-persnum-start]').forEach(el => {
     el.addEventListener('change', () => { const n = parseInt(String(el.value).replace(/\D/g,''),10); state.settingsDraft.personalNumberStart = n > 0 ? String(n) : ''; el.value = state.settingsDraft.personalNumberStart; });
   });
@@ -5326,6 +5336,11 @@ function docValues(r){
     doba_trvani: p.doba_trvani_pomeru === 'Na dobu určitou' ? 'Určitou' : 'Neurčitou',
     zkusebni_doba: p.zkusebni_doba || '',
     tydenni_hodiny: hodiny,
+    uvazek_hodiny: (() => { const v = parseFloat(String(hodiny).replace(',', '.')) || 40; const n = v / 40; return (Math.round(n * 10) / 10 === n ? n.toFixed(1) : n.toFixed(2)).replace('.', ',') + ' / ' + hodiny; })(),
+    doba_trvani_mala: p.doba_trvani_pomeru === 'Na dobu určitou' ? 'určitou' : 'neurčitou',
+    zkusebni_doba_text: (() => { const m = zkusdMonths(p); if(m === '') return '……'; const n = parseInt(m, 10); return n + (n === 1 ? ' měsíc' : (n >= 2 && n <= 4 ? ' měsíce' : ' měsíců')); })(),
+    misto_vykonu: workplaceLocation(p.pracoviste).obec || p.pracoviste || '',
+    pracoviste_adresa: [workplaceLocation(p.pracoviste).sidlo, workplaceLocation(p.pracoviste).obec].filter(Boolean).join(', ') || p.pracoviste || '',
   };
 }
 function docFileName(r, tpl, ext){
@@ -5385,6 +5400,135 @@ function openConfirmUploadModal(ids){
     else showToast(`Označeno jako nahráno do Vemy (${ids.length}).`);
     render();
   });
+}
+
+// ---------------- Správa vzorů dokumentů (Nastavení → Vzory dokumentů) ----------------
+// Vlastní (nahrané) vzory se ukládají do databáze pod klíčem onboarding:template:<id> a mají přednost před vzorem dodaným s aplikací (složka templates/).
+const TEMPLATE_KEY_PREFIX = 'onboarding:template:';
+const TEMPLATE_TOKENS = [
+  ['jmeno_cele','Titul před, jméno, příjmení, titul za (např. Ing. Jana Nováková, MBA)'],
+  ['prijmeni_jmeno_titul','Příjmení, jméno, tituly (např. Nováková Jana, Ing.)'],
+  ['osobni_cislo','Osobní číslo (není-li přiděleno, tečky)'],
+  ['pan_pani','„pan“ / „paní“ podle pohlaví'],
+  ['narozen_a','„Narozen“ / „Narozena“ podle pohlaví'],
+  ['pozice','Pracovní pozice'],
+  ['utvar','Odbor / oddělení (název)'],
+  ['pracoviste','Pracoviště (název, např. MD)'],
+  ['misto_vykonu','Město pracoviště (obec z Nastavení, jinak název pracoviště)'],
+  ['pracoviste_adresa','Adresa pracoviště (sídlo a obec z Nastavení, jinak název pracoviště)'],
+  ['datum_nastupu','Datum nástupu (DD.MM.RRRR)'],
+  ['datum_narozeni','Datum narození'],
+  ['datum_misto_narozeni','Datum a místo narození'],
+  ['adresa_trvala','Adresa trvalého pobytu'],
+  ['adresa_jine_misto','Doručovací adresa (jinak trvalá) – místo výkonu služby z jiného místa'],
+  ['platova_trida','Platová třída'],
+  ['platovy_stupen','Platový stupeň'],
+  ['tarif','Tarifní plat v Kč podle třídy a stupně'],
+  ['celkem','Celkový plat v Kč (zatím = tarifní plat)'],
+  ['uvazek_hodiny','Úvazek a hodiny týdně (např. 1,0 / 40)'],
+  ['tydenni_hodiny','Týdenní pracovní doba v hodinách'],
+  ['doba_trvani','„Určitou“ / „Neurčitou“ (velké počáteční písmeno)'],
+  ['doba_trvani_mala','„určitou“ / „neurčitou“ (malé písmeno)'],
+  ['zkusebni_doba','Zkušební doba (text z formuláře)'],
+  ['zkusebni_doba_text','Zkušební doba ve měsících se správným tvarem (např. 6 měsíců)'],
+];
+let tplOverrides = null;   // id -> {fileName, uploadedAt, uploadedBy, data(base64)}
+async function loadTemplateOverrides(force){
+  if(tplOverrides && !force) return tplOverrides;
+  const map = {};
+  try{
+    const rows = await window.storage.listAll(TEMPLATE_KEY_PREFIX);
+    (rows || []).forEach(r => {
+      try{ const v = typeof r.value === 'string' ? JSON.parse(r.value) : r.value; if(v && v.data) map[String(r.key).slice(TEMPLATE_KEY_PREFIX.length)] = v; }catch(e){}
+    });
+  }catch(e){ console.error('loadTemplateOverrides failed:', e); }
+  tplOverrides = map;
+  return map;
+}
+function bufToBase64(buf){
+  const u = new Uint8Array(buf); let bin = '';
+  for(let i = 0; i < u.length; i += 0x8000) bin += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000));
+  return btoa(bin);
+}
+function base64ToBuf(b64){
+  const bin = atob(b64), u = new Uint8Array(bin.length);
+  for(let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+  return u.buffer;
+}
+// Zdroj vzoru pro generování: vlastní (nahraný) obsah, jinak adresa vzoru dodaného s aplikací
+async function templateSource(t){
+  const ov = await loadTemplateOverrides();
+  return ov[t.id] ? base64ToBuf(ov[t.id].data) : t.file;
+}
+async function templateBuffer(t){
+  const src = await templateSource(t);
+  if(typeof src !== 'string') return src;
+  const r = await fetch(src + '?v=' + APP_VERSION, { cache: 'no-cache' });
+  if(!r.ok) throw new Error('Vzor se nepodařilo načíst (' + r.status + ').');
+  return r.arrayBuffer();
+}
+function templatesPanelHtml(){
+  if(tplOverrides === null) return '<p style="font-size:13px;color:var(--ink-faint);">Načítám vzory…</p>';
+  const fmt = (iso) => iso ? new Date(iso).toLocaleString('cs-CZ', {dateStyle:'short', timeStyle:'short'}) : '';
+  return `
+    <p style="font-size:12.5px;color:var(--ink-faint);margin:0 0 12px;">Dokumenty se generují z těchto vzorů (Word .docx). Vzor můžete stáhnout, upravit ve Wordu a nahrát zpět, nebo nahradit novou verzí. Nahraný vzor platí hned pro všechna další generování a <strong>ukládá se okamžitě</strong> (netřeba mačkat Uložit nastavení). Místa, která se mají vyplnit z údajů spisu, se ve vzoru zapisují jako <code>{{pole}}</code> – přehled polí je níže.</p>
+    <div class="tpl-list">
+      ${DOC_TEMPLATES.map(t => { const ov = tplOverrides[t.id]; return `
+        <div class="tpl-row">
+          <div class="tpl-main">
+            <div class="tpl-title">${esc(t.title)}</div>
+            <div class="tpl-meta">${esc(DOC_WHEN_LABEL[t.when])} · ${ov ? `<strong>vlastní vzor</strong>: ${esc(ov.fileName || 'vzor.docx')}, nahráno ${esc(fmt(ov.uploadedAt))}${ov.uploadedBy ? ' (' + esc(ov.uploadedBy) + ')' : ''}` : 'výchozí vzor dodaný s aplikací'}</div>
+          </div>
+          <div class="tpl-actions">
+            <button class="btn btn-ghost btn-sm" type="button" data-tpl-download="${t.id}">⬇ Stáhnout</button>
+            <button class="btn btn-ghost btn-sm" type="button" data-tpl-upload="${t.id}">Nahradit…</button>
+            ${ov ? `<button class="btn btn-ghost btn-sm" type="button" data-tpl-restore="${t.id}" title="Smaže nahraný vzor a vrátí vzor dodaný s aplikací">Vrátit výchozí</button>` : ''}
+            <input type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" data-tpl-file="${t.id}" style="display:none;">
+          </div>
+        </div>`; }).join('')}
+    </div>
+    <details class="tpl-tokens"><summary>Zástupná pole pro vzory</summary>
+      <p style="font-size:12.5px;color:var(--ink-faint);margin:8px 0;">Do textu vzoru napište pole včetně dvojitých složených závorek, např. <code>{{jmeno_cele}}</code>. Formátování (písmo, tučné…) se převezme z místa, kde pole stojí. Pole, která nejsou v seznamu, se při generování vynechají (zůstanou prázdná). Údaje, které aplikace nezná (č. j., datum podpisu…), nechte ve vzoru jako tečky.</p>
+      <table class="tpl-token-table"><tbody>${TEMPLATE_TOKENS.map(([k, d]) => `<tr><td><code>{{${k}}}</code></td><td>${esc(d)}</td></tr>`).join('')}</tbody></table>
+    </details>`;
+}
+async function downloadTemplateFile(id){
+  const t = DOC_TEMPLATES.find(x => x.id === id); if(!t) return;
+  const buf = await templateBuffer(t);
+  downloadBlob(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }), `vzor_${t.base}.docx`);
+}
+async function uploadTemplateFile(id, file){
+  const t = DOC_TEMPLATES.find(x => x.id === id); if(!t || !file) return;
+  if(typeof DocGen === 'undefined'){ alert('Modul pro dokumenty se nenačetl. Obnovte prosím stránku.'); return; }
+  DocGen.init({ version: APP_VERSION });
+  if(file.size > 8 * 1024 * 1024){ alert('Soubor je příliš velký (nejvýše 8 MB).'); return; }
+  const buf = await file.arrayBuffer();
+  const info = await DocGen.inspectTemplate(buf);
+  if(!info.ok){ alert(info.error); return; }
+  const known = new Set(TEMPLATE_TOKENS.map(x => x[0]));
+  const unknown = info.tokens.filter(k => !known.has(k));
+  let msg = `Nahradit vzor „${t.title}“ souborem „${file.name}“?\n\n`;
+  msg += info.tokens.length ? `Nalezená zástupná pole (${info.tokens.length}): ${info.tokens.map(k => '{{' + k + '}}').join(', ')}\n` : 'POZOR: ve vzoru nejsou žádná zástupná pole {{pole}} – dokument se vygeneruje beze změny.\n';
+  if(unknown.length) msg += `\nPOZOR: neznámá pole (zůstanou prázdná): ${unknown.map(k => '{{' + k + '}}').join(', ')}\n`;
+  if(info.broken) msg += '\nPOZOR: ve vzoru je neúplně zapsané pole (chybí závorky {{ nebo }}).\n';
+  msg += '\nNový vzor začne platit hned pro všechna další generování.';
+  if(!confirm(msg)) return;
+  const rec = { fileName: file.name, uploadedAt: new Date().toISOString(), uploadedBy: state.userEmail || '', size: file.size, data: bufToBase64(buf) };
+  try{
+    await window.storage.set(TEMPLATE_KEY_PREFIX + id, JSON.stringify(rec), true);
+    await loadTemplateOverrides();
+    tplOverrides[id] = rec;
+  }catch(e){ console.error('template upload failed:', e); alert('Vzor se nepodařilo uložit: ' + (e.message || e)); return; }
+  render();
+}
+async function restoreTemplateFile(id){
+  const t = DOC_TEMPLATES.find(x => x.id === id); if(!t) return;
+  if(!confirm(`Smazat nahraný vzor „${t.title}“ a vrátit výchozí vzor dodaný s aplikací?`)) return;
+  try{
+    await window.storage.delete(TEMPLATE_KEY_PREFIX + id, true);
+    await loadTemplateOverrides(); delete tplOverrides[id];
+  }catch(e){ console.error('template restore failed:', e); alert('Vzor se nepodařilo vrátit: ' + (e.message || e)); return; }
+  render();
 }
 
 async function openDocsModal(id){
@@ -5491,7 +5635,7 @@ async function openDocsModal(id){
       n++;
       $('#docs-status').textContent = `Generuji ${n} / ${chosen.length}: ${t.title}…`;
       try{
-        const docx = await DocGen.fillTemplate(t.file, values);
+        const docx = await DocGen.fillTemplate(await templateSource(t), values);
         const pdf = await DocGen.docxToPdf(docx, t.title);
         results[t.id] = { docx, pdf };
       }catch(e){
@@ -6215,6 +6359,7 @@ async function openDetail(id){
   await loadSettings();
   await loadIndex();
   await loadInfoContent();
+  if(!isEmployeeLink) loadTemplateOverrides().then(() => { if(state.view === 'settings' && !state.settingsDraft) render(); });
   state.loading = false;
   if(isEmployeeLink){
     const id = hash.slice(3).split('/')[0];
@@ -6299,6 +6444,7 @@ const HELP = [
  {g:'Výstupy',items:[
   ['📊','Generovat tabulky pro VEMU','V rejstříku zaškrtněte zkontrolované spisy (výběr lze udělat hromadně v záhlaví) a použijte <b>Generovat tabulky pro VEMU</b>. Stav „Vygenerováno“ se u spisu zapamatuje; po nahrání do Vemy a kontrole tlačítkem <b>Potvrdit nahrání do Vemy</b> (vedle Generovat) přejde na „Nahráno“. Když tabulky vygenerujete znovu, stav se vrátí na „Vygenerováno“. Výsledkem je <b>ZIP s datem a časem generování v názvu</b> (např. VEMA_export_20261020-1015.zip); každá tabulka je v něm samostatný soubor .xlsx (ZHLAV, Adresy, Bankovni_ucty, Deti, Vzdelani, Predchozi_zamestnani, Znalosti_jazyky a číselníky Ciselnik_pracovist a Ciselnik_utvaru). Datumy jsou ve tvaru DDMMRR, zkušební doba (zkusd) a platová skupina (plasku) jsou číslo (bez zkušební doby = 0) a útvar (utvar) je číselný kód z číselníku útvarů Vemy. Ve spisu (pole Odbor / oddělení) se v nabídce zobrazuje i kód útvaru a do pole lze přímo napsat kód (např. 821) nebo část názvu. Kódy útvarů se předvyplňují podle názvu a jdou upravit v Nastavení → Odbory / oddělení (tlačítko <b>Doplnit podle systemizace</b> přidá chybějící útvary). Pevné hodnoty a kódy pracovišť se nastavují v Nastavení.'],
   ['🔢','Osobní čísla','Osobní číslo se novému spisu <b>přidělí automaticky</b> při založení i při importu – vždy nejnižší volné číslo od začátku zadaného v <b>Nastavení → Osobní čísla</b> (tak se vynechá interval čísel zaměstnanců DESÚ, kteří je už mají). V rejstříku je pod jménem místo kódu spisu a ve spisu je pole <b>Osobní číslo</b> jen ke čtení. Smažete-li spis dřív, než se pro něj vygenerují tabulky pro Vemu, číslo se uvolní a přidělí se dalšímu; po vygenerování tabulek se znovu nepoužije. Při odchodu z Nastavení s neuloženými změnami (Zpět, přepnutí pohledu, Odhlásit) se aplikace zeptá, zda změny uložit, zahodit, nebo zůstat. Spisům založeným dřív se číslo samo nepřidělí (smažte je a založte znovu); pokud není začátek v Nastavení vyplněný, čísla se nepřidělují.'],
+  ['🗂️','Vzory dokumentů (Nastavení)','V <b>Nastavení → Vzory dokumentů</b> je seznam všech vzorů, ze kterých se dokumenty generují. U každého jde <b>Stáhnout</b> aktuální vzor, <b>Nahradit…</b> ho novou verzí (soubor Word .docx) a <b>Vrátit výchozí</b> (smaže nahraný vzor a vrátí vzor dodaný s aplikací). Nahraný vzor platí hned pro další generování; ukládá se okamžitě, není potřeba Uložit nastavení. Před nahráním aplikace zkontroluje soubor a vypíše nalezená zástupná pole <code>{{pole}}</code> a upozorní na neznámá. Přehled polí je v rozbalovací části „Zástupná pole pro vzory“. Už vygenerované dokumenty se nemění.'],
   ['📄','Dokumenty podle vzorů','U spisu ve stavu <b>Nahráno</b> je ve spisu (sekce s podklady) tlačítko <b>Dokumenty podle vzorů</b>. Otevře se seznam všech vzorů se zaškrtávátky a volbou <b>Označit vše</b>; předem jsou zaškrtnuté ty, které odpovídají typu poměru (pracovní: platový výměr, pracovní smlouva; služební: informace o pracovním poměru; všichni: kritéria hodnocení, portrétní fotografie, školení BOZP, interní předpisy; dle potřeby: osvědčení o rovnocennosti zkoušek, dohoda o výkonu služby z jiného místa a její příloha). Tlačítkem <b>Vygenerovat</b> se každý dokument vyplní z údajů ve spisu a vytvoří se Word i PDF. U každého je <b>Zobrazit PDF</b>, <b>⬇ PDF</b> a <b>⬇ Word</b>; všechno najednou stáhnete jako <b>ZIP</b>. Názvy souborů jsou ve tvaru <b>Příjmení_Jméno_název.docx / .pdf</b>. Údaje, které ve spisu nejsou (č. j., datum podpisu, osobní číslo, které se nevyplnilo), zůstanou k ručnímu doplnění. PDF se vytváří přímo v prohlížeči, takže se může od Wordu lehce lišit zalomením stránek – Word je přesný. Vzory jsou ve složce <code>templates</code> a po změně vzoru se nahradí příslušný soubor. Dokumenty se generují z osobních údajů, proto je vytvořte před smazáním údajů.'],
   ['🧹','Smazání osobních údajů','Po nahrání do Vemy a ověření, že je vše správně, vyberte v rejstříku spisy a klikněte na <b>Smazat osobní údaje</b>. Tlačítko je aktivní jen u spisů ve stavu <b>Nahráno</b>. Smažte až po vygenerování dokumentů (z údajů se pak už znovu vytvořit nedají). Nevratně se smažou osobní údaje zaměstnance (zůstane jméno, pozice, pracoviště, datum nástupu a stavy) a jeho odkaz dál otevře jen záložku „Co potřebujete vědět“. Pokud smazání zapomenete, proběhne automaticky 60 dní po vygenerování tabulek.'],
   ['🖨️','Tištěné podklady','Ve spisu <b>Tisk podkladů</b>: A – Osobní dotazník, B – Prohlášení o předchozích zaměstnáních, C – Souhlas se zasíláním platu na účet. Předvyplněno z formuláře; lze tisknout/uložit jako PDF nebo odeslat e-mailem (potřebuje přidělený e-mail zaměstnance).']]},
