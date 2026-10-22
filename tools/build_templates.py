@@ -151,7 +151,7 @@ JOBS = [
     ('priloha', 'Příloha',      'priloha_1_prohlaseni_BOZP.docx',  f_priloha),
 ]
 
-if __name__ == '__main__':
+if __name__ == '__main__' and sys.argv[1] != '--signing':
     src_dir, out_dir = sys.argv[1], sys.argv[2]
     os.makedirs(out_dir, exist_ok=True)
     files = sorted(glob.glob(os.path.join(src_dir, '*.docx')))   # lze zadat i složku jen s některými vzory – ostatní se přeskočí
@@ -166,3 +166,122 @@ if __name__ == '__main__':
         else:
             import shutil; shutil.copy(m[0], dst)
         print('OK', key, '->', out)
+
+
+# ---------------------------------------------------------------------------
+# Podklady k podpisu A, B, C (dříve samostatný tisk z aplikace) – šablony vytvořené od nuly.
+# Řádky tabulek s poli {{deti_*}}, {{praxe_*}}, {{jazyky_*}} se při generování opakují pro každou položku.
+# Použití: python3 tools/build_templates.py --signing <výstupní_složka>
+from docx.shared import Pt, Cm
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+
+def _new_doc():
+    d = docx.Document()
+    s = d.sections[0]
+    s.left_margin = s.right_margin = Cm(2); s.top_margin = s.bottom_margin = Cm(1.8)
+    st = d.styles['Normal']; st.font.name = 'Arial'; st.font.size = Pt(10)
+    st.element.rPr.rFonts.set(qn('w:eastAsia'), 'Arial')
+    st.paragraph_format.space_after = Pt(4)
+    return d
+
+def _par(d, text='', bold=False, center=False, size=None, before=0):
+    p = d.add_paragraph(); r = p.add_run(text); r.bold = bold
+    if size: r.font.size = Pt(size)
+    if center: p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p.paragraph_format.space_before = Pt(before)
+    return p
+
+def _lab(d, label, value, before=0):
+    p = d.add_paragraph(); r = p.add_run(label + ' '); r.bold = True; p.add_run(value)
+    p.paragraph_format.space_before = Pt(before)
+    return p
+
+def _table(d, heads, tokens):
+    t = d.add_table(rows=2, cols=len(heads)); t.style = 'Table Grid'
+    for i, h in enumerate(heads):
+        c = t.rows[0].cells[i]; c.text = ''; r = c.paragraphs[0].add_run(h); r.bold = True; r.font.size = Pt(9)
+        t.rows[1].cells[i].text = ''
+        r2 = t.rows[1].cells[i].paragraphs[0].add_run(tokens[i]); r2.font.size = Pt(9)
+    return t
+
+def _sign(d, label='Podpis:'):
+    _par(d, 'V ……………………………… dne ………………………………', before=24)
+    _par(d, label + ' ………………………………', before=18)
+
+def build_A(path):
+    d = _new_doc()
+    _par(d, 'Osobní dotazník', bold=True, center=True, size=14)
+    _lab(d, 'Titul, jméno, příjmení, titul:', '{{jmeno_cele}}')
+    _lab(d, 'Osobní číslo (vyplní personální odbor):', '{{osobni_cislo}}')
+    _lab(d, 'Rodné příjmení:', '{{rodne_prijmeni}}')
+    _lab(d, 'Datum narození:', '{{datum_narozeni}}')
+    _lab(d, 'Místo narození:', '{{misto_narozeni}}')
+    _lab(d, 'Státní občanství:', '{{statni_prislusnost}}')
+    _lab(d, 'Rodinný stav:', '{{rodinny_stav}}')
+    _lab(d, 'Rodné číslo:', '{{rodne_cislo}}')
+    _lab(d, 'Trvalý pobyt:', '{{adresa_trvala_plna}}')
+    _lab(d, 'Kontaktní adresa (liší-li se):', '{{dorucovaci_adresa}}')
+    _lab(d, 'Telefon:', '{{telefon}}')
+    _lab(d, 'E-mail:', '{{email_soukromy}}')
+    _lab(d, 'Kontaktní osoba pro mimořádnou událost:', '{{nouzovy_kontakt}}')
+    _par(d, 'Rodinní příslušníci', bold=True, before=10)
+    _lab(d, 'Manžel(ka), druh, družka:', '{{manzel_jmeno}}')
+    _lab(d, 'Datum narození:', '{{manzel_datum_narozeni}}')
+    _lab(d, 'Státní občanství:', '{{manzel_obcanstvi}}')
+    _lab(d, 'Bydliště:', '{{manzel_bydliste}}')
+    _par(d, 'Děti', bold=True, before=8)
+    _table(d, ['Jméno a příjmení', 'Datum narození', 'Rodné číslo', 'Bydliště (nezaopatřené)'],
+           ['{{deti_jmeno}}', '{{deti_datum}}', '{{deti_rodne_cislo}}', '{{deti_bydliste}}'])
+    _par(d, 'Vzdělání', bold=True, before=10)
+    _lab(d, 'Stav:', '{{stav_vzdelani}}')
+    _lab(d, 'Stupeň:', '{{stupen_vzdelani}}')
+    _lab(d, 'Škola a obor:', '{{skola_obor}}')
+    _lab(d, 'Rok ukončení:', '{{rok_ukonceni}}')
+    _lab(d, 'Druh zkoušky:', '{{druh_zkousky}}')
+    _par(d, 'Další údaje', bold=True, before=10)
+    _lab(d, 'Přiznaný důchod:', '{{duchod}}')
+    _lab(d, 'Zdravotní znevýhodnění:', '{{zdravotni_znevyhodneni}}')
+    _lab(d, 'Je proti Vám vedeno soudní řízení:', '{{soudni_rizeni}}')
+    _lab(d, 'Zdravotní pojišťovna (doložit kopii):', '{{zdravotni_pojistovna}}')
+    _par(d, 'Prohlašuji, že všechny mnou uvedené údaje jsou pravdivé a nic jsem nezamlčel(a). Dále se zavazuji všechny změny těchto údajů bezodkladně oznamovat personálnímu oddělení.', before=14)
+    _sign(d)
+    d.save(path)
+
+def build_B(path):
+    d = _new_doc()
+    _par(d, 'Prohlášení o pravdivosti údajů a přehled praxe', bold=True, center=True, size=14)
+    _par(d, 'Já, {{jmeno_cele}}, níže podepsaný/á, prohlašuji a potvrzuji svým vlastnoručním podpisem, že veškeré uvedené údaje jsou pravdivé a úplné. Jsem si vědom/a možných dopadů a důsledků (zejména přeřazení do nižšího platového stupně a pracovně právních postihů podle příslušných ustanovení zákoníku práce a zákona o státní službě) v případě, že mnou uváděné údaje budou shledány nepravdivými.')
+    _par(d, 'Přehled průběhu předchozích zaměstnání, vojenské služby, mateřské dovolené, úřadu práce apod.', bold=True, before=10)
+    _table(d, ['Organizace', 'Pracovní zařazení / vykonávaná činnost', 'Od', 'Do'],
+           ['{{praxe_organizace}}', '{{praxe_zarazeni}}', '{{praxe_od}}', '{{praxe_do}}'])
+    _par(d, 'V minulosti jsem již byl/a ve služebním poměru: {{sluzebni_pomer_drive}}', before=10)
+    _par(d, 'Členství v řídících a kontrolních orgánech právnických osob provozujících podnikatelskou činnost: {{clenstvi_organy}}')
+    _par(d, 'Podnikatelská nebo výdělečná činnost vyžadující předchozí souhlas zaměstnavatele: {{vydelecna_cinnost}}')
+    _lab(d, 'Kurzy, specifické odborné znalosti a dovednosti:', '{{kurzy_dovednosti}}')
+    _par(d, 'Jazykové znalosti', bold=True, before=10)
+    _table(d, ['Jazyk', 'Stupeň znalosti', 'Stupeň osvědčení', 'Používání'],
+           ['{{jazyky_jazyk}}', '{{jazyky_znalost}}', '{{jazyky_osvedceni}}', '{{jazyky_pouzivani}}'])
+    _sign(d, 'Podpis:')
+    d.save(path)
+
+def build_C(path):
+    d = _new_doc()
+    _par(d, 'Souhlas', bold=True, center=True, size=14)
+    _par(d, 's bezhotovostním zasíláním platu, cestovních náhrad a peněžitého příspěvku na stravování za kalendářní měsíc na osobní účet', bold=True, center=True)
+    _lab(d, 'Jméno a příjmení zaměstnance:', '{{jmeno_cele}}', before=8)
+    _lab(d, 'Osobní číslo zaměstnance:', '{{osobni_cislo}}')
+    _par(d, 'Tímto vyjadřuji a svým podpisem níže stvrzuji svůj souhlas s:', before=8)
+    _par(d, '1. bezhotovostním zasíláním svého platu na (níže uvedený) osobní účet: {{souhlas_plat}}')
+    _par(d, '2. bezhotovostním zasíláním cestovních náhrad na (níže uvedený) osobní účet, a to jedenkrát měsíčně ve výplatním termínu společně s výplatou platu, souhrnnou částkou zahrnující všechny cestovní náhrady zúčtované v předcházejícím kalendářním měsíci. Dále prohlašuji, že jsem se se zaměstnavatelem dohodl/a a souhlasím s tím, že předložím zaměstnavateli písemné doklady potřebné k vyúčtování cestovních náhrad a vrátím případnou nevyúčtovanou zálohu po skončení pracovní/služební cesty, a to i tehdy, je-li tento termín kratší, než stanoví § 183 odst. 3 zákona č. 262/2006 Sb., Zákoník práce: {{souhlas_cestovni}}')
+    _par(d, '3. bezhotovostním zasíláním peněžitého příspěvku na stravování na (níže uvedený) osobní účet, a to jedenkrát měsíčně ve výplatním termínu společně s výplatou platu: {{souhlas_stravovani}}')
+    _par(d, 'Plat, cestovní náhrady a peněžitý příspěvek na stravování poukazujte na tento účet:', before=8)
+    _par(d, '{{cislo_uctu_banka}}', bold=True, size=12)
+    _sign(d, 'podpis zaměstnance:')
+    d.save(path)
+
+if len(sys.argv) > 2 and sys.argv[1] == '--signing':
+    os.makedirs(sys.argv[2], exist_ok=True)
+    build_A(os.path.join(sys.argv[2], '09_osobni_dotaznik.docx'))
+    build_B(os.path.join(sys.argv[2], '10_prohlaseni_o_praxi.docx'))
+    build_C(os.path.join(sys.argv[2], '11_souhlas_s_bezhotovostnim_zasilanim.docx'))
+    print('OK podklady k podpisu')

@@ -1,4 +1,4 @@
-const APP_VERSION = '2026-10-22.1';
+const APP_VERSION = '2026-10-22.2';
 const STORAGE_INDEX_KEY = 'onboarding:index';
 const STORAGE_INFO_KEY = 'onboarding:info-content';
 const STORAGE_SETTINGS_KEY = 'onboarding:settings';
@@ -1363,7 +1363,7 @@ function render(){
     ${state.error ? `<div style="background:var(--red-tint);color:var(--red);padding:10px 14px;border-radius:3px;margin-bottom:16px;font-size:13px;">${esc(state.error)}</div>` : ''}
     </div>
     ${state.employeeMode ? `<button type="button" id="btn-help-fab" class="help-fab no-print" title="Nápověda (klávesa ?)">❓ Nápověda</button>` : ''}
-    ${state.view === 'list' ? renderList() : state.view === 'info-admin' ? renderInfoAdminPage() : state.view === 'settings' ? renderSettingsPage() : state.view === 'print-docs' ? renderPrintDocsPage() : state.view === 'import-mapping' ? renderImportMappingPage() : renderDetail()}
+    ${state.view === 'list' ? renderList() : state.view === 'info-admin' ? renderInfoAdminPage() : state.view === 'settings' ? renderSettingsPage() : state.view === 'import-mapping' ? renderImportMappingPage() : renderDetail()}
   `;
   attachHandlers();
   if(focusInfo){
@@ -1483,7 +1483,7 @@ function renderList(){
         <span style="font-size:13px;color:var(--ink-soft);">${selectedCount ? `Vybráno ${selectedCount} ke exportu` : 'Export do VEMY — vyberte zkontrolované spisy'}</span>
         <div class="export-btns">
           <button class="btn btn-primary btn-sm" id="btn-generate-vema" ${selectedCount===0 || state.exporting ? 'disabled':''}>${state.exporting ? 'Generuji…' : `Generovat tabulky pro VEMU${selectedCount?' ('+selectedCount+')':''}`}</button>
-          <button class="btn btn-ghost btn-sm" id="btn-confirm-upload" ${uploadableCount===0 ? 'disabled':''} title="Potvrdí, že tabulky byly nahrány do Vemy a ve Vemě zkontrolovány. Spis pak získá stav Nahráno a půjde u něj generovat dokumenty. Dostupné u spisů se stavem Vygenerováno.">Potvrdit nahrání do Vemy${uploadableCount?' ('+uploadableCount+')':''}</button>
+          <button class="btn btn-ghost btn-sm" id="btn-confirm-upload" ${uploadableCount===0 ? 'disabled':''} title="Potvrdí, že tabulky byly nahrány do Vemy a ve Vemě zkontrolovány. Spis pak získá stav Nahráno. Dostupné u spisů se stavem Vygenerováno.">Potvrdit nahrání do Vemy${uploadableCount?' ('+uploadableCount+')':''}</button>
           <button class="btn btn-ghost btn-sm" id="btn-purge-selected" ${purgeableCount===0 ? 'disabled':''} title="Smaže osobní údaje zaměstnanců u vybraných spisů se stavem Nahráno. Smažte až po vygenerování dokumentů – z nich pak už nejdou znovu vytvořit.">Smazat osobní údaje${purgeableCount?' ('+purgeableCount+')':''}</button>
         </div>
       </div>
@@ -2852,143 +2852,6 @@ function renderHrStatusPanel(r){
   return html;
 }
 
-function yesNoMark(val, yes, no){
-  if(val === yes) return `<strong>${esc(yes)}</strong> / ${esc(no)}`;
-  if(val === no) return `${esc(yes)} / <strong>${esc(no)}</strong>`;
-  return `${esc(yes)} / ${esc(no)}`;
-}
-
-function buildDocAHtml(r){
-  const p = r.personal;
-  const detiRows = (p.deti || []).map(d => `
-    <tr>
-      <td>${esc(d.jmeno||'')} ${esc(d.prijmeni||'')}</td>
-      <td>${esc(formatDate(d.datum_narozeni))||''}</td>
-      <td>${esc(d.rodne_cislo||'')}</td>
-      <td>${esc(d.bydliste||'')}</td>
-    </tr>`).join('') || `<tr><td colspan="4" style="color:var(--ink-faint);">Neuvedeno</td></tr>`;
-  return `
-    <div class="print-doc">
-      <h3 style="text-align:center;">Osobní dotazník</h3>
-      <table style="width:100%;border-collapse:collapse;font-size:13px;">
-        <tr><td style="padding:4px 0;width:50%;"><strong>Titul, jméno, příjmení, titul:</strong> ${esc(p.titul_pred)} ${esc(p.jmeno)} ${esc(p.prijmeni)} ${esc(p.titul_za)}</td>
-        <td style="padding:4px 0;"><strong>Osobní číslo (vyplní personální odbor):</strong> ${esc(p.osobni_cislo || '…………')}</td></tr>
-        <tr><td colspan="2" style="padding:4px 0;"><strong>Rodné příjmení:</strong> ${esc(p.rodne_prijmeni) || '—'}</td></tr>
-        <tr><td style="padding:4px 0;"><strong>Datum narození:</strong> ${esc(formatDate(p.datum_narozeni))}</td>
-        <td style="padding:4px 0;"><strong>Místo narození:</strong> ${esc(p.misto_narozeni)}${p.okres_narozeni?`, okres ${esc(p.okres_narozeni)}`:''}</td></tr>
-        <tr><td style="padding:4px 0;"><strong>Státní občanství:</strong> ${esc(p.statni_prislusnost)}</td>
-        <td style="padding:4px 0;"><strong>Rodinný stav:</strong> ${esc(p.rodinny_stav) || '—'}</td></tr>
-        <tr><td colspan="2" style="padding:4px 0;"><strong>Rodné číslo:</strong> ${esc(p.rodne_cislo)}</td></tr>
-        <tr><td colspan="2" style="padding:4px 0;"><strong>Trvalý pobyt:</strong> ${esc(p.trvale_ulice)} ${esc(p.trvale_cp)}${p.trvale_co?`/${esc(p.trvale_co)}`:''}, ${esc(p.trvale_psc)} ${esc(p.trvale_obec)}${p.kraj?`, kraj ${esc(p.kraj)}`:''}, ${esc(p.trvale_stat)}</td></tr>
-        <tr><td colspan="2" style="padding:4px 0;"><strong>Kontaktní adresa (liší-li se):</strong> ${esc(p.dorucovaci_adresa) || '—'}</td></tr>
-        <tr><td style="padding:4px 0;"><strong>Telefon:</strong> ${esc(p.telefon_soukromy)}</td>
-        <td style="padding:4px 0;"><strong>E-mail:</strong> ${esc(p.email_soukromy)}</td></tr>
-        <tr><td colspan="2" style="padding:4px 0;"><strong>Kontaktní osoba pro mimořádnou událost:</strong> ${esc(p.nouzovy_kontakt_jmeno) || '—'}${p.nouzovy_kontakt_telefon?`, tel. ${esc(p.nouzovy_kontakt_telefon)}`:''}${p.nouzovy_kontakt_adresa?`, ${esc(p.nouzovy_kontakt_adresa)}`:''}</td></tr>
-      </table>
-
-      <p style="font-weight:600;margin-top:16px;">Rodinní příslušníci</p>
-      <p><strong>Manžel(ka), druh, družka:</strong> ${esc(p.jmeno_manzela) || ''} ${esc(p.prijmeni_manzela) || ''}${!p.jmeno_manzela && !p.prijmeni_manzela ? '—' : ''}</p>
-      <p><strong>Datum narození:</strong> ${esc(formatDate(p.datum_narozeni_manzela)) || '—'} &nbsp; <strong>Státní občanství:</strong> ${esc(p.statni_obcanstvi_manzela) || '—'} &nbsp; <strong>Bydliště:</strong> ${esc(p.bydliste_manzela) || '—'}</p>
-      <p style="font-weight:600;margin-top:10px;">Děti</p>
-      <table style="width:100%;border-collapse:collapse;font-size:12.5px;">
-        <thead><tr>
-          <th style="border:1px solid #999;padding:4px;">Jméno a příjmení</th>
-          <th style="border:1px solid #999;padding:4px;">Datum narození</th>
-          <th style="border:1px solid #999;padding:4px;">Rodné číslo</th>
-          <th style="border:1px solid #999;padding:4px;">Bydliště (nezaopatřené)</th>
-        </tr></thead>
-        <tbody>${detiRows.replace(/<td>/g, '<td style="border:1px solid #999;padding:4px;">')}</tbody>
-      </table>
-
-      <p style="font-weight:600;margin-top:16px;">Vzdělání</p>
-      <p><strong>Stav:</strong> ${esc(p.stav_vzdelani) || '—'} &nbsp; <strong>Stupeň:</strong> ${esc(p.stupen_vzdelani) || '—'}</p>
-      <p><strong>Škola a obor:</strong> ${esc(p.skola) || ''}${p.obor?`, ${esc(p.obor)}`:''}${p.sidlo_skoly?` (${esc(p.sidlo_skoly)})`:''}</p>
-      <p><strong>Rok ukončení:</strong> ${esc(p.rok_ukonceni) || '—'} &nbsp; <strong>Druh zkoušky:</strong> ${esc(p.druh_zkousky) || '—'}</p>
-
-      <p style="font-weight:600;margin-top:16px;">Další údaje</p>
-      <p><strong>Přiznaný důchod:</strong> ${yesNoMark(p.duchod, 'ANO', 'NE')}${p.duchod === 'Ano' && p.duchod_detail ? ` — ${esc(p.duchod_detail)}` : ''}</p>
-      <p><strong>Zdravotní znevýhodnění:</strong> ${p.zdrav_postizeni_ozp && p.zdrav_postizeni_ozp !== 'Ne' ? esc(p.zdrav_postizeni_ozp) : 'Ne'}${p.prukaz_zdravotni && p.prukaz_zdravotni !== 'Nemám' ? `, ${esc(p.prukaz_zdravotni)}` : ''}</p>
-      <p><strong>Je proti Vám vedeno soudní řízení:</strong> ${yesNoMark(p.soudni_rizeni, 'ANO', 'NE')}${p.soudni_srazky ? ` — srážky: ${esc(p.soudni_srazky)}` : ''}</p>
-      <p><strong>Zdravotní pojišťovna:</strong> ${esc(p.zdravotni_pojistovna) || '—'} <span style="color:var(--ink-faint);">(doložit kopii ZP)</span></p>
-
-      <p style="margin-top:20px;">Prohlašuji, že všechny mnou uvedené údaje jsou pravdivé a nic jsem nezamlčel(a). Dále se zavazuji všechny změny těchto údajů bezodkladně oznamovat personálnímu oddělení.</p>
-      <p style="margin-top:30px;">V ……………………………… dne ………………………………</p>
-      <p style="margin-top:30px;">Podpis: ………………………………</p>
-    </div>
-  `;
-}
-
-function buildDocCHtml(r){
-  const p = r.personal;
-  return `
-    <div class="print-doc">
-      <h3 style="text-align:center;">Souhlas</h3>
-      <p style="text-align:center;font-weight:600;">s bezhotovostním zasíláním platu, cestovních náhrad a peněžitého příspěvku na stravování za kalendářní měsíc na osobní účet</p>
-      <p><strong>Jméno a příjmení zaměstnance:</strong> ${esc(p.jmeno)} ${esc(p.prijmeni)}</p>
-      <p><strong>Osobní číslo zaměstnance:</strong> ${esc(p.osobni_cislo || '…………')}</p>
-      <p>Tímto vyjadřuji a svým podpisem níže stvrzuji svůj souhlas s:</p>
-      <ol>
-        <li>bezhotovostním zasíláním svého platu na (níže uvedený) osobní účet, ${yesNoMark(p.souhlas_plat_ucet, 'ANO', 'NE')}</li>
-        <li>bezhotovostním zasíláním cestovních náhrad na (níže uvedený) osobní účet, a to jedenkrát měsíčně ve výplatním termínu společně s výplatou platu, souhrnnou částkou zahrnující všechny cestovní náhrady zúčtované v předcházejícím kalendářním měsíci. Dále prohlašuji, že jsem se se zaměstnavatelem dohodl/a a souhlasím s tím, že předložím zaměstnavateli písemné doklady potřebné k vyúčtování cestovních náhrad a vrátím případnou nevyúčtovanou zálohu po skončení pracovní/služební cesty, a to i tehdy, je-li tento termín kratší, než stanoví § 183 odst. 3 zákona č. 262/2006 Sb., Zákoník práce, ${yesNoMark(p.souhlas_cestovni_nahrady, 'ANO', 'NE')}</li>
-        <li>bezhotovostním zasíláním peněžitého příspěvku na stravování na (níže uvedený) osobní účet, a to jedenkrát měsíčně ve výplatním termínu společně s výplatou platu, ${yesNoMark(p.souhlas_stravovani, 'ANO', 'NE')}</li>
-      </ol>
-      <p>Plat, cestovní náhrady a peněžitý příspěvek na stravování poukazujte na tento účet:</p>
-      <p style="font-family:var(--font-mono);font-size:15px;">${esc(p.cislo_uctu || '……………………')}/${esc(p.kod_banky || '….')}</p>
-      <p style="margin-top:40px;">V ……………………………… dne ………………………………</p>
-      <p style="margin-top:30px;">podpis zaměstnance: ………………………………</p>
-    </div>
-  `;
-}
-
-function buildDocBHtml(r){
-  const p = r.personal;
-  const praxeRows = (p.praxe || []).map(x => `
-    <tr>
-      <td>${x.druh && x.druh !== 'Zaměstnání' ? `<b>${esc(x.druh)}</b>${x.organizace ? ' – ' : ''}` : ''}${esc(x.organizace||'')}${x.sidlo?`, ${esc(x.sidlo)}`:''}</td>
-      <td>${esc(x.pracovni_zarazeni||'')}</td>
-      <td>${esc(formatDate(x.od))||''}</td>
-      <td>${esc(formatDate(x.do))||''}</td>
-    </tr>`).join('') || `<tr><td colspan="4" style="color:var(--ink-faint);">Neuvedeno</td></tr>`;
-  const jazykyRows = (p.jazyky || []).map(x => `
-    <tr>
-      <td>${esc(x.jazyk||'')}</td>
-      <td>${esc(x.stupen_znalosti||'')}</td>
-      <td>${esc(x.stupen_osvedceni||'')}</td>
-      <td>${esc(x.pouzivani||'')}</td>
-    </tr>`).join('') || `<tr><td colspan="4" style="color:var(--ink-faint);">Neuvedeno</td></tr>`;
-  return `
-    <div class="print-doc">
-      <p>Já, <strong>${esc(p.jmeno)} ${esc(p.prijmeni)}</strong>, níže podepsaný/á, prohlašuji a potvrzuji svým vlastnoručním podpisem, že veškeré uvedené údaje jsou pravdivé a úplné. Jsem si vědom/a možných dopadů a důsledků (zejména přeřazení do nižšího platového stupně a pracovně právních postihů podle příslušných ustanovení zákoníku práce a zákona o státní službě) v případě, že mnou uváděné údaje budou shledány nepravdivými.</p>
-      <p style="font-weight:600;margin-top:16px;">Přehled průběhu předchozích zaměstnání, vojenské služby, mateřské dovolené, úřadu práce apod.</p>
-      <table style="width:100%;border-collapse:collapse;font-size:12.5px;">
-        <thead><tr>
-          <th style="border:1px solid #999;padding:4px;">Organizace</th>
-          <th style="border:1px solid #999;padding:4px;">Pracovní zařazení / vykonávaná činnost</th>
-          <th style="border:1px solid #999;padding:4px;">Od</th>
-          <th style="border:1px solid #999;padding:4px;">Do</th>
-        </tr></thead>
-        <tbody>${praxeRows.replace(/<td>/g, '<td style="border:1px solid #999;padding:4px;">')}</tbody>
-      </table>
-      <p style="margin-top:16px;">V minulosti jsem již byl/a ve služebním poměru: ${yesNoMark(p.sluzebni_pomer_drive, 'ANO', 'NE')}</p>
-      <p>Členství v řídících a kontrolních orgánech právnických osob provozujících podnikatelskou činnost: ${yesNoMark(p.clenstvi_organy, 'ANO', 'NE')}</p>
-      <p>Podnikatelská nebo výdělečná činnost vyžadující předchozí souhlas zaměstnavatele: ${yesNoMark(p.vydelecna_cinnost_souhlas, 'ANO', 'NE')}</p>
-      <p><strong>Kurzy, specifické odborné znalosti a dovednosti:</strong> ${esc(p.kurzy_dovednosti) || '…………………………………'}</p>
-      <p style="font-weight:600;margin-top:16px;">Jazykové znalosti</p>
-      <table style="width:100%;border-collapse:collapse;font-size:12.5px;">
-        <thead><tr>
-          <th style="border:1px solid #999;padding:4px;">Jazyk</th>
-          <th style="border:1px solid #999;padding:4px;">Stupeň znalosti</th>
-          <th style="border:1px solid #999;padding:4px;">Stupeň osvědčení</th>
-          <th style="border:1px solid #999;padding:4px;">Používání</th>
-        </tr></thead>
-        <tbody>${jazykyRows.replace(/<td>/g, '<td style="border:1px solid #999;padding:4px;">')}</tbody>
-      </table>
-      <p style="margin-top:40px;">V ……………………………… dne ………………………………</p>
-      <p style="margin-top:30px;">podpis: ………………………………</p>
-    </div>
-  `;
-}
-
 function renderImportMappingPage(){
   const cur = state.importCurrent;
   if(!cur) return `<p>Není co mapovat.</p>`;
@@ -3082,43 +2945,13 @@ function renderImportMappingPage(){
 }
 
 
-function renderPrintDocsPage(){
-  const r = state.currentRecord;
-  const assignedEmail = r.checklist.email && r.checklist.email.value;
-  return `
-    <div class="no-print" style="margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
-      <button class="btn btn-ghost btn-sm" id="btn-back-print-docs">← Zpět na spis</button>
-      <div style="display:flex;gap:8px;">
-        <button class="btn btn-ghost btn-sm" id="btn-email-docs" ${assignedEmail ? '' : 'disabled title="Zaměstnanec zatím nemá přidělený e-mail (viz IT a přístupy → Entra ID)"'}>Odeslat e-mailem${assignedEmail ? ` (${esc(assignedEmail)})` : ''}</button>
-        <button class="btn btn-primary btn-sm" id="btn-print-docs">Tisk / Uložit jako PDF</button>
-      </div>
-    </div>
-    <p class="no-print" style="font-size:12.5px;color:var(--ink-soft);margin-bottom:16px;">Podklady jsou předvyplněné z údajů zadaných ve formuláři — před podpisem je prosím zkontrolujte. Nahrazují ruční přepisování do samostatných dokumentů A, B a C, podpis (vlastnoruční nebo elektronický) je pořád potřeba zajistit mimo tuto aplikaci. „Odeslat e-mailem" otevře váš e-mailový klient s předvyplněným příjemcem — přílohu (uložené PDF) je potřeba připojit ručně, prohlížeče to automaticky neumí.</p>
-    <div class="panel print-page">
-      <h4>A — Osobní dotazník</h4>
-      ${buildDocAHtml(r)}
-    </div>
-    <div class="panel print-page" style="margin-top:20px;">
-      <h4>B — Prohlášení o průběhu předchozích zaměstnání a činností</h4>
-      ${buildDocBHtml(r)}
-    </div>
-    <div class="panel print-page" style="margin-top:20px;">
-      <h4>C — Souhlas se zasíláním platu na osobní účet</h4>
-      ${buildDocCHtml(r)}
-    </div>
-  `;
-}
-
 function renderPersonalForm(r){
   const role = state.role;
   let out = '';
   if(role === 'hr'){
     out += renderHrStatusPanel(r);
-    const isReviewed = (r.personalStatus || 'draft') === 'reviewed';
     out += `<div style="margin-bottom:16px;">
-      <button class="btn btn-ghost btn-sm" id="btn-generate-print-docs" ${isReviewed ? '' : 'disabled title="Nejdřív schvalte údaje (tlačítko Schválit údaje výše)"'}>Vygenerovat podklady k podpisu (A, B, C) →</button>
-      <button class="btn btn-ghost btn-sm" id="btn-open-docs-detail" ${r.vemaUploadedAt && !r.personalPurgedAt ? '' : 'disabled title="Dostupné po potvrzení nahrání do Vemy (stav Nahráno)."'}>📄 Dokumenty podle vzorů (Word, PDF) →</button>
-      ${!isReviewed ? '<p style="font-size:12px;color:var(--ink-faint);margin:4px 0 0;">Dostupné až po schválení údajů.</p>' : ''}
+      <button class="btn btn-ghost btn-sm" id="btn-open-docs-detail" ${(r.personalStatus || 'draft') === 'reviewed' && !r.personalPurgedAt ? '' : 'disabled title="Dostupné po schválení údajů (Schválit údaje)."'}>📄 Dokumenty podle vzorů (Word, PDF) →</button>
     </div>`;
     out += `<div class="owner-legend">
       <span class="owner-legend-item"><span class="owner-swatch owner-swatch-employee"></span>Vyplňuje zaměstnanec</span>
@@ -3768,21 +3601,6 @@ function attachHandlers(){
 
   const openDocsDetailBtn = document.getElementById('btn-open-docs-detail');
   if(openDocsDetailBtn) openDocsDetailBtn.addEventListener('click', () => openDocsModal(state.currentId));
-  const genPrintDocsBtn = document.getElementById('btn-generate-print-docs');
-  if(genPrintDocsBtn) genPrintDocsBtn.addEventListener('click', () => { state.view='print-docs'; render(); });
-  const backPrintDocsBtn = document.getElementById('btn-back-print-docs');
-  if(backPrintDocsBtn) backPrintDocsBtn.addEventListener('click', () => { state.view='detail'; render(); });
-  const printDocsBtn = document.getElementById('btn-print-docs');
-  if(printDocsBtn) printDocsBtn.addEventListener('click', () => { window.print(); });
-  const emailDocsBtn = document.getElementById('btn-email-docs');
-  if(emailDocsBtn) emailDocsBtn.addEventListener('click', () => {
-    const r = state.currentRecord;
-    const assignedEmail = r.checklist.email && r.checklist.email.value;
-    if(!assignedEmail) return;
-    const subject = `Podklady k podpisu — ${r.personal.jmeno} ${r.personal.prijmeni}`;
-    const body = `Dobrý den,\n\nv příloze zasíláme podklady k podpisu: Osobní dotazník (A), Prohlášení o průběhu předchozích zaměstnání a činností (B) a Souhlas se zasíláním platu na osobní účet (C).\n\nProsím o kontrolu údajů, podpis a zaslání zpět personálnímu oddělení.\n\n(Nezapomeňte prosím přiložit uložené PDF — příloha se z prohlížeče nepřipojuje automaticky.)\n\nS pozdravem`;
-    window.location.href = `mailto:${encodeURIComponent(assignedEmail)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-  });
 
   const consentChk = document.getElementById('chk-consent');
   const consentBtn = document.getElementById('btn-consent-confirm');
@@ -5274,6 +5092,9 @@ const DOC_TEMPLATES = [
   { id:'osv_oc',   base:'Osvědčení_obecná_část',                  title:'Osvědčení o rovnocennosti obecné části úřednické zkoušky',  file:'templates/osvedceni_obecna_cast.docx',                 when:'optional' },
   { id:'osv_zc',   base:'Osvědčení_zvláštní_část',                title:'Osvědčení o rovnocennosti zvláštní části úřednické zkoušky',file:'templates/osvedceni_zvlastni_cast.docx',               when:'optional' },
   { id:'dohoda',   base:'Dohoda_o_výkonu_služby_z_jiného_místa',  title:'Dohoda o výkonu služby z jiného místa',                     file:'templates/dohoda_o_vykonu_sluzby_z_jineho_mista.docx', when:'optional' },
+  { id:'dotaznik', base:'09_Osobní_dotazník',                     title:'Osobní dotazník (A)',                                       file:'templates/09_osobni_dotaznik.docx',                    when:'both' },
+  { id:'praxe',    base:'10_Prohlášení_o_praxi',                  title:'Prohlášení o průběhu předchozích zaměstnání a činností (B)',file:'templates/10_prohlaseni_o_praxi.docx',                 when:'both' },
+  { id:'ucet',     base:'11_Souhlas_s_bezhotovostním_zasíláním',  title:'Souhlas se zasíláním platu na osobní účet (C)',             file:'templates/11_souhlas_s_bezhotovostnim_zasilanim.docx', when:'both' },
   { id:'priloha',  base:'Příloha_1_Prohlášení_BOZP',              title:'Příloha č. 1 – Prohlášení k dodržování BOZP (služba z jiného místa)', file:'templates/priloha_1_prohlaseni_BOZP.docx',   when:'optional' },
 ];
 const DOC_WHEN_LABEL = { both:'všichni', pracovni:'pracovní poměr', sluzebni:'služební poměr', optional:'dle potřeby' };
@@ -5315,7 +5136,45 @@ function docValues(r){
   }
   const misto = [p.misto_narozeni, p.okres_narozeni ? 'okres ' + p.okres_narozeni : ''].filter(Boolean).join(', ');
   const dots = '……………………';
+  const yn = (v, yes, no) => { const x = String(v || '').trim().toLowerCase(); return x === yes.toLowerCase() ? yes : x === no.toLowerCase() ? no : yes + ' / ' + no; };
+  const dash = v => (String(v == null ? '' : v).trim()) || '—';
   return {
+    __rows: {
+      deti: (p.deti || []).map(d => ({ jmeno: [d.jmeno, d.prijmeni].filter(Boolean).join(' '), datum: csDate(d.datum_narozeni), rodne_cislo: d.rodne_cislo || '', bydliste: d.bydliste || '' })),
+      praxe: (p.praxe || []).map(x => ({ organizace: (x.druh && x.druh !== 'Zaměstnání' ? x.druh + (x.organizace ? ' – ' : '') : '') + (x.organizace || '') + (x.sidlo ? ', ' + x.sidlo : ''), zarazeni: x.pracovni_zarazeni || '', od: csDate(x.od), do: csDate(x.do) })),
+      jazyky: (p.jazyky || []).map(x => ({ jazyk: x.jazyk || '', znalost: x.stupen_znalosti || '', osvedceni: x.stupen_osvedceni || '', pouzivani: x.pouzivani || '' })),
+    },
+    rodne_prijmeni: dash(p.rodne_prijmeni),
+    misto_narozeni: misto,
+    statni_prislusnost: p.statni_prislusnost || '',
+    rodinny_stav: dash(p.rodinny_stav),
+    rodne_cislo: p.rodne_cislo || '',
+    adresa_trvala_plna: [adr, p.kraj ? 'kraj ' + p.kraj : '', p.trvale_stat].filter(Boolean).join(', '),
+    dorucovaci_adresa: dash(p.dorucovaci_adresa),
+    telefon: p.telefon_soukromy || '',
+    email_soukromy: p.email_soukromy || '',
+    nouzovy_kontakt: dash([p.nouzovy_kontakt_jmeno, p.nouzovy_kontakt_telefon ? 'tel. ' + p.nouzovy_kontakt_telefon : '', p.nouzovy_kontakt_adresa].filter(Boolean).join(', ')),
+    manzel_jmeno: dash([p.jmeno_manzela, p.prijmeni_manzela].filter(Boolean).join(' ')),
+    manzel_datum_narozeni: dash(csDate(p.datum_narozeni_manzela)),
+    manzel_obcanstvi: dash(p.statni_obcanstvi_manzela),
+    manzel_bydliste: dash(p.bydliste_manzela),
+    stav_vzdelani: dash(p.stav_vzdelani),
+    stupen_vzdelani: dash(p.stupen_vzdelani),
+    skola_obor: [p.skola, p.obor, p.sidlo_skoly ? '(' + p.sidlo_skoly + ')' : ''].filter(Boolean).join(', ') || '—',
+    rok_ukonceni: dash(p.rok_ukonceni),
+    druh_zkousky: dash(p.druh_zkousky),
+    duchod: yn(p.duchod, 'ANO', 'NE') + (String(p.duchod || '').toLowerCase() === 'ano' && p.duchod_detail ? ' — ' + p.duchod_detail : ''),
+    zdravotni_znevyhodneni: (p.zdrav_postizeni_ozp && p.zdrav_postizeni_ozp !== 'Ne' ? p.zdrav_postizeni_ozp : 'Ne') + (p.prukaz_zdravotni && p.prukaz_zdravotni !== 'Nemám' ? ', ' + p.prukaz_zdravotni : ''),
+    soudni_rizeni: yn(p.soudni_rizeni, 'ANO', 'NE') + (p.soudni_srazky ? ' — srážky: ' + p.soudni_srazky : ''),
+    zdravotni_pojistovna: dash(p.zdravotni_pojistovna),
+    sluzebni_pomer_drive: yn(p.sluzebni_pomer_drive, 'ANO', 'NE'),
+    clenstvi_organy: yn(p.clenstvi_organy, 'ANO', 'NE'),
+    vydelecna_cinnost: yn(p.vydelecna_cinnost_souhlas, 'ANO', 'NE'),
+    kurzy_dovednosti: dash(p.kurzy_dovednosti),
+    souhlas_plat: yn(p.souhlas_plat_ucet, 'ANO', 'NE'),
+    souhlas_cestovni: yn(p.souhlas_cestovni_nahrady, 'ANO', 'NE'),
+    souhlas_stravovani: yn(p.souhlas_stravovani, 'ANO', 'NE'),
+    cislo_uctu_banka: (p.cislo_uctu || '……………………') + '/' + (p.kod_banky || '….'),
     jmeno_cele: jmenoCele,
     prijmeni_jmeno_titul: [[(p.prijmeni || '').trim(), (p.jmeno || '').trim()].filter(Boolean).join(' '), titulyPred, titulZa].filter(Boolean).join(', '),
     osobni_cislo: p.osobni_cislo || dots,
@@ -5370,7 +5229,7 @@ function openConfirmUploadModal(ids){
   backdrop.innerHTML = `
     <div class="modal">
       <h3>Potvrdit nahrání do Vemy (${ids.length})?</h3>
-      <p style="font-size:13.5px;color:var(--ink-soft);">Potvrzujete, že tabulky pro vybrané spisy byly <strong>nahrány do Vemy a ve Vemě zkontrolovány</strong>. Spisy získají stav <strong>Nahráno</strong> a půjde u nich generovat dokumenty (Word, PDF).</p>
+      <p style="font-size:13.5px;color:var(--ink-soft);">Potvrzujete, že tabulky pro vybrané spisy byly <strong>nahrány do Vemy a ve Vemě zkontrolovány</strong>. Spisy získají stav <strong>Nahráno</strong>.</p>
       <div class="modal-actions">
         <button class="btn btn-ghost" id="cu-cancel">Zrušit</button>
         <button class="btn btn-primary" id="cu-confirm">Ano, je nahráno</button>
@@ -5431,6 +5290,16 @@ const TEMPLATE_TOKENS = [
   ['doba_trvani_mala','„určitou“ / „neurčitou“ (malé písmeno)'],
   ['zkusebni_doba','Zkušební doba (text z formuláře)'],
   ['zkusebni_doba_text','Zkušební doba ve měsících se správným tvarem (např. 6 měsíců)'],
+  ['rodne_prijmeni','Rodné příjmení'],['misto_narozeni','Místo narození (včetně okresu)'],['statni_prislusnost','Státní občanství'],['rodinny_stav','Rodinný stav'],['rodne_cislo','Rodné číslo'],
+  ['adresa_trvala_plna','Trvalý pobyt včetně kraje a státu'],['dorucovaci_adresa','Kontaktní adresa (jinak „—“)'],['telefon','Soukromý telefon'],['email_soukromy','Soukromý e-mail'],['nouzovy_kontakt','Kontaktní osoba pro mimořádnou událost'],
+  ['manzel_jmeno','Manžel(ka), druh, družka – jméno'],['manzel_datum_narozeni','Manžel(ka) – datum narození'],['manzel_obcanstvi','Manžel(ka) – státní občanství'],['manzel_bydliste','Manžel(ka) – bydliště'],
+  ['deti_jmeno','Děti – jméno a příjmení (opakuje se řádek tabulky pro každé dítě)'],['deti_datum','Děti – datum narození (řádek tabulky)'],['deti_rodne_cislo','Děti – rodné číslo (řádek tabulky)'],['deti_bydliste','Děti – bydliště (řádek tabulky)'],
+  ['stav_vzdelani','Vzdělání – stav'],['stupen_vzdelani','Vzdělání – stupeň'],['skola_obor','Škola, obor, sídlo školy'],['rok_ukonceni','Rok ukončení'],['druh_zkousky','Druh zkoušky'],
+  ['duchod','Přiznaný důchod (ANO / NE)'],['zdravotni_znevyhodneni','Zdravotní znevýhodnění'],['soudni_rizeni','Soudní řízení (ANO / NE, srážky)'],['zdravotni_pojistovna','Zdravotní pojišťovna'],
+  ['praxe_organizace','Praxe – organizace (opakuje se řádek tabulky)'],['praxe_zarazeni','Praxe – pracovní zařazení (řádek tabulky)'],['praxe_od','Praxe – od (řádek tabulky)'],['praxe_do','Praxe – do (řádek tabulky)'],
+  ['sluzebni_pomer_drive','Dříve ve služebním poměru (ANO / NE)'],['clenstvi_organy','Členství v řídících a kontrolních orgánech (ANO / NE)'],['vydelecna_cinnost','Výdělečná činnost vyžadující souhlas (ANO / NE)'],['kurzy_dovednosti','Kurzy, odborné znalosti a dovednosti'],
+  ['jazyky_jazyk','Jazyky – jazyk (opakuje se řádek tabulky)'],['jazyky_znalost','Jazyky – stupeň znalosti (řádek tabulky)'],['jazyky_osvedceni','Jazyky – stupeň osvědčení (řádek tabulky)'],['jazyky_pouzivani','Jazyky – používání (řádek tabulky)'],
+  ['souhlas_plat','Souhlas se zasíláním platu na účet (ANO / NE)'],['souhlas_cestovni','Souhlas – cestovní náhrady (ANO / NE)'],['souhlas_stravovani','Souhlas – stravování (ANO / NE)'],['cislo_uctu_banka','Číslo účtu / kód banky'],
 ];
 let tplOverrides = null;   // id -> {fileName, uploadedAt, uploadedBy, data(base64)}
 async function loadTemplateOverrides(force){
@@ -6414,7 +6283,7 @@ const HELP_EMP = [
    KAŽDOU NOVOU FUNKCI NEBO ZMĚNU CHOVÁNÍ DOPLNIT SEM (a zvýšit APP_VERSION + ?v= v index.html). */
 const HELP = [
  {g:'Jak to celé funguje',items:[
-  ['🧭','Postup od nástupu po VEMU','1) Založíte spis (ručně, z organigramu nebo z Excelu). 2) Doplníte údaje personálního oddělení. 3) Vygenerujete odkaz a pošlete ho zaměstnanci. 4) Zaměstnanec vyplní a odešle. 5) Údaje zkontrolujete a <b>schválíte</b> (nebo vrátíte k doplnění). 6) Vygenerujete tabulky pro VEMU, nahrajete je do Vemy a po kontrole <b>potvrdíte nahrání</b> (stav Nahráno). 7) U spisu ve stavu Nahráno vygenerujete <b>dokumenty podle vzorů</b> (Word, PDF). IT a provoz si mezitím plní své záložky.'],
+  ['🧭','Postup od nástupu po VEMU','1) Založíte spis (ručně, z organigramu nebo z Excelu). 2) Doplníte údaje personálního oddělení. 3) Vygenerujete odkaz a pošlete ho zaměstnanci. 4) Zaměstnanec vyplní a odešle. 5) Údaje zkontrolujete a <b>schválíte</b> (nebo vrátíte k doplnění). 6) Vygenerujete tabulky pro VEMU, nahrajete je do Vemy a po kontrole <b>potvrdíte nahrání</b> (stav Nahráno). 7) Dokumenty podle vzorů (včetně podkladů k podpisu A, B, C) vygenerujete ve spisu po schválení údajů (Word, PDF). IT a provoz si mezitím plní své záložky.'],
   ['🔐','Přihlášení a pohled','Přihlášení je e-mailem. Přepínač <b>Zobrazit jako</b> přepíná mezi pohledem <b>Personální oddělení</b> a <b>IT a provoz</b>. Nastavení (⚙) je jen v pohledu personálního oddělení.'],
   ['❓','Nápověda','Otevře se odkazem <b>? Nápověda</b> v záhlaví nebo klávesou <kbd>?</kbd>, zavře <kbd>Esc</kbd>. Políčko nahoře filtruje témata.']]},
  {g:'Rejstřík (seznam spisů)',items:[
@@ -6445,9 +6314,8 @@ const HELP = [
   ['📊','Generovat tabulky pro VEMU','V rejstříku zaškrtněte zkontrolované spisy (výběr lze udělat hromadně v záhlaví) a použijte <b>Generovat tabulky pro VEMU</b>. Stav „Vygenerováno“ se u spisu zapamatuje; po nahrání do Vemy a kontrole tlačítkem <b>Potvrdit nahrání do Vemy</b> (vedle Generovat) přejde na „Nahráno“. Když tabulky vygenerujete znovu, stav se vrátí na „Vygenerováno“. Výsledkem je <b>ZIP s datem a časem generování v názvu</b> (např. VEMA_export_20261020-1015.zip); každá tabulka je v něm samostatný soubor .xlsx (ZHLAV, Adresy, Bankovni_ucty, Deti, Vzdelani, Predchozi_zamestnani, Znalosti_jazyky a číselníky Ciselnik_pracovist a Ciselnik_utvaru). Datumy jsou ve tvaru DDMMRR, zkušební doba (zkusd) a platová skupina (plasku) jsou číslo (bez zkušební doby = 0) a útvar (utvar) je číselný kód z číselníku útvarů Vemy. Ve spisu (pole Odbor / oddělení) se v nabídce zobrazuje i kód útvaru a do pole lze přímo napsat kód (např. 821) nebo část názvu. Kódy útvarů se předvyplňují podle názvu a jdou upravit v Nastavení → Odbory / oddělení (tlačítko <b>Doplnit podle systemizace</b> přidá chybějící útvary). Pevné hodnoty a kódy pracovišť se nastavují v Nastavení.'],
   ['🔢','Osobní čísla','Osobní číslo se novému spisu <b>přidělí automaticky</b> při založení i při importu – vždy nejnižší volné číslo od začátku zadaného v <b>Nastavení → Osobní čísla</b> (tak se vynechá interval čísel zaměstnanců DESÚ, kteří je už mají). V rejstříku je pod jménem místo kódu spisu a ve spisu je pole <b>Osobní číslo</b> jen ke čtení. Smažete-li spis dřív, než se pro něj vygenerují tabulky pro Vemu, číslo se uvolní a přidělí se dalšímu; po vygenerování tabulek se znovu nepoužije. Při odchodu z Nastavení s neuloženými změnami (Zpět, přepnutí pohledu, Odhlásit) se aplikace zeptá, zda změny uložit, zahodit, nebo zůstat. Spisům založeným dřív se číslo samo nepřidělí (smažte je a založte znovu); pokud není začátek v Nastavení vyplněný, čísla se nepřidělují.'],
   ['🗂️','Vzory dokumentů (Nastavení)','V <b>Nastavení → Vzory dokumentů</b> je seznam všech vzorů, ze kterých se dokumenty generují. U každého jde <b>Stáhnout</b> aktuální vzor, <b>Nahradit…</b> ho novou verzí (soubor Word .docx) a <b>Vrátit výchozí</b> (smaže nahraný vzor a vrátí vzor dodaný s aplikací). Nahraný vzor platí hned pro další generování; ukládá se okamžitě, není potřeba Uložit nastavení. Před nahráním aplikace zkontroluje soubor a vypíše nalezená zástupná pole <code>{{pole}}</code> a upozorní na neznámá. Přehled polí je v rozbalovací části „Zástupná pole pro vzory“. Už vygenerované dokumenty se nemění.'],
-  ['📄','Dokumenty podle vzorů','U spisu ve stavu <b>Nahráno</b> je ve spisu (sekce s podklady) tlačítko <b>Dokumenty podle vzorů</b>. Otevře se seznam všech vzorů se zaškrtávátky a volbou <b>Označit vše</b>; předem jsou zaškrtnuté ty, které odpovídají typu poměru (pracovní: platový výměr, pracovní smlouva; služební: informace o pracovním poměru; všichni: kritéria hodnocení, portrétní fotografie, školení BOZP, interní předpisy; dle potřeby: osvědčení o rovnocennosti zkoušek, dohoda o výkonu služby z jiného místa a její příloha). Tlačítkem <b>Vygenerovat</b> se každý dokument vyplní z údajů ve spisu a vytvoří se Word i PDF. U každého je <b>Zobrazit PDF</b>, <b>⬇ PDF</b> a <b>⬇ Word</b>; všechno najednou stáhnete jako <b>ZIP</b>. Názvy souborů jsou ve tvaru <b>Příjmení_Jméno_název.docx / .pdf</b>. Údaje, které ve spisu nejsou (č. j., datum podpisu, osobní číslo, které se nevyplnilo), zůstanou k ručnímu doplnění. PDF se vytváří přímo v prohlížeči, takže se může od Wordu lehce lišit zalomením stránek – Word je přesný. Vzory jsou ve složce <code>templates</code> a po změně vzoru se nahradí příslušný soubor. Dokumenty se generují z osobních údajů, proto je vytvořte před smazáním údajů.'],
-  ['🧹','Smazání osobních údajů','Po nahrání do Vemy a ověření, že je vše správně, vyberte v rejstříku spisy a klikněte na <b>Smazat osobní údaje</b>. Tlačítko je aktivní jen u spisů ve stavu <b>Nahráno</b>. Smažte až po vygenerování dokumentů (z údajů se pak už znovu vytvořit nedají). Nevratně se smažou osobní údaje zaměstnance (zůstane jméno, pozice, pracoviště, datum nástupu a stavy) a jeho odkaz dál otevře jen záložku „Co potřebujete vědět“. Pokud smazání zapomenete, proběhne automaticky 60 dní po vygenerování tabulek.'],
-  ['🖨️','Tištěné podklady','Ve spisu <b>Tisk podkladů</b>: A – Osobní dotazník, B – Prohlášení o předchozích zaměstnáních, C – Souhlas se zasíláním platu na účet. Předvyplněno z formuláře; lze tisknout/uložit jako PDF nebo odeslat e-mailem (potřebuje přidělený e-mail zaměstnance).']]},
+  ['📄','Dokumenty podle vzorů','Po <b>schválení údajů</b> je ve spisu tlačítko <b>Dokumenty podle vzorů</b> (samostatné „podklady k podpisu“ už neexistují – jsou součástí téhož výběru). Otevře se seznam všech vzorů se zaškrtávátky a volbou <b>Označit vše</b>; předem jsou zaškrtnuté ty, které odpovídají typu poměru (pracovní: platový výměr, pracovní smlouva; služební: informace o pracovním poměru; všichni: kritéria hodnocení, portrétní fotografie, školení BOZP, interní předpisy a podklady k podpisu – osobní dotazník (A), prohlášení o průběhu předchozích zaměstnání (B) a souhlas se zasíláním platu na účet (C); dle potřeby: osvědčení o rovnocennosti zkoušek, dohoda o výkonu služby z jiného místa a její příloha). Tlačítkem <b>Vygenerovat</b> se každý dokument vyplní z údajů ve spisu a vytvoří se Word i PDF. U každého je <b>Zobrazit PDF</b>, <b>⬇ PDF</b> a <b>⬇ Word</b>; všechno najednou stáhnete jako <b>ZIP</b>. Názvy souborů jsou ve tvaru <b>Příjmení_Jméno_název.docx / .pdf</b>. Údaje, které ve spisu nejsou (č. j., datum podpisu, osobní číslo, které se nevyplnilo), zůstanou k ručnímu doplnění. PDF se vytváří přímo v prohlížeči, takže se může od Wordu lehce lišit zalomením stránek – Word je přesný. Vzory jsou ve složce <code>templates</code> a po změně vzoru se nahradí příslušný soubor. Dokumenty se generují z osobních údajů, proto je vytvořte před smazáním údajů.'],
+  ['🧹','Smazání osobních údajů','Po nahrání do Vemy a ověření, že je vše správně, vyberte v rejstříku spisy a klikněte na <b>Smazat osobní údaje</b>. Tlačítko je aktivní jen u spisů ve stavu <b>Nahráno</b>. Smažte až po vygenerování dokumentů (z údajů se pak už znovu vytvořit nedají). Nevratně se smažou osobní údaje zaměstnance (zůstane jméno, pozice, pracoviště, datum nástupu a stavy) a jeho odkaz dál otevře jen záložku „Co potřebujete vědět“. Pokud smazání zapomenete, proběhne automaticky 60 dní po vygenerování tabulek.']]},
  {g:'IT a provoz (stručně)',items:[
   ['💻','Přiřazení administrátora','V pohledu IT a provoz lze spisy hromadně přiřadit administrátorovi systémů. Záložky <b>IT a přístupy</b> a <b>Provoz</b> obsahují checklisty podle kategorie zaměstnance.']]},
  {g:'Nastavení (⚙)',items:[
