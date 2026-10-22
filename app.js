@@ -1,4 +1,4 @@
-const APP_VERSION = '2026-10-22.2';
+const APP_VERSION = '2026-10-22.3';
 const STORAGE_INDEX_KEY = 'onboarding:index';
 const STORAGE_INFO_KEY = 'onboarding:info-content';
 const STORAGE_SETTINGS_KEY = 'onboarding:settings';
@@ -5407,7 +5407,7 @@ async function openDocsModal(id){
   if(rec.personalPurgedAt){ showToast('Osobní údaje byly smazány – dokumenty už nejde vygenerovat.', true); return; }
   const p = rec.personal || {};
   const regime = p.rezim_zamestnani;
-  const preset = t => t.when === 'both' || (t.when === 'pracovni' && regime === 'Pracovní poměr') || (t.when === 'sluzebni' && regime === 'Služební poměr');
+  const preset = t => true;   // předvybráno je všechno, zbytečné se odškrtá
   const name = [p.jmeno, p.prijmeni].filter(Boolean).join(' ') || 'zaměstnanec';
   const backdrop = document.createElement('div');
   backdrop.className = 'modal-backdrop';
@@ -5418,7 +5418,7 @@ async function openDocsModal(id){
     <div class="modal docs-modal">
       <h3>Dokumenty – ${esc(name)}</h3>
       <div id="docs-pick">
-        <p class="docs-intro">Dokumenty se vyplní z údajů ve spisu podle aktuálních vzorů. Předem jsou zaškrtnuté ty, které odpovídají typu poměru${regime ? ' (' + esc(regime.toLowerCase()) + ')' : ''}.</p>
+        <p class="docs-intro">Dokumenty se vyplní z údajů ve spisu podle aktuálních vzorů. Předem je zaškrtnuté všechno, nepotřebné odškrtněte.</p>
         <label class="docs-row docs-all"><input type="checkbox" id="docs-all"><span class="docs-row-main"><span class="docs-row-title">Označit vše</span></span></label>
         <div class="docs-list">${rowsHtml}</div>
       </div>
