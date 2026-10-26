@@ -1,4 +1,4 @@
-const APP_VERSION = '2026-10-26.1';
+const APP_VERSION = '2026-10-26.2';
 const STORAGE_INDEX_KEY = 'onboarding:index';
 const STORAGE_INFO_KEY = 'onboarding:info-content';
 const STORAGE_SETTINGS_KEY = 'onboarding:settings';
@@ -2087,7 +2087,7 @@ function renderSettingsPage(){
 
     <div class="panel" style="margin-bottom:20px;">
       ${settingsPanelStart('notify', 'Upozornění na odevzdaný dotazník')}
-      <p style="font-size:12.5px;color:var(--ink-faint);margin:0 0 12px;">Když zaměstnanec dotazník vyplní a odešle personálnímu oddělení, přijde e-mail osobě, která mu odkaz vygenerovala. U odkazů vygenerovaných dříve (nebo bez zjištěné osoby) se použije tento záložní e-mail. Odesílání zajišťuje funkce <code>notify-submitted</code> v Supabase (viz <code>supabase/README.md</code>).</p>
+      <p style="font-size:12.5px;color:var(--ink-faint);margin:0 0 12px;">Po odeslání dotazníku nabídne aplikace zaměstnanci tlačítko, které otevře předvyplněný e-mail osobě, jež mu odkaz vygenerovala (odešle ho zaměstnanec ze své schránky). U odkazů vygenerovaných dříve (nebo bez zjištěné osoby) se použije tento záložní e-mail.</p>
       <div class="contact-edit-row" style="grid-template-columns:280px 1fr;">
         <label style="font-size:13px;align-self:center;">Záložní e-mail pro upozornění</label>
         <input data-notify-email type="email" value="${esc(draft.notifyEmail||'')}">
@@ -2980,9 +2980,23 @@ function renderPersonalForm(r){
   return out;
 }
 
+// Upozornění personálního oddělení e-mailem ze schránky zaměstnance (mailto): příjemce = osoba, která odkaz vygenerovala, jinak záložní e-mail z Nastavení
+function notifyMailtoUrl(r){
+  const to = String(r.linkGeneratedBy || (state.settings && state.settings.notifyEmail) || '').trim();
+  if(!to) return '';
+  const p = r.personal || {};
+  const name = [p.jmeno, p.prijmeni].filter(Boolean).join(' ');
+  const subject = `Dotazník vyplněn${name ? ': ' + name : ''}`;
+  const body = `Dobrý den,\n\nvyplnil/a jsem a odeslal/a dotazník v aplikaci Onboarding. Prosím o jeho kontrolu.\n\n${name}${p.pozice ? '\n' + p.pozice : ''}\n\nDěkuji`;
+  return `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+}
+
 function wizardFinishButton(r){
   const status = r.personalStatus || 'draft';
-  if(status === 'submitted') return `<button class="btn btn-ghost" disabled>Odesláno, čeká na kontrolu</button> <button class="btn btn-ghost btn-sm" data-wizard="withdraw">Stáhnout zpět a opravit</button>`;
+  if(status === 'submitted'){
+    const mailto = state.role === 'employee' ? notifyMailtoUrl(r) : '';
+    return `<button class="btn btn-ghost" disabled>Odesláno, čeká na kontrolu</button> ${mailto ? `<a class="btn btn-ghost btn-sm" href="${esc(mailto)}">✉ Upozornit personální oddělení e-mailem</a> ` : ''}<button class="btn btn-ghost btn-sm" data-wizard="withdraw">Stáhnout zpět a opravit</button>`;
+  }
   if(status === 'reviewed') return `<button class="btn btn-ghost" disabled>Zkontrolováno ✓</button>`;
   const label = status === 'returned' ? 'Odeslat opravená data znovu' : 'Odeslat personálnímu oddělení';
   return `<button class="btn btn-primary" data-wizard="finish">${label}</button>`;
@@ -5803,10 +5817,19 @@ function openSubmitConfirmModal(){
       err.textContent = 'Odeslání se nezdařilo – údaje NEBYLY odeslány. ' + (reason || state.error || 'Zkuste to prosím znovu, případně kontaktujte personální oddělení.');
       return;
     }
-    backdrop.remove();
     persistCurrentRecord();
-    window.scrollTo({top:0, behavior:'smooth'});
-    render();
+    const mailto = notifyMailtoUrl(state.currentRecord);
+    const finish = () => { backdrop.remove(); window.scrollTo({top:0, behavior:'smooth'}); render(); };
+    if(!mailto){ finish(); return; }
+    backdrop.querySelector('.modal').innerHTML = `
+      <h3>Údaje byly odeslány ✓</h3>
+      <p style="font-size:13.5px;color:var(--ink-soft);">Aby se personální oddělení o dotazníku dozvědělo hned, otevřete tlačítkem níže připravený e-mail a odešlete ho ze své schránky.</p>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="sc-done">Zavřít</button>
+        <a class="btn btn-primary" id="sc-mail" href="${esc(mailto)}">✉ Upozornit personální oddělení e-mailem</a>
+      </div>`;
+    backdrop.querySelector('#sc-done').addEventListener('click', finish);
+    backdrop.querySelector('#sc-mail').addEventListener('click', () => setTimeout(finish, 300));
   });
 }
 
@@ -6251,12 +6274,7 @@ async function openDetail(id){
         const { data, error } = await sb.rpc('emp_save', { p_id: empId, p_token: empToken, p_patch: patch });
         if(error) throw error;
         if(!data) throw new Error('Uložení bylo zamítnuto (odkaz vypršel nebo je spis již uzamčen).');
-        let prevStatus = null; try{ prevStatus = JSON.parse(cache[key]).personalStatus; }catch(e){}
         cache[key] = value;
-        if(rec.personalStatus === 'submitted' && prevStatus !== 'submitted'){
-          // upozornění e-mailem pro personalistu, který odkaz vygeneroval (Edge Function notify-submitted); selhání nevadí
-          try{ sb.functions.invoke('notify-submitted', { body: { id: empId, token: empToken } }).then(r => { if(r && r.error) console.warn('notify-submitted:', r.error); }).catch(e => console.warn('notify-submitted:', e)); }catch(e){ console.warn(e); }
-        }
         return { key, value, shared: true };
       },
       async delete(){ throw new Error('not allowed'); },
@@ -6310,7 +6328,7 @@ const HELP_EMP = [
   ['🗂️','Další údaje','V kroku <b>Další údaje</b> jsou dodatečné údaje, které úřad ze zákona potřebuje; vyplňte je podle pokynů u polí.']]},
  {g:'Odeslání a kontrola',items:[
   ['✅','Souhrn a odeslání','Poslední krok je <b>Souhrn</b>. Pokud chybí povinné údaje, aplikace vypíše, ve kterých krocích. Až je vše hotové, klikněte na <b>Odeslat personálnímu oddělení</b> a potvrďte.'],
-  ['🔒','Po odeslání','Formulář se zamkne a personální oddělení údaje zkontroluje. Zjistíte-li chybu, můžete ho sami odemknout tlačítkem <b>Stáhnout zpět a opravit</b> (pokud ho už neschválilo).'],
+  ['🔒','Po odeslání','Objeví se tlačítko <b>Upozornit personální oddělení e-mailem</b> – otevře připravený e-mail, který jen odešlete ze své schránky, aby se personální oddělení o dotazníku dozvědělo hned. Formulář se zamkne a personální oddělení údaje zkontroluje. Zjistíte-li chybu, můžete ho sami odemknout tlačítkem <b>Stáhnout zpět a opravit</b> (pokud ho už neschválilo).'],
   ['↩️','Když vás požádají o doplnění','Personální oddělení vám dotazník může vrátit. Nahoře uvidíte jeho vzkaz a v krocích budou <b>zvýrazněná pole</b> s poznámkou, co opravit. Opravené údaje odešlete znovu. Když pole opravíte, označení zmizí samo; jinak ho tlačítkem <b>✓ Vyřešeno</b> u pole nebo <b>✓ Mám doplněno</b> v souhrnu skryjete.']]},
  {g:'Další záložka a pomoc',items:[
   ['ℹ️','Co potřebujete vědět','Druhá záložka obsahuje praktické informace k nástupu: kontakty, pracoviště a další informace pro nové zaměstnance.'],
@@ -6351,7 +6369,7 @@ const HELP = [
   ['🙋','Co dělá zaměstnanec','Vyplní průvodce, potvrdí souhlas se zpracováním osobních údajů a odešle. Po odeslání je formulář zamčen; zaměstnanec ho může sám stáhnout zpět a opravit, pokud ho ještě nezkontrolujete.']]},
  {g:'Výstupy',items:[
   ['📊','Generovat tabulky pro VEMU','V rejstříku zaškrtněte zkontrolované spisy (výběr lze udělat hromadně v záhlaví) a použijte <b>Generovat tabulky pro VEMU</b>. Stav „Vygenerováno“ se u spisu zapamatuje; po nahrání do Vemy a kontrole tlačítkem <b>Potvrdit nahrání do Vemy</b> (vedle Generovat) přejde na „Nahráno“. Když tabulky vygenerujete znovu, stav se vrátí na „Vygenerováno“. Výsledkem je <b>ZIP s datem a časem generování v názvu</b> (např. VEMA_export_20261020-1015.zip); každá tabulka je v něm samostatný soubor .xlsx (ZHLAV, Adresy, Bankovni_ucty, Deti, Vzdelani, Predchozi_zamestnani, Znalosti_jazyky a číselníky Ciselnik_pracovist a Ciselnik_utvaru). Datumy jsou ve tvaru DDMMRR, zkušební doba (zkusd) a platová skupina (plasku) jsou číslo (bez zkušební doby = 0) a útvar (utvar) je číselný kód z číselníku útvarů Vemy. Ve spisu (pole Odbor / oddělení) se v nabídce zobrazuje i kód útvaru a do pole lze přímo napsat kód (např. 821) nebo část názvu. Kódy útvarů se předvyplňují podle názvu a jdou upravit v Nastavení → Odbory / oddělení (tlačítko <b>Doplnit podle systemizace</b> přidá chybějící útvary). Pevné hodnoty a kódy pracovišť se nastavují v Nastavení.'],
-  ['📧','Upozornění na odevzdaný dotazník','Když zaměstnanec dotazník vyplní a klikne na <b>Odeslat personálnímu oddělení</b>, přijde e-mail té osobě, která mu v aplikaci <b>vygenerovala odkaz</b> (tlačítko Zkopírovat odkaz / E-mailem). U odkazů vygenerovaných dříve se použije <b>záložní e-mail</b> z Nastavení → Upozornění na odevzdaný dotazník. E-mail neobsahuje osobní údaje, jen jméno, pozici a datum nástupu. Odesílání zajišťuje funkce v Supabase, kterou je potřeba jednorázově nasadit (viz <code>supabase/README.md</code>); bez ní se nic neodesílá, aplikace funguje beze změny.'],
+  ['📧','Upozornění na odevzdaný dotazník','Po odeslání dotazníku nabídne aplikace zaměstnanci tlačítko <b>Upozornit personální oddělení e-mailem</b>: otevře se předvyplněný e-mail pro tu osobu, která mu v aplikaci <b>vygenerovala odkaz</b> (zaměstnanec ho odešle ze své schránky; aplikace nemůže zaručit, že to udělá). U odkazů vygenerovaných dříve se použije <b>záložní e-mail</b> z Nastavení → Upozornění na odevzdaný dotazník. Tlačítko zůstane i u odeslaného dotazníku.'],
   ['🔢','Osobní čísla','Osobní číslo se novému spisu <b>přidělí automaticky</b> při založení i při importu – vždy nejnižší volné číslo od začátku zadaného v <b>Nastavení → Osobní čísla</b> (tak se vynechá interval čísel zaměstnanců DESÚ, kteří je už mají). V rejstříku je pod jménem místo kódu spisu a ve spisu je pole <b>Osobní číslo</b> jen ke čtení. Smažete-li spis dřív, než se pro něj vygenerují tabulky pro Vemu, číslo se uvolní a přidělí se dalšímu; po vygenerování tabulek se znovu nepoužije. Při odchodu z Nastavení s neuloženými změnami (Zpět, přepnutí pohledu, Odhlásit) se aplikace zeptá, zda změny uložit, zahodit, nebo zůstat. Spisům založeným dřív se číslo samo nepřidělí (smažte je a založte znovu); pokud není začátek v Nastavení vyplněný, čísla se nepřidělují.'],
   ['🗂️','Vzory dokumentů (Nastavení)','V <b>Nastavení → Vzory dokumentů</b> je seznam všech vzorů, ze kterých se dokumenty generují. U každého jde <b>Stáhnout</b> aktuální vzor, <b>Nahradit…</b> ho novou verzí (soubor Word .docx) a <b>Vrátit výchozí</b> (smaže nahraný vzor a vrátí vzor dodaný s aplikací). Nahraný vzor platí hned pro další generování; ukládá se okamžitě, není potřeba Uložit nastavení. Před nahráním aplikace zkontroluje soubor a vypíše nalezená zástupná pole <code>{{pole}}</code> a upozorní na neznámá. Přehled polí je v rozbalovací části „Zástupná pole pro vzory“. Už vygenerované dokumenty se nemění.'],
   ['📄','Dokumenty podle vzorů','Po <b>schválení údajů</b> je ve spisu tlačítko <b>Dokumenty podle vzorů</b> (samostatné „podklady k podpisu“ už neexistují – jsou součástí téhož výběru). Nahoře je společná trojice <b>Pracovní smlouva + Platový výměr + Dohoda o výkonu služby z jiného místa</b> s jedním zaškrtávátkem a polem <b>Číslo jednací</b> (vygenerované ve spisové službě): smlouva dostane toto č.j., platový výměr č.j./A a dohoda č.j./B. Č.j. se u spisu zapamatuje; nevyplněné zůstane k ručnímu doplnění. Otevře se seznam všech vzorů se zaškrtávátky; <b>předem je zaškrtnuté všechno</b> (nepotřebné odškrtněte). U vzorů je poznámka, pro jaký poměr jsou (všichni / služební poměr / dle potřeby – platový výměr a pracovní smlouva platí pro oba poměry), včetně podkladů k podpisu A, B, C. Tlačítkem <b>Vygenerovat</b> se každý dokument vyplní z údajů ve spisu a vytvoří se Word i PDF. U každého je <b>Zobrazit PDF</b>, <b>⬇ PDF</b> a <b>⬇ Word</b>; všechno najednou stáhnete jako <b>ZIP</b>. Názvy souborů jsou ve tvaru <b>Příjmení_Jméno_název.docx / .pdf</b>. Údaje, které ve spisu nejsou (č. j., datum podpisu, osobní číslo, které se nevyplnilo), zůstanou k ručnímu doplnění. PDF se vytváří přímo v prohlížeči, takže se může od Wordu lehce lišit zalomením stránek – Word je přesný. Vzory jsou ve složce <code>templates</code> a po změně vzoru se nahradí příslušný soubor. Dokumenty se generují z osobních údajů, proto je vytvořte před smazáním údajů.'],

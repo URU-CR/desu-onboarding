@@ -154,7 +154,7 @@ begin
             or ((rec ->> 'linkExpiresAt') is not null and (rec ->> 'linkExpiresAt')::timestamptz < now());
   if info_only then rec := public._strip_personal(rec); end if;
   return jsonb_build_object(
-    'record',   (rec - 'accessToken' - 'linkGeneratedBy'),
+    'record',   (rec - 'accessToken'),
     'infoOnly', info_only,
     'settings', public._kv_text('onboarding:settings'),
     'info',     public._kv_text('onboarding:info-content'));
