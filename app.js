@@ -1,4 +1,4 @@
-const APP_VERSION = '2026-10-26.2';
+const APP_VERSION = '2026-10-26.3';
 const STORAGE_INDEX_KEY = 'onboarding:index';
 const STORAGE_INFO_KEY = 'onboarding:info-content';
 const STORAGE_SETTINGS_KEY = 'onboarding:settings';
@@ -432,8 +432,10 @@ const PERSONAL_SECTIONS = [
     {id:'sluzebni_pomer_drive', label:'V minulosti jsem již byl/a ve služebním poměru', essential:true, type:'select', options:['','Ne','Ano']},
     {id:'clenstvi_organy', label:'Členství v řídících/kontrolních orgánech právnických osob provozujících podnikatelskou činnost', essential:true, type:'select', options:['','Ne','Ano']},
     {id:'vydelecna_cinnost_souhlas', label:'Podnikatelská/výdělečná činnost vyžadující předchozí souhlas zaměstnavatele', essential:true, type:'select', options:['','Ne','Ano']},
-    {id:'soudni_rizeni', label:'Je proti mně vedeno soudní řízení', essential:true, type:'select', options:['','Ne','Ano']},
-    {id:'soudni_srazky', label:'Soudem stanovené srážky na plat (číslo rozhodnutí)', showIf:p=>p.soudni_rizeni==='Ano'},
+    {id:'soudni_rizeni', label:'Byly mi soudem stanoveny srážky na plat', essential:true, type:'select', options:['','Ne','Ano']},
+    {id:'soudni_pocet', label:'Kolik rozhodnutí o srážkách', essential:true, type:'select', options:['','Jedno rozhodnutí','Více rozhodnutí'], showIf:p=>p.soudni_rizeni==='Ano'},
+    {id:'soudni_srazky', label:'Číslo rozhodnutí', essential:true, showIf:p=>p.soudni_rizeni==='Ano' && p.soudni_pocet==='Jedno rozhodnutí'},
+    {id:'soudni_vyse', label:'Výše srážky', essential:true, showIf:p=>p.soudni_rizeni==='Ano' && p.soudni_pocet==='Jedno rozhodnutí'},
     {id:'kurzy_dovednosti', label:'Kurzy, specifické odborné znalosti a dovednosti', full:true},
   ]},
   { id:'pracovni_pomer', label:'Pracovní poměr', owner:'hr', fields:[
@@ -5201,7 +5203,7 @@ function docValues(r){
     druh_zkousky: dash(p.druh_zkousky),
     duchod: yn(p.duchod, 'ANO', 'NE') + (String(p.duchod || '').toLowerCase() === 'ano' && p.duchod_detail ? ' — ' + p.duchod_detail : ''),
     zdravotni_znevyhodneni: (p.zdrav_postizeni_ozp && p.zdrav_postizeni_ozp !== 'Ne' ? p.zdrav_postizeni_ozp : 'Ne') + (p.prukaz_zdravotni && p.prukaz_zdravotni !== 'Nemám' ? ', ' + p.prukaz_zdravotni : ''),
-    soudni_rizeni: yn(p.soudni_rizeni, 'ANO', 'NE') + (p.soudni_srazky ? ' — srážky: ' + p.soudni_srazky : ''),
+    soudni_rizeni: yn(p.soudni_rizeni, 'ANO', 'NE') + (String(p.soudni_rizeni || '').toLowerCase() === 'ano' ? (p.soudni_pocet === 'Více rozhodnutí' ? ' — více rozhodnutí (podrobnosti doplní personální oddělení)' : [p.soudni_srazky ? 'rozhodnutí č. ' + p.soudni_srazky : '', p.soudni_vyse ? 'výše srážky ' + p.soudni_vyse : ''].filter(Boolean).join(', ').replace(/^/, ' — ').replace(/ — $/, '')) : ''),
     zdravotni_pojistovna: dash(p.zdravotni_pojistovna),
     sluzebni_pomer_drive: yn(p.sluzebni_pomer_drive, 'ANO', 'NE'),
     clenstvi_organy: yn(p.clenstvi_organy, 'ANO', 'NE'),
@@ -5332,7 +5334,7 @@ const TEMPLATE_TOKENS = [
   ['manzel_jmeno','Manžel(ka), druh, družka – jméno'],['manzel_datum_narozeni','Manžel(ka) – datum narození'],['manzel_obcanstvi','Manžel(ka) – státní občanství'],['manzel_bydliste','Manžel(ka) – bydliště'],
   ['deti_jmeno','Děti – jméno a příjmení (opakuje se řádek tabulky pro každé dítě)'],['deti_datum','Děti – datum narození (řádek tabulky)'],['deti_rodne_cislo','Děti – rodné číslo (řádek tabulky)'],['deti_bydliste','Děti – bydliště (řádek tabulky)'],
   ['stav_vzdelani','Vzdělání – stav'],['stupen_vzdelani','Vzdělání – stupeň'],['skola_obor','Škola, obor, sídlo školy'],['rok_ukonceni','Rok ukončení'],['druh_zkousky','Druh zkoušky'],
-  ['duchod','Přiznaný důchod (ANO / NE)'],['zdravotni_znevyhodneni','Zdravotní znevýhodnění'],['soudni_rizeni','Soudní řízení (ANO / NE, srážky)'],['zdravotni_pojistovna','Zdravotní pojišťovna'],
+  ['duchod','Přiznaný důchod (ANO / NE)'],['zdravotni_znevyhodneni','Zdravotní znevýhodnění'],['soudni_rizeni','Srážky ze mzdy stanovené soudem (ANO / NE, počet a číslo rozhodnutí, výše)'],['zdravotni_pojistovna','Zdravotní pojišťovna'],
   ['praxe_organizace','Praxe – organizace (opakuje se řádek tabulky)'],['praxe_zarazeni','Praxe – pracovní zařazení (řádek tabulky)'],['praxe_od','Praxe – od (řádek tabulky)'],['praxe_do','Praxe – do (řádek tabulky)'],
   ['sluzebni_pomer_drive','Dříve ve služebním poměru (ANO / NE)'],['clenstvi_organy','Členství v řídících a kontrolních orgánech (ANO / NE)'],['vydelecna_cinnost','Výdělečná činnost vyžadující souhlas (ANO / NE)'],['kurzy_dovednosti','Kurzy, odborné znalosti a dovednosti'],
   ['jazyky_jazyk','Jazyky – jazyk (opakuje se řádek tabulky)'],['jazyky_znalost','Jazyky – stupeň znalosti (řádek tabulky)'],['jazyky_osvedceni','Jazyky – stupeň osvědčení (řádek tabulky)'],['jazyky_pouzivani','Jazyky – používání (řádek tabulky)'],
@@ -6325,7 +6327,7 @@ const HELP_EMP = [
   ['🎓','Vzdělání','Údaje o vašem dosaženém vzdělání – vyplňte podle pokynů u polí.'],
   ['💼','Praxe a ZOZ','Krok je <b>nepovinný</b> – pokud praxi nemáte (např. absolvent), přeskočte ho. Uvádějte <b>přesná data</b> (den.měsíc.rok): předchozí zaměstnání, ale i <b>vojenskou službu, mateřskou a rodičovskou dovolenou, evidenci na úřadu práce</b> a další započitatelné doby – u každého období vyberte jeho <b>druh</b>. Nesprávné údaje mohou vést k zařazení do nižšího platového stupně. Další období přidáte tlačítkem <b>+ Přidat období</b> (datum „Od“ se předvyplní dnem po konci předchozího období, můžete ho přepsat – období by na sebe měla navazovat); omylem přidanou položku zrušíte tlačítkem <b>✕ Zrušit / odebrat</b> (úplně prázdné položky se při pohybu v dotazníku odstraní samy). Dole můžete nahrát sken <b>osvědčení o zkoušce odborné způsobilosti (ZOZ)</b> (tlačítko <b>+ Přidat ZOZ</b>, lze více osvědčení) – může se uznat jako část praxe.'],
   ['🌍','Jazyky','Jazykové znalosti jsou doplňkové; další jazyk přidáte tlačítkem <b>+ Přidat jazyk</b>.'],
-  ['🗂️','Další údaje','V kroku <b>Další údaje</b> jsou dodatečné údaje, které úřad ze zákona potřebuje; vyplňte je podle pokynů u polí.']]},
+  ['🗂️','Další údaje','V kroku <b>Další údaje</b> jsou dodatečné údaje, které úřad ze zákona potřebuje; vyplňte je podle pokynů u polí. U otázky na <b>srážky ze mzdy stanovené soudem</b> odpovíte Ano / Ne; při Ano zvolíte, zda jde o jedno, nebo více rozhodnutí. U jednoho uvedete číslo rozhodnutí a výši srážky, u více rozhodnutí podrobnosti doplní personální oddělení.']]},
  {g:'Odeslání a kontrola',items:[
   ['✅','Souhrn a odeslání','Poslední krok je <b>Souhrn</b>. Pokud chybí povinné údaje, aplikace vypíše, ve kterých krocích. Až je vše hotové, klikněte na <b>Odeslat personálnímu oddělení</b> a potvrďte.'],
   ['🔒','Po odeslání','Objeví se tlačítko <b>Upozornit personální oddělení e-mailem</b> – otevře připravený e-mail, který jen odešlete ze své schránky, aby se personální oddělení o dotazníku dozvědělo hned. Formulář se zamkne a personální oddělení údaje zkontroluje. Zjistíte-li chybu, můžete ho sami odemknout tlačítkem <b>Stáhnout zpět a opravit</b> (pokud ho už neschválilo).'],

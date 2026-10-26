@@ -101,7 +101,7 @@ language sql immutable as $$ select array[
     'druh_zkousky','praxe','jazyky','prohlaseni_poplatnika','zpusob_rocniho_zuctovani','invalidita','zdrav_postizeni_ozp',
     'prukaz_zdravotni','zdrav_rozhodnuti_platnost_do','vojak','student_pripravujici_se','student_potvrzeni_do','duchod',
     'duchod_detail','pocet_vychovanych_deti','sluzebni_pomer_drive','clenstvi_organy','vydelecna_cinnost_souhlas',
-    'soudni_rizeni','soudni_srazky','kurzy_dovednosti','prilohy'] $$;
+    'soudni_rizeni','soudni_pocet','soudni_srazky','soudni_vyse','kurzy_dovednosti','prilohy'] $$;
 
 -- Odstraní z kopie spisu osobní údaje zaměstnance (zůstane jméno, příjmení a údaje personálního oddělení).
 create or replace function public._strip_personal(rec jsonb) returns jsonb

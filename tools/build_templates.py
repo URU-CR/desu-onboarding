@@ -289,7 +289,7 @@ def build_A(path):
     _par(d, 'Další údaje', bold=True, before=10)
     _lab(d, 'Přiznaný důchod:', '{{duchod}}')
     _lab(d, 'Zdravotní znevýhodnění:', '{{zdravotni_znevyhodneni}}')
-    _lab(d, 'Je proti Vám vedeno soudní řízení:', '{{soudni_rizeni}}')
+    _lab(d, 'Byly Vám soudem stanoveny srážky na plat:', '{{soudni_rizeni}}')
     _lab(d, 'Zdravotní pojišťovna (doložit kopii):', '{{zdravotni_pojistovna}}')
     _par(d, 'Prohlašuji, že všechny mnou uvedené údaje jsou pravdivé a nic jsem nezamlčel(a). Dále se zavazuji všechny změny těchto údajů bezodkladně oznamovat personálnímu oddělení.', before=14)
     _sign(d)
