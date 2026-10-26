@@ -1,4 +1,4 @@
-const APP_VERSION = '2026-10-22.7';
+const APP_VERSION = '2026-10-26.1';
 const STORAGE_INDEX_KEY = 'onboarding:index';
 const STORAGE_INFO_KEY = 'onboarding:info-content';
 const STORAGE_SETTINGS_KEY = 'onboarding:settings';
@@ -2086,6 +2086,16 @@ function renderSettingsPage(){
     </div>
 
     <div class="panel" style="margin-bottom:20px;">
+      ${settingsPanelStart('notify', 'Upozornění na odevzdaný dotazník')}
+      <p style="font-size:12.5px;color:var(--ink-faint);margin:0 0 12px;">Když zaměstnanec dotazník vyplní a odešle personálnímu oddělení, přijde e-mail osobě, která mu odkaz vygenerovala. U odkazů vygenerovaných dříve (nebo bez zjištěné osoby) se použije tento záložní e-mail. Odesílání zajišťuje funkce <code>notify-submitted</code> v Supabase (viz <code>supabase/README.md</code>).</p>
+      <div class="contact-edit-row" style="grid-template-columns:280px 1fr;">
+        <label style="font-size:13px;align-self:center;">Záložní e-mail pro upozornění</label>
+        <input data-notify-email type="email" value="${esc(draft.notifyEmail||'')}">
+      </div>
+      ${settingsPanelEnd()}
+    </div>
+
+    <div class="panel" style="margin-bottom:20px;">
       ${settingsPanelStart('persnum', 'Osobní čísla')}
       <p style="font-size:12.5px;color:var(--ink-faint);margin:0 0 12px;">Osobní číslo se novému spisu přidělí automaticky – vždy nejnižší volné číslo od zadaného začátku. Nastavte začátek tak, aby se vynechal interval čísel zaměstnanců DESÚ, kteří je už mají. Číslo smazaného spisu lze znovu použít, pokud se k němu ještě negenerovaly tabulky pro Vemu. Stávajícím spisům se číslo samo nepřidělí, změna začátku už přidělená čísla nemění. Když je pole prázdné, čísla se nepřidělují.</p>
       <div class="contact-edit-row" style="grid-template-columns:280px 1fr;">
@@ -3275,6 +3285,9 @@ function attachHandlers(){
   app.querySelectorAll('[data-tpl-upload]').forEach(el => el.addEventListener('click', () => { const f = app.querySelector(`[data-tpl-file="${el.getAttribute('data-tpl-upload')}"]`); if(f) f.click(); }));
   app.querySelectorAll('[data-tpl-file]').forEach(el => el.addEventListener('change', () => { const f = el.files && el.files[0]; const id = el.getAttribute('data-tpl-file'); el.value = ''; if(f) uploadTemplateFile(id, f); }));
   app.querySelectorAll('[data-tpl-restore]').forEach(el => el.addEventListener('click', () => restoreTemplateFile(el.getAttribute('data-tpl-restore'))));
+  app.querySelectorAll('[data-notify-email]').forEach(el => {
+    el.addEventListener('change', () => { state.settingsDraft.notifyEmail = String(el.value || '').trim(); });
+  });
   app.querySelectorAll('[data-persnum-start]').forEach(el => {
     el.addEventListener('change', () => { const n = parseInt(String(el.value).replace(/\D/g,''),10); state.settingsDraft.personalNumberStart = n > 0 ? String(n) : ''; el.value = state.settingsDraft.personalNumberStart; });
   });
@@ -3621,10 +3634,7 @@ function attachHandlers(){
     const url = employeeLinkUrl(state.currentRecord, state.currentId);
     try{ await navigator.clipboard.writeText(url); }catch(e){}
     state.linkCopied = true;
-    if(!state.currentRecord.linkGeneratedAt || tokenChanged){
-      if(!state.currentRecord.linkGeneratedAt) state.currentRecord.linkGeneratedAt = new Date().toISOString();
-      persistCurrentRecord();
-    }
+    if(markLinkGenerated(state.currentRecord, tokenChanged)) persistCurrentRecord();
     render();
     setTimeout(() => { state.linkCopied = false; }, 3000);
   });
@@ -3641,8 +3651,7 @@ function attachHandlers(){
     const subject = fill(tpl.subject || DEFAULT_LINK_EMAIL_TEMPLATE.subject);
     const body = fill(tpl.body || DEFAULT_LINK_EMAIL_TEMPLATE.body);
     window.location.href = `mailto:${encodeURIComponent(existingEmail)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-    if(!state.currentRecord.linkGeneratedAt || tokenChanged){
-      if(!state.currentRecord.linkGeneratedAt) state.currentRecord.linkGeneratedAt = new Date().toISOString();
+    if(markLinkGenerated(state.currentRecord, tokenChanged)){
       persistCurrentRecord();
       render();
     }
@@ -4305,6 +4314,13 @@ function ensureAccessToken(r, refreshExpiry){
     r.linkExpiresAt = new Date(Date.now() + LINK_VALID_DAYS*86400000).toISOString(); changed = true;
   }
   return changed;
+}
+// Kdo odkaz zaměstnanci vygeneroval (příjemce upozornění, až zaměstnanec dotazník odešle)
+function markLinkGenerated(rec, tokenChanged){
+  let changed = false;
+  if(!rec.linkGeneratedAt){ rec.linkGeneratedAt = new Date().toISOString(); changed = true; }
+  if(state.userEmail && (!rec.linkGeneratedBy || tokenChanged) && rec.linkGeneratedBy !== state.userEmail){ rec.linkGeneratedBy = state.userEmail; changed = true; }
+  return changed || tokenChanged;
 }
 function employeeLinkUrl(r, id){ return location.href.split('#')[0] + '#z/' + id + '/' + (r.accessToken || ''); }
 
@@ -5943,6 +5959,8 @@ setInterval(() => refreshFromServer(false), 45000);
 // ---------------- Nastavení: uložení a hlídání neuložených změn ----------------
 function syncSettingsDraftFromDom(){
   if(document.activeElement && document.activeElement.blur) document.activeElement.blur(); // vyvolá „change“ u rozepsaného pole
+  const nm = document.querySelector('[data-notify-email]');
+  if(nm && state.settingsDraft) state.settingsDraft.notifyEmail = String(nm.value || '').trim();
   const inp = document.querySelector('[data-persnum-start]');
   if(inp && state.settingsDraft){ const n = parseInt(String(inp.value).replace(/\D/g,''),10); state.settingsDraft.personalNumberStart = n > 0 ? String(n) : ''; }
 }
@@ -6233,7 +6251,12 @@ async function openDetail(id){
         const { data, error } = await sb.rpc('emp_save', { p_id: empId, p_token: empToken, p_patch: patch });
         if(error) throw error;
         if(!data) throw new Error('Uložení bylo zamítnuto (odkaz vypršel nebo je spis již uzamčen).');
+        let prevStatus = null; try{ prevStatus = JSON.parse(cache[key]).personalStatus; }catch(e){}
         cache[key] = value;
+        if(rec.personalStatus === 'submitted' && prevStatus !== 'submitted'){
+          // upozornění e-mailem pro personalistu, který odkaz vygeneroval (Edge Function notify-submitted); selhání nevadí
+          try{ sb.functions.invoke('notify-submitted', { body: { id: empId, token: empToken } }).then(r => { if(r && r.error) console.warn('notify-submitted:', r.error); }).catch(e => console.warn('notify-submitted:', e)); }catch(e){ console.warn(e); }
+        }
         return { key, value, shared: true };
       },
       async delete(){ throw new Error('not allowed'); },
@@ -6328,6 +6351,7 @@ const HELP = [
   ['🙋','Co dělá zaměstnanec','Vyplní průvodce, potvrdí souhlas se zpracováním osobních údajů a odešle. Po odeslání je formulář zamčen; zaměstnanec ho může sám stáhnout zpět a opravit, pokud ho ještě nezkontrolujete.']]},
  {g:'Výstupy',items:[
   ['📊','Generovat tabulky pro VEMU','V rejstříku zaškrtněte zkontrolované spisy (výběr lze udělat hromadně v záhlaví) a použijte <b>Generovat tabulky pro VEMU</b>. Stav „Vygenerováno“ se u spisu zapamatuje; po nahrání do Vemy a kontrole tlačítkem <b>Potvrdit nahrání do Vemy</b> (vedle Generovat) přejde na „Nahráno“. Když tabulky vygenerujete znovu, stav se vrátí na „Vygenerováno“. Výsledkem je <b>ZIP s datem a časem generování v názvu</b> (např. VEMA_export_20261020-1015.zip); každá tabulka je v něm samostatný soubor .xlsx (ZHLAV, Adresy, Bankovni_ucty, Deti, Vzdelani, Predchozi_zamestnani, Znalosti_jazyky a číselníky Ciselnik_pracovist a Ciselnik_utvaru). Datumy jsou ve tvaru DDMMRR, zkušební doba (zkusd) a platová skupina (plasku) jsou číslo (bez zkušební doby = 0) a útvar (utvar) je číselný kód z číselníku útvarů Vemy. Ve spisu (pole Odbor / oddělení) se v nabídce zobrazuje i kód útvaru a do pole lze přímo napsat kód (např. 821) nebo část názvu. Kódy útvarů se předvyplňují podle názvu a jdou upravit v Nastavení → Odbory / oddělení (tlačítko <b>Doplnit podle systemizace</b> přidá chybějící útvary). Pevné hodnoty a kódy pracovišť se nastavují v Nastavení.'],
+  ['📧','Upozornění na odevzdaný dotazník','Když zaměstnanec dotazník vyplní a klikne na <b>Odeslat personálnímu oddělení</b>, přijde e-mail té osobě, která mu v aplikaci <b>vygenerovala odkaz</b> (tlačítko Zkopírovat odkaz / E-mailem). U odkazů vygenerovaných dříve se použije <b>záložní e-mail</b> z Nastavení → Upozornění na odevzdaný dotazník. E-mail neobsahuje osobní údaje, jen jméno, pozici a datum nástupu. Odesílání zajišťuje funkce v Supabase, kterou je potřeba jednorázově nasadit (viz <code>supabase/README.md</code>); bez ní se nic neodesílá, aplikace funguje beze změny.'],
   ['🔢','Osobní čísla','Osobní číslo se novému spisu <b>přidělí automaticky</b> při založení i při importu – vždy nejnižší volné číslo od začátku zadaného v <b>Nastavení → Osobní čísla</b> (tak se vynechá interval čísel zaměstnanců DESÚ, kteří je už mají). V rejstříku je pod jménem místo kódu spisu a ve spisu je pole <b>Osobní číslo</b> jen ke čtení. Smažete-li spis dřív, než se pro něj vygenerují tabulky pro Vemu, číslo se uvolní a přidělí se dalšímu; po vygenerování tabulek se znovu nepoužije. Při odchodu z Nastavení s neuloženými změnami (Zpět, přepnutí pohledu, Odhlásit) se aplikace zeptá, zda změny uložit, zahodit, nebo zůstat. Spisům založeným dřív se číslo samo nepřidělí (smažte je a založte znovu); pokud není začátek v Nastavení vyplněný, čísla se nepřidělují.'],
   ['🗂️','Vzory dokumentů (Nastavení)','V <b>Nastavení → Vzory dokumentů</b> je seznam všech vzorů, ze kterých se dokumenty generují. U každého jde <b>Stáhnout</b> aktuální vzor, <b>Nahradit…</b> ho novou verzí (soubor Word .docx) a <b>Vrátit výchozí</b> (smaže nahraný vzor a vrátí vzor dodaný s aplikací). Nahraný vzor platí hned pro další generování; ukládá se okamžitě, není potřeba Uložit nastavení. Před nahráním aplikace zkontroluje soubor a vypíše nalezená zástupná pole <code>{{pole}}</code> a upozorní na neznámá. Přehled polí je v rozbalovací části „Zástupná pole pro vzory“. Už vygenerované dokumenty se nemění.'],
   ['📄','Dokumenty podle vzorů','Po <b>schválení údajů</b> je ve spisu tlačítko <b>Dokumenty podle vzorů</b> (samostatné „podklady k podpisu“ už neexistují – jsou součástí téhož výběru). Nahoře je společná trojice <b>Pracovní smlouva + Platový výměr + Dohoda o výkonu služby z jiného místa</b> s jedním zaškrtávátkem a polem <b>Číslo jednací</b> (vygenerované ve spisové službě): smlouva dostane toto č.j., platový výměr č.j./A a dohoda č.j./B. Č.j. se u spisu zapamatuje; nevyplněné zůstane k ručnímu doplnění. Otevře se seznam všech vzorů se zaškrtávátky; <b>předem je zaškrtnuté všechno</b> (nepotřebné odškrtněte). U vzorů je poznámka, pro jaký poměr jsou (všichni / služební poměr / dle potřeby – platový výměr a pracovní smlouva platí pro oba poměry), včetně podkladů k podpisu A, B, C. Tlačítkem <b>Vygenerovat</b> se každý dokument vyplní z údajů ve spisu a vytvoří se Word i PDF. U každého je <b>Zobrazit PDF</b>, <b>⬇ PDF</b> a <b>⬇ Word</b>; všechno najednou stáhnete jako <b>ZIP</b>. Názvy souborů jsou ve tvaru <b>Příjmení_Jméno_název.docx / .pdf</b>. Údaje, které ve spisu nejsou (č. j., datum podpisu, osobní číslo, které se nevyplnilo), zůstanou k ručnímu doplnění. PDF se vytváří přímo v prohlížeči, takže se může od Wordu lehce lišit zalomením stránek – Word je přesný. Vzory jsou ve složce <code>templates</code> a po změně vzoru se nahradí příslušný soubor. Dokumenty se generují z osobních údajů, proto je vytvořte před smazáním údajů.'],
