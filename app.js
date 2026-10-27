@@ -1,4 +1,4 @@
-const APP_VERSION = '2026-10-27.5';
+const APP_VERSION = '2026-10-27.6';
 const STORAGE_INDEX_KEY = 'onboarding:index';
 const STORAGE_INFO_KEY = 'onboarding:info-content';
 const STORAGE_SETTINGS_KEY = 'onboarding:settings';
@@ -333,7 +333,7 @@ const PERSONAL_SECTIONS = [
     {id:'prijmeni_byvale_2', label:'Příjmení bývalé (2)'},
     {id:'rodne_cislo', label:'Rodné číslo (bez lomítka)', placeholder:'9001011234', validate:'rodneCislo', essential:true},
     {id:'datum_narozeni', label:'Datum narození', type:'date', validate:'birthDateVsRC', autofillFrom:'rodne_cislo', essential:true, autocomplete:'bday'},
-    {id:'misto_narozeni', label:'Místo narození', essential:true, datalist:'obec', autocomplete:'off', placeholder:'začněte psát název obce'},
+    {id:'misto_narozeni', label:'Místo narození', essential:true, datalist:'obec', validate:'obecNarozeni', autocomplete:'off', placeholder:'začněte psát název obce'},
     {id:'okres_narozeni', label:'Okres narození', datalist:'okres', autocomplete:'off', placeholder:'doplní se po výběru obce'},
     {id:'stat_narozeni', label:'Stát narození', placeholder:'Česká republika', default:'Česká republika', datalist:'zeme'},
     {id:'statni_prislusnost', label:'Státní příslušnost', placeholder:'Česká republika', default:'Česká republika', essential:true, autocomplete:'country-name', datalist:'zeme'},
@@ -1263,6 +1263,16 @@ function rodneCisloInfo(raw){
 }
 
 const VALIDATORS = {
+  obecNarozeni(raw, ctx){   // stejnojmenné obce: bez okresu nelze určit kód obce
+    if(!raw || !VEMA_LOOKUP) return {ok:true};
+    const r = vemaPlaceLookup(raw, ctx && ctx.okres_narozeni);
+    if(r.obec) return {ok:true};
+    const exact = String(raw).trim().toLocaleLowerCase('cs');
+    const same = (VEMA_LOOKUP.obce.get(normTxt(raw)) || []).filter(c => c.name && c.name.toLocaleLowerCase('cs') === exact);
+    if(ctx && ctx.okres_narozeni && same.length) return {ok:false, severity:'warning', message:'Obec s tímto názvem v zadaném okrese není – zkontrolujte okres narození.'};
+    if(new Set(same.map(c => c.obec)).size > 1) return {ok:false, severity:'warning', message:'Obcí s tímto názvem je více – vyberte ji z nabídky (zobrazí se okres) nebo vyplňte okres narození.'};
+    return {ok:true};
+  },
   rodneCislo(raw){
     if(!raw) return {ok:true};
     const cleaned = raw.replace(/\s+/g,'');
@@ -6447,7 +6457,7 @@ const HELP_EMP = [
   ['⭐','Co je povinné','Povinné údaje jsou označeny <b style="color:#C62828">červenou hvězdičkou *</b>. Bez nich dotazník nepůjde odeslat. Ostatní údaje jsou doplňkové – vyplňte je, pokud se vás týkají.'],
   ['➡️','Jak se pohybovat','Dotazník je rozdělen do kroků. Tlačítky <b>Pokračovat</b> a <b>Zpět</b> se posouváte mezi kroky, nahoře můžete kliknutím přeskočit na libovolný krok – <b>chybějící povinné údaje vás nezastaví</b>, můžete vyplňovat i napřeskáčku. Krok, který jste už otevřeli a v němž ještě něco povinného chybí, se nahoře zobrazí <b style="color:#C62828">červeně s tečkou ●</b>; po doplnění zčerná.']]},
  {g:'Jednotlivé kroky',items:[
-  ['🪪','Základní údaje','Jméno, příjmení, tituly, rodné číslo <b>bez lomítka</b> (např. 9001011234), místo narození a státní příslušnost. Název obce narození začněte psát – nabídne se obec z číselníku (u stejnojmenných obcí je vidět okres) a po výběru se doplní i okres narození. Obec pište správně s diakritikou (Vyškov × Výškov jsou dvě různé obce). Když obec v nabídce nenajdete, napište ji normálně sami. Datum narození se z rodného čísla doplní samo a aplikace ho zkontroluje.'],
+  ['🪪','Základní údaje','Jméno, příjmení, tituly, rodné číslo <b>bez lomítka</b> (např. 9001011234), místo narození a státní příslušnost. Název obce narození začněte psát – nabídne se obec z číselníku (u stejnojmenných obcí je vidět okres) a po výběru se doplní i okres narození. Obec pište správně s diakritikou (Vyškov × Výškov jsou dvě různé obce). Existuje-li obcí stejného názvu více (např. Lhota), vyberte ji z nabídky, kde je vidět okres, nebo vyplňte okres narození – aplikace to připomene. Když obec v nabídce nenajdete, napište ji normálně sami. Datum narození se z rodného čísla doplní samo a aplikace ho zkontroluje.'],
   ['🏠','Bydliště a kontakt','Trvalé bydliště, soukromý telefon a e-mail. Doručovací adresu vyplňte jen tehdy, pokud je jiná než trvalá. Kontakt pro mimořádnou událost je doplňkový (koho zavolat, kdyby se vám něco stalo).'],
   ['🏦','Pojišťovna a účet','Zdravotní pojišťovnu vyberte ze seznamu. <b>Nahrajte kartičku pojišťovny</b> (povinné): tlačítkem <b>📷 Vyfotit kamerou</b> ji vyfotíte kamerou počítače (prohlížeč se zeptá na povolení kamery): přiložte kartičku stranou s údaji do rámečku a držte ji klidně – aplikace ji sama rozpozná, vyfotí a ořízne (kdyby to nešlo, použijte <b>Vyfotit hned</b>). Nebo <b>📎 Nahrát soubor</b> / přetažením vložíte hotovou fotografii či sken (JPG, PNG, PDF). Fotografie se před odesláním zmenší. Nahraný soubor můžete tlačítkem <b>Smazat</b> nahradit jiným. Číslo účtu zadejte bez lomítka a kódu banky, kód banky vyplňte zvlášť (např. 0100). Po zadání čísla účtu se zobrazí tři souhlasy se zasíláním platu, cestovních náhrad a příspěvku na stravování na tento účet.'],
   ['👪','Rodina a děti','Rodinný stav je povinný. Krok <b>Děti</b> je doplňkový – pokud děti nemáte, jen pokračujte dál. Další dítě přidáte tlačítkem <b>+ Přidat dítě</b>. Omylem přidané dítě zrušíte tlačítkem <b>✕ Zrušit / odebrat</b>.'],
