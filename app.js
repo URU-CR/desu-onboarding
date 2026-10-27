@@ -1,4 +1,4 @@
-const APP_VERSION = '2026-10-27.4';
+const APP_VERSION = '2026-10-27.5';
 const STORAGE_INDEX_KEY = 'onboarding:index';
 const STORAGE_INFO_KEY = 'onboarding:info-content';
 const STORAGE_SETTINGS_KEY = 'onboarding:settings';
@@ -5022,7 +5022,7 @@ async function loadVemaData(){
   const idx = (rows) => { const m = new Map(); rows.forEach(([code, name]) => { const k = normTxt(name); if(!m.has(k)) m.set(k, []); m.get(k).push(code); }); return m; };
   VEMA_LOOKUP = {
     okresy: idx(cis.okresy.map(([c, n]) => [c, n.replace(/^okres\s+/i, '')])),
-    obce: (() => { const m = new Map(); cis.obce.forEach(([key, name]) => { const [okres, obec] = key.split('|'); const k = normTxt(name); if(!m.has(k)) m.set(k, []); m.get(k).push({ okres, obec }); }); return m; })(),
+    obce: (() => { const m = new Map(); cis.obce.forEach(([key, name]) => { const [okres, obec] = key.split('|'); const k = normTxt(name); if(!m.has(k)) m.set(k, []); m.get(k).push({ okres, obec, name }); }); return m; })(),
     skoly: idx(cis.skoly), obory_kody: idx(cis.obory_kody), obory_vzdelani: idx(cis.obory_vzdelani),
   };
   return VEMA_DATA;
@@ -5051,6 +5051,11 @@ function vemaPlaceLookup(obecTxt, okresTxt){
     const pre = [];
     VEMA_LOOKUP.obce.forEach((v, k) => { if(k.startsWith(key + ' ')) pre.push(...v); });
     cand = okres ? pre.filter(c => c.okres === okres) : pre;
+  }
+  if(new Set(cand.map(c => c.obec)).size > 1){   // názvy lišící se jen diakritikou (Vyškov × Výškov): přednost má přesná shoda včetně diakritiky
+    const exact = String(obecTxt || '').trim().replace(/\s+\d+\s*$/, '').toLocaleLowerCase('cs');
+    const ex = cand.filter(c => c.name && c.name.toLocaleLowerCase('cs') === exact);
+    if(ex.length) cand = ex;
   }
   const uniq = [...new Set(cand.map(c => c.obec))];
   const obec = uniq.length === 1 ? uniq[0] : '';
@@ -6442,7 +6447,7 @@ const HELP_EMP = [
   ['⭐','Co je povinné','Povinné údaje jsou označeny <b style="color:#C62828">červenou hvězdičkou *</b>. Bez nich dotazník nepůjde odeslat. Ostatní údaje jsou doplňkové – vyplňte je, pokud se vás týkají.'],
   ['➡️','Jak se pohybovat','Dotazník je rozdělen do kroků. Tlačítky <b>Pokračovat</b> a <b>Zpět</b> se posouváte mezi kroky, nahoře můžete kliknutím přeskočit na libovolný krok – <b>chybějící povinné údaje vás nezastaví</b>, můžete vyplňovat i napřeskáčku. Krok, který jste už otevřeli a v němž ještě něco povinného chybí, se nahoře zobrazí <b style="color:#C62828">červeně s tečkou ●</b>; po doplnění zčerná.']]},
  {g:'Jednotlivé kroky',items:[
-  ['🪪','Základní údaje','Jméno, příjmení, tituly, rodné číslo <b>bez lomítka</b> (např. 9001011234), místo narození a státní příslušnost. Název obce narození začněte psát – nabídne se obec z číselníku (u stejnojmenných obcí je vidět okres) a po výběru se doplní i okres narození. Když obec v nabídce nenajdete, napište ji normálně sami. Datum narození se z rodného čísla doplní samo a aplikace ho zkontroluje.'],
+  ['🪪','Základní údaje','Jméno, příjmení, tituly, rodné číslo <b>bez lomítka</b> (např. 9001011234), místo narození a státní příslušnost. Název obce narození začněte psát – nabídne se obec z číselníku (u stejnojmenných obcí je vidět okres) a po výběru se doplní i okres narození. Obec pište správně s diakritikou (Vyškov × Výškov jsou dvě různé obce). Když obec v nabídce nenajdete, napište ji normálně sami. Datum narození se z rodného čísla doplní samo a aplikace ho zkontroluje.'],
   ['🏠','Bydliště a kontakt','Trvalé bydliště, soukromý telefon a e-mail. Doručovací adresu vyplňte jen tehdy, pokud je jiná než trvalá. Kontakt pro mimořádnou událost je doplňkový (koho zavolat, kdyby se vám něco stalo).'],
   ['🏦','Pojišťovna a účet','Zdravotní pojišťovnu vyberte ze seznamu. <b>Nahrajte kartičku pojišťovny</b> (povinné): tlačítkem <b>📷 Vyfotit kamerou</b> ji vyfotíte kamerou počítače (prohlížeč se zeptá na povolení kamery): přiložte kartičku stranou s údaji do rámečku a držte ji klidně – aplikace ji sama rozpozná, vyfotí a ořízne (kdyby to nešlo, použijte <b>Vyfotit hned</b>). Nebo <b>📎 Nahrát soubor</b> / přetažením vložíte hotovou fotografii či sken (JPG, PNG, PDF). Fotografie se před odesláním zmenší. Nahraný soubor můžete tlačítkem <b>Smazat</b> nahradit jiným. Číslo účtu zadejte bez lomítka a kódu banky, kód banky vyplňte zvlášť (např. 0100). Po zadání čísla účtu se zobrazí tři souhlasy se zasíláním platu, cestovních náhrad a příspěvku na stravování na tento účet.'],
   ['👪','Rodina a děti','Rodinný stav je povinný. Krok <b>Děti</b> je doplňkový – pokud děti nemáte, jen pokračujte dál. Další dítě přidáte tlačítkem <b>+ Přidat dítě</b>. Omylem přidané dítě zrušíte tlačítkem <b>✕ Zrušit / odebrat</b>.'],
