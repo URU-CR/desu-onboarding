@@ -1,4 +1,4 @@
-const APP_VERSION = '2026-10-27.3';
+const APP_VERSION = '2026-10-27.4';
 const STORAGE_INDEX_KEY = 'onboarding:index';
 const STORAGE_INFO_KEY = 'onboarding:info-content';
 const STORAGE_SETTINGS_KEY = 'onboarding:settings';
@@ -333,8 +333,8 @@ const PERSONAL_SECTIONS = [
     {id:'prijmeni_byvale_2', label:'Příjmení bývalé (2)'},
     {id:'rodne_cislo', label:'Rodné číslo (bez lomítka)', placeholder:'9001011234', validate:'rodneCislo', essential:true},
     {id:'datum_narozeni', label:'Datum narození', type:'date', validate:'birthDateVsRC', autofillFrom:'rodne_cislo', essential:true, autocomplete:'bday'},
-    {id:'misto_narozeni', label:'Místo narození', essential:true},
-    {id:'okres_narozeni', label:'Okres narození'},
+    {id:'misto_narozeni', label:'Místo narození', essential:true, datalist:'obec', autocomplete:'off', placeholder:'začněte psát název obce'},
+    {id:'okres_narozeni', label:'Okres narození', datalist:'okres', autocomplete:'off', placeholder:'doplní se po výběru obce'},
     {id:'stat_narozeni', label:'Stát narození', placeholder:'Česká republika', default:'Česká republika', datalist:'zeme'},
     {id:'statni_prislusnost', label:'Státní příslušnost', placeholder:'Česká republika', default:'Česká republika', essential:true, autocomplete:'country-name', datalist:'zeme'},
   ]},
@@ -937,7 +937,22 @@ function autocompleteItemsFor(kind){
   if(kind === 'bank') return BANK_CODES.map(([code,name]) => ({value: code, display: code, sub: name}));
   if(kind === 'insurance') return INSURANCE_CODES.map(([code,name]) => ({value: `${code} — ${name}`, display: code, sub: name}));
   if(kind === 'utvar') return departmentList().filter(Boolean).map(n => ({value: n, display: departmentCode(n) || '—', sub: n}));
+  if(kind === 'obec' || kind === 'okres') return placeItemsFor(kind);
   return (DATALIST_OPTIONS[kind] || []).map(v => ({value: v, display: v, sub: null}));
+}
+// Obce a okresy z číselníku Vemy (načtou se při prvním použití); do pole lze psát i volný text, nabídka jen napovídá.
+let PLACE_ITEMS = null;
+function placeItemsFor(kind){
+  if(!VEMA_DATA){ return null; }
+  if(!PLACE_ITEMS){
+    const okresName = new Map(VEMA_DATA.cis.okresy.map(([c, n]) => [c, n.replace(/^okres\s+/i, '')]));
+    PLACE_ITEMS = {
+      okres: VEMA_DATA.cis.okresy.map(([c, n]) => { const v = n.replace(/^okres\s+/i, ''); return { value: v, display: v, sub: null, key: normTxt(v) }; }),
+      obec: VEMA_DATA.cis.obce.map(([k, n]) => { const o = okresName.get(k.split('|')[0]) || ''; return { value: n, display: n, sub: o ? 'okres ' + o : null, okres: o, key: normTxt(n) }; })
+        .sort((a, b) => a.key.localeCompare(b.key, 'cs') || String(a.okres).localeCompare(String(b.okres), 'cs')),
+    };
+  }
+  return PLACE_ITEMS[kind];
 }
 // Do pole Odbor / oddělení lze zapsat přímo kód útvaru (nebo název bez ohledu na velikost písmen) – převede se na název z číselníku.
 function normalizeDepartmentInput(v){
@@ -963,8 +978,18 @@ function closeAutocomplete(){
 function openAutocomplete(input, kind){
   closeAutocomplete();
   const items = autocompleteItemsFor(kind);
+  if(items === null){   // číselník obcí se teprve načítá
+    loadVemaData().then(() => { if(document.activeElement === input) openAutocomplete(input, kind); }).catch(() => {});
+    return;
+  }
   const q = input.value.trim().toLowerCase();
-  const filtered = (q ? items.filter(it => it.display.toLowerCase().includes(q) || (it.sub && it.sub.toLowerCase().includes(q))) : items).slice(0,100);
+  let filtered;
+  if(kind === 'obec' || kind === 'okres'){
+    const nq = normTxt(input.value);
+    if(!nq) return;   // bez zadaného textu se dlouhý seznam nenabízí
+    const starts = items.filter(it => it.key.startsWith(nq)), inside = items.filter(it => !it.key.startsWith(nq) && it.key.includes(nq));
+    filtered = [...starts, ...inside].slice(0, 60);
+  } else filtered = (q ? items.filter(it => it.display.toLowerCase().includes(q) || (it.sub && it.sub.toLowerCase().includes(q))) : items).slice(0,100);
   if(filtered.length === 0) return;
   const popup = document.createElement('div');
   popup.className = 'autocomplete-popup';
@@ -985,6 +1010,10 @@ function openAutocomplete(input, kind){
       input.value = it.value;
       input.dispatchEvent(new Event('change', {bubbles:true}));
       closeAutocomplete();
+      if(kind === 'obec' && it.okres){   // po výběru obce se doplní okres, pokud není vyplněný
+        const okr = document.querySelector('[data-field="okres_narozeni"]');
+        if(okr && !okr.value.trim()){ okr.value = it.okres; okr.dispatchEvent(new Event('change', {bubbles:true})); }
+      }
     });
   });
   const popRect = popup.getBoundingClientRect();
@@ -5015,8 +5044,14 @@ function vemaPlaceLookup(obecTxt, okresTxt){
   const strip = s => normTxt(String(s || '').replace(/\s+\d+\s*$/, '').replace(/^okres\s+/i, ''));
   const okresCodes = VEMA_LOOKUP.okresy.get(strip(okresTxt)) || [];
   const okres = okresCodes.length === 1 ? okresCodes[0] : '';
-  let cand = VEMA_LOOKUP.obce.get(strip(obecTxt)) || [];
+  const key = strip(obecTxt);
+  let cand = VEMA_LOOKUP.obce.get(key) || [];
   if(okres) cand = cand.filter(c => c.okres === okres);
+  if(!cand.length && key){   // neúplný název: „Brandýs nad Labem“ ↔ „Brandýs nad Labem-Stará Boleslav“, bez ohledu na pomlčky a diakritiku
+    const pre = [];
+    VEMA_LOOKUP.obce.forEach((v, k) => { if(k.startsWith(key + ' ')) pre.push(...v); });
+    cand = okres ? pre.filter(c => c.okres === okres) : pre;
+  }
   const uniq = [...new Set(cand.map(c => c.obec))];
   const obec = uniq.length === 1 ? uniq[0] : '';
   return { okres: okres || (obec ? cand[0].okres : ''), obec };
@@ -6407,7 +6442,7 @@ const HELP_EMP = [
   ['⭐','Co je povinné','Povinné údaje jsou označeny <b style="color:#C62828">červenou hvězdičkou *</b>. Bez nich dotazník nepůjde odeslat. Ostatní údaje jsou doplňkové – vyplňte je, pokud se vás týkají.'],
   ['➡️','Jak se pohybovat','Dotazník je rozdělen do kroků. Tlačítky <b>Pokračovat</b> a <b>Zpět</b> se posouváte mezi kroky, nahoře můžete kliknutím přeskočit na libovolný krok – <b>chybějící povinné údaje vás nezastaví</b>, můžete vyplňovat i napřeskáčku. Krok, který jste už otevřeli a v němž ještě něco povinného chybí, se nahoře zobrazí <b style="color:#C62828">červeně s tečkou ●</b>; po doplnění zčerná.']]},
  {g:'Jednotlivé kroky',items:[
-  ['🪪','Základní údaje','Jméno, příjmení, tituly, rodné číslo <b>bez lomítka</b> (např. 9001011234), místo narození a státní příslušnost. Datum narození se z rodného čísla doplní samo a aplikace ho zkontroluje.'],
+  ['🪪','Základní údaje','Jméno, příjmení, tituly, rodné číslo <b>bez lomítka</b> (např. 9001011234), místo narození a státní příslušnost. Název obce narození začněte psát – nabídne se obec z číselníku (u stejnojmenných obcí je vidět okres) a po výběru se doplní i okres narození. Když obec v nabídce nenajdete, napište ji normálně sami. Datum narození se z rodného čísla doplní samo a aplikace ho zkontroluje.'],
   ['🏠','Bydliště a kontakt','Trvalé bydliště, soukromý telefon a e-mail. Doručovací adresu vyplňte jen tehdy, pokud je jiná než trvalá. Kontakt pro mimořádnou událost je doplňkový (koho zavolat, kdyby se vám něco stalo).'],
   ['🏦','Pojišťovna a účet','Zdravotní pojišťovnu vyberte ze seznamu. <b>Nahrajte kartičku pojišťovny</b> (povinné): tlačítkem <b>📷 Vyfotit kamerou</b> ji vyfotíte kamerou počítače (prohlížeč se zeptá na povolení kamery): přiložte kartičku stranou s údaji do rámečku a držte ji klidně – aplikace ji sama rozpozná, vyfotí a ořízne (kdyby to nešlo, použijte <b>Vyfotit hned</b>). Nebo <b>📎 Nahrát soubor</b> / přetažením vložíte hotovou fotografii či sken (JPG, PNG, PDF). Fotografie se před odesláním zmenší. Nahraný soubor můžete tlačítkem <b>Smazat</b> nahradit jiným. Číslo účtu zadejte bez lomítka a kódu banky, kód banky vyplňte zvlášť (např. 0100). Po zadání čísla účtu se zobrazí tři souhlasy se zasíláním platu, cestovních náhrad a příspěvku na stravování na tento účet.'],
   ['👪','Rodina a děti','Rodinný stav je povinný. Krok <b>Děti</b> je doplňkový – pokud děti nemáte, jen pokračujte dál. Další dítě přidáte tlačítkem <b>+ Přidat dítě</b>. Omylem přidané dítě zrušíte tlačítkem <b>✕ Zrušit / odebrat</b>.'],
@@ -6457,7 +6492,7 @@ const HELP = [
   ['✅','Schválit údaje','Dostupné ve stavu Odesláno / Vráceno, pokud jsou vyplněna všechna povinná pole. Po schválení má spis stav Zkontrolováno.'],
   ['🙋','Co dělá zaměstnanec','Vyplní průvodce, potvrdí souhlas se zpracováním osobních údajů a odešle. Po odeslání je formulář zamčen; zaměstnanec ho může sám stáhnout zpět a opravit, pokud ho ještě nezkontrolujete.']]},
  {g:'Výstupy',items:[
-  ['📊','Generovat tabulky pro VEMU','V rejstříku zaškrtněte zkontrolované spisy (výběr lze udělat hromadně v záhlaví) a použijte <b>Generovat tabulky pro VEMU</b>. Stav „Vygenerováno“ se u spisu zapamatuje; po nahrání do Vemy a kontrole tlačítkem <b>Potvrdit nahrání do Vemy</b> (vedle Generovat) přejde na „Nahráno“. Když tabulky vygenerujete znovu, stav se vrátí na „Vygenerováno“. Výsledkem je <b>ZIP s datem a časem generování v názvu</b> (např. VEMA_export_20261020-1015.zip). Hlavní soubor <b>ZHLAV.xlsx</b> vzniká přímo ze šablony Vemy (list Číselníky je zbavený osobních údajů – tabulka osobyv se jmény a rodnými čísly je z šablony odstraněna) (Zaváděcí formulář – dlouhé věty, 151 sloupců) a obsahuje všechny tři její listy (ZHLAV, Číselníky, Metadata) beze změny. V listu ZHLAV zůstávají 1. řádek (popisy sloupců), 2. řádek (názvy sloupců; <b>povinné položky jsou červeně</b>) a 3. řádek se vzorovým zaměstnancem (Kateřina Nováková) pro kontrolu; naše data začínají <b>4. řádkem</b>. Vzorový řádek je před nahráním do Vemy potřeba smazat. Formáty buněk (text, číslo, datum DD.MM.RR nebo DD.MM.RRRR) určují sloupce šablony. Útvar (číselný kód z číselníku útvarů) se zapisuje do sloupce <b>pracvz</b>. Texty z dotazníku se převádějí na číselníkové kódy Vemy: obec a okres narození i okres a obec pracoviště (sloupce okresp, obecp; berou se z Nastavení → Umístění pracovišť; okres upřesní obec se stejným názvem), obor vzdělání, kód školy a oboru; stupeň vzdělání se převádí na písmenný kód. Co se nepodaří převést, zůstane prázdné a aplikace to vypíše k ručnímu doplnění. Další tabulky v ZIPu (Adresy, Bankovni_ucty, Deti, Vzdelani, Predchozi_zamestnani, Znalosti_jazyky a číselníky Ciselnik_pracovist a Ciselnik_utvaru) zůstávají samostatné soubory .xlsx. Ve spisu (pole Odbor / oddělení) se v nabídce zobrazuje i kód útvaru a do pole lze přímo napsat kód (např. 821) nebo část názvu. Kódy útvarů jdou upravit v Nastavení → Odbory / oddělení (tlačítko <b>Doplnit podle systemizace</b> přidá chybějící útvary). Pevné hodnoty se nastavují v Nastavení. Při změně šablony Vemy se data pro export obnoví skriptem <code>tools/build_vema_data.py</code>.'],
+  ['📊','Generovat tabulky pro VEMU','V rejstříku zaškrtněte zkontrolované spisy (výběr lze udělat hromadně v záhlaví) a použijte <b>Generovat tabulky pro VEMU</b>. Stav „Vygenerováno“ se u spisu zapamatuje; po nahrání do Vemy a kontrole tlačítkem <b>Potvrdit nahrání do Vemy</b> (vedle Generovat) přejde na „Nahráno“. Když tabulky vygenerujete znovu, stav se vrátí na „Vygenerováno“. Výsledkem je <b>ZIP s datem a časem generování v názvu</b> (např. VEMA_export_20261020-1015.zip). Hlavní soubor <b>ZHLAV.xlsx</b> vzniká přímo ze šablony Vemy (list Číselníky je zbavený osobních údajů – tabulka osobyv se jmény a rodnými čísly je z šablony odstraněna) (Zaváděcí formulář – dlouhé věty, 151 sloupců) a obsahuje všechny tři její listy (ZHLAV, Číselníky, Metadata) beze změny. V listu ZHLAV zůstávají 1. řádek (popisy sloupců), 2. řádek (názvy sloupců; <b>povinné položky jsou červeně</b>) a 3. řádek se vzorovým zaměstnancem (Kateřina Nováková) pro kontrolu; naše data začínají <b>4. řádkem</b>. Vzorový řádek je před nahráním do Vemy potřeba smazat. Formáty buněk (text, číslo, datum DD.MM.RR nebo DD.MM.RRRR) určují sloupce šablony. Útvar (číselný kód z číselníku útvarů) se zapisuje do sloupce <b>pracvz</b>. Texty z dotazníku se převádějí na číselníkové kódy Vemy: obec a okres narození (v dotazníku se obec i okres nabízejí z číselníku Vemy, lze ale psát i volný text; neúplný název, např. „Brandýs nad Labem“, se přiřadí k „Brandýs nad Labem-Stará Boleslav“) i okres a obec pracoviště (sloupce okresp, obecp; berou se z Nastavení → Umístění pracovišť; okres upřesní obec se stejným názvem), obor vzdělání, kód školy a oboru; stupeň vzdělání se převádí na písmenný kód. Co se nepodaří převést, zůstane prázdné a aplikace to vypíše k ručnímu doplnění. Další tabulky v ZIPu (Adresy, Bankovni_ucty, Deti, Vzdelani, Predchozi_zamestnani, Znalosti_jazyky a číselníky Ciselnik_pracovist a Ciselnik_utvaru) zůstávají samostatné soubory .xlsx. Ve spisu (pole Odbor / oddělení) se v nabídce zobrazuje i kód útvaru a do pole lze přímo napsat kód (např. 821) nebo část názvu. Kódy útvarů jdou upravit v Nastavení → Odbory / oddělení (tlačítko <b>Doplnit podle systemizace</b> přidá chybějící útvary). Pevné hodnoty se nastavují v Nastavení. Při změně šablony Vemy se data pro export obnoví skriptem <code>tools/build_vema_data.py</code>.'],
   ['📧','Upozornění na odevzdaný dotazník','Po odeslání dotazníku nabídne aplikace zaměstnanci tlačítko <b>Upozornit personální oddělení e-mailem</b>: otevře se předvyplněný e-mail pro tu osobu, která mu v aplikaci <b>vygenerovala odkaz</b> (zaměstnanec ho odešle ze své schránky; aplikace nemůže zaručit, že to udělá). U odkazů vygenerovaných dříve se použije <b>záložní e-mail</b> z Nastavení → Upozornění na odevzdaný dotazník. Tlačítko zůstane i u odeslaného dotazníku.'],
   ['🔢','Osobní čísla','Osobní číslo se novému spisu <b>přidělí automaticky</b> při založení i při importu – vždy nejnižší volné číslo od začátku zadaného v <b>Nastavení → Osobní čísla</b> (tak se vynechá interval čísel zaměstnanců DESÚ, kteří je už mají). V rejstříku je pod jménem místo kódu spisu a ve spisu je pole <b>Osobní číslo</b> jen ke čtení. Smažete-li spis dřív, než se pro něj vygenerují tabulky pro Vemu, číslo se uvolní a přidělí se dalšímu; po vygenerování tabulek se znovu nepoužije. Při odchodu z Nastavení s neuloženými změnami (Zpět, přepnutí pohledu, Odhlásit) se aplikace zeptá, zda změny uložit, zahodit, nebo zůstat. Spisům založeným dřív se číslo samo nepřidělí (smažte je a založte znovu); pokud není začátek v Nastavení vyplněný, čísla se nepřidělují.'],
   ['🗂️','Vzory dokumentů (Nastavení)','V <b>Nastavení → Vzory dokumentů</b> je seznam všech vzorů, ze kterých se dokumenty generují. U každého jde <b>Stáhnout</b> aktuální vzor, <b>Nahradit…</b> ho novou verzí (soubor Word .docx) a <b>Vrátit výchozí</b> (smaže nahraný vzor a vrátí vzor dodaný s aplikací). Nahraný vzor platí hned pro další generování; ukládá se okamžitě, není potřeba Uložit nastavení. Před nahráním aplikace zkontroluje soubor a vypíše nalezená zástupná pole <code>{{pole}}</code> a upozorní na neznámá. Přehled polí je v rozbalovací části „Zástupná pole pro vzory“. Už vygenerované dokumenty se nemění.'],
