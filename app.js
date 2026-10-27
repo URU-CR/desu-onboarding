@@ -1,4 +1,4 @@
-const APP_VERSION = '2026-10-27.6';
+const APP_VERSION = '2026-10-27.7';
 const STORAGE_INDEX_KEY = 'onboarding:index';
 const STORAGE_INFO_KEY = 'onboarding:info-content';
 const STORAGE_SETTINGS_KEY = 'onboarding:settings';
