@@ -1,4 +1,4 @@
-const APP_VERSION = '2026-10-27.1';
+const APP_VERSION = '2026-10-27.2';
 const STORAGE_INDEX_KEY = 'onboarding:index';
 const STORAGE_INFO_KEY = 'onboarding:info-content';
 const STORAGE_SETTINGS_KEY = 'onboarding:settings';
@@ -5131,24 +5131,13 @@ async function generateVemaExport(ids){
   });
   tables.push({
     name: 'ZHLAV', header: tpl.map(c => c.code + '-A'), rows: zhlavRows,
-    build(ws){
-      ws.addRow(tpl.map(c => c.desc));     // 1. řádek: popisy sloupců z tabulky Vemy (pro kontrolu)
-      ws.addRow(this.header);              // 2. řádek: názvy sloupců; povinné položky červeně
-      zhlavRows.forEach(r => ws.addRow(r));
-      const r1 = ws.getRow(1), r2 = ws.getRow(2);
-      r1.height = 125.25;
-      r1.eachCell(cell => { cell.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:'FFFFC000' } }; cell.alignment = { wrapText:true, vertical:'top' }; });
-      r2.eachCell((cell, colIdx) => {
-        const povinne = ZHLAV_POVINNE_KODY.has(tpl[colIdx-1].code);
-        cell.fill = { type:'pattern', pattern:'solid', fgColor:{ argb: povinne ? 'FFFF0000' : 'FF99CCFF' } };
-        cell.font = { bold:true, color:{ argb: povinne ? 'FFFFFFFF' : 'FF000000' } };
-      });
-      tpl.forEach((c, i) => {
-        ws.getColumn(i + 1).width = 19.5;
-        const fmt = vemaNumFmt(c);
-        if(fmt) for(let rn = 3; rn <= ws.rowCount; rn++) ws.getCell(rn, i + 1).numFmt = fmt;
-      });
-      ws.views = [{ state:'frozen', xSplit:0, ySplit:2 }];
+    async buildXlsx(){
+      // importní tabulka Vemy se třemi listy (ZHLAV, Číselníky, Metadata) – řádky 1–3 (popisy, názvy, vzorový řádek) i oba další listy zůstávají beze změny, naše data jdou od 4. řádku; povinné položky jsou ve 2. řádku červeně
+      const r = await fetch('data/vema_sablona.xlsx?v=' + encodeURIComponent(APP_VERSION));
+      if(!r.ok) throw new Error('Šablona importní tabulky Vemy (data/vema_sablona.xlsx) se nepodařila načíst.');
+      DocGen.init({ version: APP_VERSION });
+      const req = tpl.map((c, i) => ZHLAV_POVINNE_KODY.has(c.code) ? i : -1).filter(i => i >= 0);
+      return DocGen.buildVemaXlsx(await r.arrayBuffer(), zhlavRows, req);
     }
   });
 
@@ -5170,10 +5159,10 @@ async function generateVemaExport(ids){
   // každá tabulka = samostatný soubor .xlsx, všechny dohromady v ZIPu s datem generování
   const files = [];
   for(const t of tables){
+    if(t.buildXlsx){ files.push({ name: t.name + '.xlsx', blob: await t.buildXlsx() }); continue; }
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet(t.name);
-    if(t.build) t.build(ws);
-    else {
+    {
       ws.addRow(t.header);
       t.rows.forEach(r => ws.addRow(r));
       t.header.forEach((h, i) => { ws.getColumn(i+1).width = (t.widths && t.widths[i]) || 14; });
@@ -6464,7 +6453,7 @@ const HELP = [
   ['✅','Schválit údaje','Dostupné ve stavu Odesláno / Vráceno, pokud jsou vyplněna všechna povinná pole. Po schválení má spis stav Zkontrolováno.'],
   ['🙋','Co dělá zaměstnanec','Vyplní průvodce, potvrdí souhlas se zpracováním osobních údajů a odešle. Po odeslání je formulář zamčen; zaměstnanec ho může sám stáhnout zpět a opravit, pokud ho ještě nezkontrolujete.']]},
  {g:'Výstupy',items:[
-  ['📊','Generovat tabulky pro VEMU','V rejstříku zaškrtněte zkontrolované spisy (výběr lze udělat hromadně v záhlaví) a použijte <b>Generovat tabulky pro VEMU</b>. Stav „Vygenerováno“ se u spisu zapamatuje; po nahrání do Vemy a kontrole tlačítkem <b>Potvrdit nahrání do Vemy</b> (vedle Generovat) přejde na „Nahráno“. Když tabulky vygenerujete znovu, stav se vrátí na „Vygenerováno“. Výsledkem je <b>ZIP s datem a časem generování v názvu</b> (např. VEMA_export_20261020-1015.zip). Hlavní tabulka <b>ZHLAV</b> je podle aktuální šablony Vemy (Zaváděcí formulář – dlouhé věty, 151 sloupců): 1. řádek obsahuje popisy sloupců z šablony, 2. řádek názvy sloupců, <b>povinné položky jsou červeně</b>, data začínají 3. řádkem. Formáty (text, číslo, datum DD.MM.RR nebo DD.MM.RRRR) se přebírají z Metadat šablony. Útvar (číselný kód z číselníku útvarů) se zapisuje do sloupce <b>pracvz</b>. Texty z dotazníku se převádějí na číselníkové kódy Vemy: obec a okres narození (okres upřesní obec se stejným názvem), obor vzdělání, kód školy a oboru; stupeň vzdělání se převádí na písmenný kód. Co se nepodaří převést, zůstane prázdné a aplikace to vypíše k ručnímu doplnění. Další tabulky v ZIPu (Adresy, Bankovni_ucty, Deti, Vzdelani, Predchozi_zamestnani, Znalosti_jazyky a číselníky Ciselnik_pracovist a Ciselnik_utvaru) zůstávají samostatné soubory .xlsx. Ve spisu (pole Odbor / oddělení) se v nabídce zobrazuje i kód útvaru a do pole lze přímo napsat kód (např. 821) nebo část názvu. Kódy útvarů jdou upravit v Nastavení → Odbory / oddělení (tlačítko <b>Doplnit podle systemizace</b> přidá chybějící útvary). Pevné hodnoty se nastavují v Nastavení. Při změně šablony Vemy se data pro export obnoví skriptem <code>tools/build_vema_data.py</code>.'],
+  ['📊','Generovat tabulky pro VEMU','V rejstříku zaškrtněte zkontrolované spisy (výběr lze udělat hromadně v záhlaví) a použijte <b>Generovat tabulky pro VEMU</b>. Stav „Vygenerováno“ se u spisu zapamatuje; po nahrání do Vemy a kontrole tlačítkem <b>Potvrdit nahrání do Vemy</b> (vedle Generovat) přejde na „Nahráno“. Když tabulky vygenerujete znovu, stav se vrátí na „Vygenerováno“. Výsledkem je <b>ZIP s datem a časem generování v názvu</b> (např. VEMA_export_20261020-1015.zip). Hlavní soubor <b>ZHLAV.xlsx</b> vzniká přímo ze šablony Vemy (Zaváděcí formulář – dlouhé věty, 151 sloupců) a obsahuje všechny tři její listy (ZHLAV, Číselníky, Metadata) beze změny. V listu ZHLAV zůstávají 1. řádek (popisy sloupců), 2. řádek (názvy sloupců; <b>povinné položky jsou červeně</b>) a 3. řádek se vzorovým zaměstnancem (Kateřina Nováková) pro kontrolu; naše data začínají <b>4. řádkem</b>. Vzorový řádek je před nahráním do Vemy potřeba smazat. Formáty buněk (text, číslo, datum DD.MM.RR nebo DD.MM.RRRR) určují sloupce šablony. Útvar (číselný kód z číselníku útvarů) se zapisuje do sloupce <b>pracvz</b>. Texty z dotazníku se převádějí na číselníkové kódy Vemy: obec a okres narození (okres upřesní obec se stejným názvem), obor vzdělání, kód školy a oboru; stupeň vzdělání se převádí na písmenný kód. Co se nepodaří převést, zůstane prázdné a aplikace to vypíše k ručnímu doplnění. Další tabulky v ZIPu (Adresy, Bankovni_ucty, Deti, Vzdelani, Predchozi_zamestnani, Znalosti_jazyky a číselníky Ciselnik_pracovist a Ciselnik_utvaru) zůstávají samostatné soubory .xlsx. Ve spisu (pole Odbor / oddělení) se v nabídce zobrazuje i kód útvaru a do pole lze přímo napsat kód (např. 821) nebo část názvu. Kódy útvarů jdou upravit v Nastavení → Odbory / oddělení (tlačítko <b>Doplnit podle systemizace</b> přidá chybějící útvary). Pevné hodnoty se nastavují v Nastavení. Při změně šablony Vemy se data pro export obnoví skriptem <code>tools/build_vema_data.py</code>.'],
   ['📧','Upozornění na odevzdaný dotazník','Po odeslání dotazníku nabídne aplikace zaměstnanci tlačítko <b>Upozornit personální oddělení e-mailem</b>: otevře se předvyplněný e-mail pro tu osobu, která mu v aplikaci <b>vygenerovala odkaz</b> (zaměstnanec ho odešle ze své schránky; aplikace nemůže zaručit, že to udělá). U odkazů vygenerovaných dříve se použije <b>záložní e-mail</b> z Nastavení → Upozornění na odevzdaný dotazník. Tlačítko zůstane i u odeslaného dotazníku.'],
   ['🔢','Osobní čísla','Osobní číslo se novému spisu <b>přidělí automaticky</b> při založení i při importu – vždy nejnižší volné číslo od začátku zadaného v <b>Nastavení → Osobní čísla</b> (tak se vynechá interval čísel zaměstnanců DESÚ, kteří je už mají). V rejstříku je pod jménem místo kódu spisu a ve spisu je pole <b>Osobní číslo</b> jen ke čtení. Smažete-li spis dřív, než se pro něj vygenerují tabulky pro Vemu, číslo se uvolní a přidělí se dalšímu; po vygenerování tabulek se znovu nepoužije. Při odchodu z Nastavení s neuloženými změnami (Zpět, přepnutí pohledu, Odhlásit) se aplikace zeptá, zda změny uložit, zahodit, nebo zůstat. Spisům založeným dřív se číslo samo nepřidělí (smažte je a založte znovu); pokud není začátek v Nastavení vyplněný, čísla se nepřidělují.'],
   ['🗂️','Vzory dokumentů (Nastavení)','V <b>Nastavení → Vzory dokumentů</b> je seznam všech vzorů, ze kterých se dokumenty generují. U každého jde <b>Stáhnout</b> aktuální vzor, <b>Nahradit…</b> ho novou verzí (soubor Word .docx) a <b>Vrátit výchozí</b> (smaže nahraný vzor a vrátí vzor dodaný s aplikací). Nahraný vzor platí hned pro další generování; ukládá se okamžitě, není potřeba Uložit nastavení. Před nahráním aplikace zkontroluje soubor a vypíše nalezená zástupná pole <code>{{pole}}</code> a upozorní na neznámá. Přehled polí je v rozbalovací části „Zástupná pole pro vzory“. Už vygenerované dokumenty se nemění.'],

@@ -611,5 +611,62 @@
     return zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
   }
 
-  window.DocGen = { init(o){ ver = (o && o.version) || ''; }, fillTemplate, inspectTemplate, docxToPdf, zipFiles, DOCX_MIME };
+  /* ---------------------------------------------------------------- Export do Vemy (ZHLAV) */
+  const colLetters = (n) => { let s = ''; while(n > 0){ const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); } return s; };
+  const colIndex = (L) => L.split('').reduce((a, c) => a * 26 + c.charCodeAt(0) - 64, 0);
+  const xmlText = (v) => String(v).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+  /** Vezme importní tabulku Vemy (.xlsx se třemi listy ZHLAV, Číselníky, Metadata) a do listu ZHLAV připíše za vzorový řádek (3.) data.
+   *  Listy Číselníky a Metadata i řádky 1–3 zůstávají beze změny; formát buněk určují sloupce šablony.
+   *  rows = pole řádků (hodnoty: číslo, Date, text, '' = prázdná buňka); requiredCols = indexy sloupců (od 0) označené ve 2. řádku červeně. */
+  async function buildVemaXlsx(templateBuf, rows, requiredCols){
+    await ensureZip();
+    const zip = await JSZip.loadAsync(templateBuf);
+    let xml = await zip.file('xl/worksheets/sheet1.xml').async('string');
+    // styl sloupců ze šablony (formát čísla / data / textu)
+    const colStyle = {};
+    for(const m of xml.matchAll(/<col min="(\d+)" max="(\d+)"[^>]*?style="(\d+)"/g)) for(let c = +m[1]; c <= +m[2]; c++) colStyle[c] = m[3];
+
+    // červené záhlaví povinných položek: nové písmo, výplň a styl v styles.xml
+    let st = await zip.file('xl/styles.xml').async('string');
+    const bump = (tag, add) => { st = st.replace(new RegExp('<' + tag + ' count="(\\d+)"([^>]*)>([\\s\\S]*?)</' + tag + '>'), (m, n, attrs, body) => '<' + tag + ' count="' + (+n + 1) + '"' + attrs + '>' + body + add + '</' + tag + '>'); return +(st.match(new RegExp('<' + tag + ' count="(\\d+)"'))[1]) - 1; };
+    const fontId = bump('fonts', '<font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Aptos Narrow"/><family val="2"/><scheme val="minor"/></font>');
+    const fillId = bump('fills', '<fill><patternFill patternType="solid"><fgColor rgb="FFFF0000"/><bgColor indexed="64"/></patternFill></fill>');
+    const redXf = bump('cellXfs', '<xf numFmtId="49" fontId="' + fontId + '" fillId="' + fillId + '" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1"/>');
+    zip.file('xl/styles.xml', st);
+    const req = new Set(requiredCols);
+    xml = xml.replace(/<row r="2"[\s\S]*?<\/row>/, (row) => row.replace(/<c r="([A-Z]+)2" s="\d+"/g, (m, L) => req.has(colIndex(L) - 1) ? '<c r="' + L + '2" s="' + redXf + '"' : m));
+
+    // datové řádky od 4. řádku
+    const nCols = 151;
+    const out = rows.map((r, i) => {
+      const rn = 4 + i;
+      let cells = '';
+      r.forEach((v, ci) => {
+        if(v === '' || v == null) return;
+        const ref = colLetters(ci + 1) + rn, s = colStyle[ci + 1] ? ' s="' + colStyle[ci + 1] + '"' : '';
+        if(v instanceof Date) cells += '<c r="' + ref + '"' + s + '><v>' + (Math.round(v.getTime() / 86400000) + 25569) + '</v></c>';
+        else if(typeof v === 'number') cells += '<c r="' + ref + '"' + s + '><v>' + v + '</v></c>';
+        else cells += '<c r="' + ref + '"' + s + ' t="inlineStr"><is><t xml:space="preserve">' + xmlText(v) + '</t></is></c>';
+      });
+      return '<row r="' + rn + '" spans="1:' + nCols + '">' + cells + '</row>';
+    }).join('');
+    xml = xml.replace('</sheetData>', out + '</sheetData>')
+             .replace(/<dimension ref="[^"]*"\/>/, '<dimension ref="A1:' + colLetters(nCols) + (3 + rows.length) + '"/>')
+             .replace(/<sortState[\s\S]*?<\/sortState>/, '');
+    zip.file('xl/worksheets/sheet1.xml', xml);
+    // po otevření se zobrazí list ZHLAV
+    let wbx = await zip.file('xl/workbook.xml').async('string');
+    zip.file('xl/workbook.xml', wbx.replace(/activeTab="\d+"/, 'activeTab="0"'));
+    for(const n of ['xl/worksheets/sheet3.xml']){   // aktivní býval list Metadata (list Číselníky je velký, nečte se)
+      const f = zip.file(n); if(!f) continue;
+      const t = await f.async('string');
+      if(t.indexOf(' tabSelected="1"') > -1 && t.indexOf(' tabSelected="1"') < 4000) zip.file(n, t.replace(' tabSelected="1"', ''));
+    }
+    xml = xml.replace(/<sheetView /, '<sheetView tabSelected="1" ');
+    zip.file('xl/worksheets/sheet1.xml', xml);
+    return zip.generateAsync({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', compression: 'DEFLATE', compressionOptions: { level: 1 } });
+  }
+
+  window.DocGen = { init(o){ ver = (o && o.version) || ''; }, fillTemplate, inspectTemplate, docxToPdf, zipFiles, buildVemaXlsx, DOCX_MIME };
 })();
