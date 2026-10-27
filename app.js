@@ -1,4 +1,4 @@
-const APP_VERSION = '2026-10-27.8';
+const APP_VERSION = '2026-10-27.9';
 const STORAGE_INDEX_KEY = 'onboarding:index';
 const STORAGE_INFO_KEY = 'onboarding:info-content';
 const STORAGE_SETTINGS_KEY = 'onboarding:settings';
@@ -158,7 +158,7 @@ const SETTINGS_RESET_OPTIONS = [
   { key:'facilityStaff', label:'Pracovníci provozu', getDefault: () => [...DEFAULT_FACILITY_STAFF] },
   { key:'categories', label:'Kategorie a přiřazené systémy', getDefault: () => JSON.parse(JSON.stringify(DEFAULT_CATEGORIES)) },
   { key:'offices', label:'Kanceláře podle budovy', getDefault: () => ({...DEFAULT_OFFICES}) },
-  { key:'workplaceLocations', label:'Umístění pracovišť (okres/obec/sídlo)', getDefault: () => ({...DEFAULT_WORKPLACE_LOCATIONS}) },
+  { key:'workplaceLocations', label:'Adresy pracovišť (ulice, PSČ, obec, okres)', getDefault: () => ({...DEFAULT_WORKPLACE_LOCATIONS}) },
   { key:'vemaConstants', label:'Pevné hodnoty pro export do Vemy', getDefault: () => ({}) },
   { key:'systemUrls', label:'Adresy systémů', getDefault: () => ({...DEFAULT_SYSTEM_URLS}) },
   { key:'systemTypes', label:'Typy adres systémů (web/plocha)', getDefault: () => ({...DEFAULT_SYSTEM_TYPES}) },
@@ -182,7 +182,12 @@ function workplaceVemaCode(workplace){
   return idx >= 0 ? String(idx + 1) : '';
 }
 function workplaceLocations(){ return (state.settings && state.settings.workplaceLocations) || DEFAULT_WORKPLACE_LOCATIONS; }
-function workplaceLocation(workplace){ return workplaceLocations()[workplace] || {okres:'', obec:'', sidlo:''}; }
+function workplaceLocation(workplace){ return workplaceLocations()[workplace] || {okres:'', obec:'', sidlo:'', psc:''}; }
+// úplná adresa pracoviště: „ulice č.p., PSČ obec“
+function workplaceAddress(workplace){
+  const w = workplaceLocation(workplace);
+  return [w.sidlo, [w.psc, w.obec].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+}
 function categoryList(){ return (state.settings && state.settings.categories) || DEFAULT_CATEGORIES; }
 function categoryNames(){ return categoryList().map(c => c.name); }
 function systemsForCategory(name){ const c = categoryList().find(c => c.name === name); return c ? c.systems : []; }
@@ -830,7 +835,7 @@ async function loadSettings(){
   if(!state.settings.workplaceVemaCodes || typeof state.settings.workplaceVemaCodes !== 'object') state.settings.workplaceVemaCodes = {};
   workplaceList().forEach(w => { if(!(w in state.settings.workplaceVemaCodes)) state.settings.workplaceVemaCodes[w] = ''; });
   if(!state.settings.workplaceLocations || typeof state.settings.workplaceLocations !== 'object') state.settings.workplaceLocations = {};
-  workplaceList().forEach(w => { if(!state.settings.workplaceLocations[w]) state.settings.workplaceLocations[w] = {okres:'', obec:'', sidlo:''}; });
+  workplaceList().forEach(w => { if(!state.settings.workplaceLocations[w]) state.settings.workplaceLocations[w] = {okres:'', obec:'', sidlo:'', psc:''}; });
   if(!state.settings.vemaConstants || typeof state.settings.vemaConstants !== 'object') state.settings.vemaConstants = {};
   if(!Array.isArray(state.settings.categories)) state.settings.categories = JSON.parse(JSON.stringify(DEFAULT_CATEGORIES));
   if(!state.settings.systemUrls || typeof state.settings.systemUrls !== 'object') state.settings.systemUrls = {};
@@ -1011,7 +1016,8 @@ function openAutocomplete(input, kind){
       input.dispatchEvent(new Event('change', {bubbles:true}));
       closeAutocomplete();
       if(kind === 'obec' && it.okres){   // po výběru obce se doplní okres, pokud není vyplněný
-        const okr = document.querySelector('[data-field="okres_narozeni"]');
+        const tgt = input.getAttribute('data-okres-target');
+        const okr = tgt ? document.querySelector(`[data-workplace-loc-input="${CSS.escape(tgt)}"]`) : document.querySelector('[data-field="okres_narozeni"]');
         if(okr && !okr.value.trim()){ okr.value = it.okres; okr.dispatchEvent(new Event('change', {bubbles:true})); }
       }
     });
@@ -2151,18 +2157,20 @@ function renderSettingsPage(){
     </div>
 
     <div class="panel" style="margin-bottom:20px;">
-      ${settingsPanelStart('vemacodes', 'Kód pracoviště pro Vemu')}
-      <p style="font-size:12.5px;color:var(--ink-faint);margin:0 0 12px;">Číselný kód pracoviště (pracvz/pracv) se generuje automaticky — vzestupně podle pořadí pracovišť níže — a nejde ručně upravit. Export do Vemy z něj zároveň vytvoří záložku s číselníkem pracovišť.</p>
-      ${workplaceList().map((w,wi) => `
-        <div style="margin-bottom:14px;">
-          <label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px;">${esc(w)} <span style="font-weight:400;color:var(--ink-faint);">— kód ${wi+1}</span></label>
-          <div class="contact-edit-row" style="grid-template-columns:1fr 1fr 1fr;">
-            <input data-workplace-loc-input="${esc(w)}:okres" value="${esc((draft.workplaceLocations[w]||{}).okres||'')}" placeholder="Okres">
-            <input data-workplace-loc-input="${esc(w)}:obec" value="${esc((draft.workplaceLocations[w]||{}).obec||'')}" placeholder="Obec">
-            <input data-workplace-loc-input="${esc(w)}:sidlo" value="${esc((draft.workplaceLocations[w]||{}).sidlo||'')}" placeholder="Sídlo (ulice, č.p.)">
+      ${settingsPanelStart('vemacodes', 'Adresy pracovišť a kódy pro Vemu')}
+      <p style="font-size:12.5px;color:var(--ink-faint);margin:0 0 12px;">Název pracoviště (např. „Olomouc“) slouží jen jako popis. U každého pracoviště zadejte konkrétní adresu – obec a okres se nabízejí z číselníku Vemy (po výběru obce se okres doplní sám). Adresa se použije v dokumentech a při exportu do Vemy (sloupce sidpra, obecp, okresp). Číselný kód pracoviště se generuje automaticky podle pořadí pracovišť a nejde ručně upravit; export do Vemy z něj vytvoří záložku s číselníkem pracovišť.</p>
+      ${workplaceList().map((w,wi) => { const L = draft.workplaceLocations[w] || {}; const q = esc(w); return `
+        <div style="margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--line);">
+          <label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px;">${esc(w)} <span style="font-weight:400;color:var(--ink-faint);">— popis pracoviště, kód ${wi+1}</span></label>
+          <div class="contact-edit-row" style="grid-template-columns:2fr 1fr;">
+            <input data-workplace-loc-input="${q}:sidlo" value="${esc(L.sidlo||'')}" placeholder="Ulice a číslo popisné / orientační">
+            <input data-workplace-loc-input="${q}:psc" value="${esc(L.psc||'')}" placeholder="PSČ" inputmode="numeric" maxlength="6">
           </div>
-        </div>
-      `).join('')}
+          <div class="contact-edit-row" style="grid-template-columns:1fr 1fr;">
+            <input data-workplace-loc-input="${q}:obec" data-autocomplete="obec" data-okres-target="${q}:okres" autocomplete="off" value="${esc(L.obec||'')}" placeholder="Obec (začněte psát)">
+            <input data-workplace-loc-input="${q}:okres" data-autocomplete="okres" autocomplete="off" value="${esc(L.okres||'')}" placeholder="Okres">
+          </div>
+        </div>`; }).join('')}
       ${settingsPanelEnd()}
     </div>
 
@@ -3332,7 +3340,7 @@ function attachHandlers(){
   app.querySelectorAll('[data-workplace-loc-input]').forEach(el => {
     el.addEventListener('change', () => {
       const [w, key] = el.getAttribute('data-workplace-loc-input').split(':');
-      if(!state.settingsDraft.workplaceLocations[w]) state.settingsDraft.workplaceLocations[w] = {okres:'', obec:'', sidlo:''};
+      if(!state.settingsDraft.workplaceLocations[w]) state.settingsDraft.workplaceLocations[w] = {okres:'', obec:'', sidlo:'', psc:''};
       state.settingsDraft.workplaceLocations[w][key] = el.value;
     });
   });
@@ -4955,7 +4963,7 @@ function zhlavColumns(){
     {code:'mistn', get:p=>p.misto_narozeni},
     {code:'okresp', get:p=>vemaWorkplaceCodes(p).okres},
     {code:'obecp', get:p=>vemaWorkplaceCodes(p).obec},
-    {code:'sidpra', get:p=>workplaceLocation(p.pracoviste).sidlo || p.pracoviste || ''},
+    {code:'sidpra', get:p=>workplaceAddress(p.pracoviste) || p.pracoviste || ''},
     {code:'email', get:p=>p.email_soukromy},
     {code:'dobvz', get:p=>vemaLookupCode('obory_vzdelani', p.obor)},
     {code:'dstvz', get:p=>EDU_LEVEL_CODES[p.stupen_vzdelani] || ''},
@@ -5072,7 +5080,7 @@ function vemaPlaceLookup(obecTxt, okresTxt){
   return { okres: okres || (obec ? cand[0].okres : ''), obec };
 }
 function vemaPlaceCodes(p){ return vemaPlaceLookup(p.misto_narozeni, p.okres_narozeni); }
-// Okres/obec pracoviště: z Nastavení → Umístění pracovišť; když tam obec chybí, zkusí se název pracoviště (např. „Olomouc“) jako název obce
+// Okres/obec pracoviště: z Nastavení → Adresy pracovišť; když tam obec chybí, zkusí se název pracoviště (např. „Olomouc“) jako název obce
 function vemaWorkplaceCodes(p){ const w = workplaceLocation(p.pracoviste); return vemaPlaceLookup(w.obec || p.pracoviste, w.okres); }
 
 const SATELLITE_TABLES = [
@@ -5180,7 +5188,7 @@ async function generateVemaExport(ids){
     if(p.misto_narozeni && !codes.obec) warnings.push(`${who}: obec narození „${p.misto_narozeni}“ se nepodařilo převést na kód (doplňte kód obce ručně${p.okres_narozeni ? '' : '; pomůže vyplnit okres narození'}).`);
     if(p.okres_narozeni && !codes.okres) warnings.push(`${who}: okres narození „${p.okres_narozeni}“ se nepodařilo převést na kód.`);
     { const w = workplaceLocation(p.pracoviste), wc = vemaWorkplaceCodes(p);
-      if(p.pracoviste && (!wc.obec || !wc.okres)) warnings.push(`${who}: okres/obec pracoviště „${p.pracoviste}“ (${w.obec || '–'}, ${w.okres || '–'}) se nepodařilo převést na kód – doplňte okres a obec v Nastavení → Umístění pracovišť.`); }
+      if(p.pracoviste && (!wc.obec || !wc.okres)) warnings.push(`${who}: okres/obec pracoviště „${p.pracoviste}“ (${w.obec || '–'}, ${w.okres || '–'}) se nepodařilo převést na kód – doplňte adresu pracoviště v Nastavení → Adresy pracovišť.`); }
     if(p.obor && !vemaLookupCode('obory_vzdelani', p.obor)) warnings.push(`${who}: obor vzdělání „${p.obor}“ není v číselníku Vemy (sloupec dobvz zůstal prázdný).`);
     if(p.skola && !vemaLookupCode('skoly', p.skola)) warnings.push(`${who}: škola „${p.skola}“ není v číselníku Vemy (sloupec skolak zůstal prázdný).`);
   });
@@ -5375,7 +5383,7 @@ function docValues(r){
     doba_trvani_mala: p.doba_trvani_pomeru === 'Na dobu určitou' ? 'určitou' : 'neurčitou',
     zkusebni_doba_text: (() => { const m = zkusdMonths(p); if(m === '') return '……'; const n = parseInt(m, 10); return n + (n === 1 ? ' měsíc' : (n >= 2 && n <= 4 ? ' měsíce' : ' měsíců')); })(),
     misto_vykonu: workplaceLocation(p.pracoviste).obec || p.pracoviste || '',
-    pracoviste_adresa: [workplaceLocation(p.pracoviste).sidlo, workplaceLocation(p.pracoviste).obec].filter(Boolean).join(', ') || p.pracoviste || '',
+    pracoviste_adresa: workplaceAddress(p.pracoviste) || p.pracoviste || '',
   };
 }
 function docFileName(r, tpl, ext){
@@ -5450,7 +5458,7 @@ const TEMPLATE_TOKENS = [
   ['utvar','Odbor / oddělení (název)'],
   ['pracoviste','Pracoviště (název, např. MD)'],
   ['misto_vykonu','Město pracoviště (obec z Nastavení, jinak název pracoviště)'],
-  ['pracoviste_adresa','Adresa pracoviště (sídlo a obec z Nastavení, jinak název pracoviště)'],
+  ['pracoviste_adresa','Adresa pracoviště (ulice, PSČ a obec z Nastavení → Adresy pracovišť, jinak název pracoviště)'],
   ['datum_nastupu','Datum nástupu (DD.MM.RRRR)'],
   ['datum_narozeni','Datum narození'],
   ['datum_misto_narozeni','Datum a místo narození'],
@@ -6508,7 +6516,7 @@ const HELP = [
   ['✅','Schválit údaje','Dostupné ve stavu Odesláno / Vráceno, pokud jsou vyplněna všechna povinná pole. Po schválení má spis stav Zkontrolováno.'],
   ['🙋','Co dělá zaměstnanec','Vyplní průvodce, potvrdí souhlas se zpracováním osobních údajů a odešle. Po odeslání je formulář zamčen; zaměstnanec ho může sám stáhnout zpět a opravit, pokud ho ještě nezkontrolujete.']]},
  {g:'Výstupy',items:[
-  ['📊','Generovat tabulky pro VEMU','V rejstříku zaškrtněte zkontrolované spisy (výběr lze udělat hromadně v záhlaví) a použijte <b>Generovat tabulky pro VEMU</b>. Stav „Vygenerováno“ se u spisu zapamatuje; po nahrání do Vemy a kontrole tlačítkem <b>Potvrdit nahrání do Vemy</b> (vedle Generovat) přejde na „Nahráno“. Když tabulky vygenerujete znovu, stav se vrátí na „Vygenerováno“. Výsledkem je <b>ZIP s datem a časem generování v názvu</b> (např. VEMA_export_20261020-1015.zip). Hlavní soubor <b>ZHLAV.xlsx</b> vzniká přímo ze šablony Vemy (list Číselníky je zbavený osobních údajů – tabulka osobyv se jmény a rodnými čísly je z šablony odstraněna) (Zaváděcí formulář – dlouhé věty, 151 sloupců) a obsahuje všechny tři její listy (ZHLAV, Číselníky, Metadata) beze změny. V listu ZHLAV zůstávají 1. řádek (popisy sloupců), 2. řádek (názvy sloupců; <b>povinné položky jsou červeně</b>) a 3. řádek se vzorovým zaměstnancem (Kateřina Nováková) pro kontrolu; naše data začínají <b>4. řádkem</b>. Vzorový řádek je před nahráním do Vemy potřeba smazat. Formáty buněk (text, číslo, datum DD.MM.RR nebo DD.MM.RRRR) určují sloupce šablony. Útvar (číselný kód z číselníku útvarů) se zapisuje do sloupce <b>pracvz</b>. Texty z dotazníku se převádějí na číselníkové kódy Vemy: obec a okres narození (v dotazníku se obec i okres nabízejí z číselníku Vemy, lze ale psát i volný text; neúplný název, např. „Brandýs nad Labem“, se přiřadí k „Brandýs nad Labem-Stará Boleslav“) i okres a obec pracoviště (sloupce okresp, obecp; berou se z Nastavení → Umístění pracovišť, a když tam obec chybí, zkusí se název pracoviště jako název obce; sídlo pracoviště sidpra se při prázdném nastavení vyplní názvem pracoviště; okres upřesní obec se stejným názvem), obor vzdělání, kód školy a oboru; stupeň vzdělání se převádí na písmenný kód. Co se nepodaří převést, zůstane prázdné a aplikace to vypíše k ručnímu doplnění. Další tabulky v ZIPu (Adresy, Bankovni_ucty, Deti, Vzdelani, Predchozi_zamestnani, Znalosti_jazyky a číselníky Ciselnik_pracovist a Ciselnik_utvaru) zůstávají samostatné soubory .xlsx. Ve spisu (pole Odbor / oddělení) se v nabídce zobrazuje i kód útvaru a do pole lze přímo napsat kód (např. 821) nebo část názvu. Kódy útvarů jdou upravit v Nastavení → Odbory / oddělení (tlačítko <b>Doplnit podle systemizace</b> přidá chybějící útvary). Pevné hodnoty se nastavují v Nastavení. Při změně šablony Vemy se data pro export obnoví skriptem <code>tools/build_vema_data.py</code>.'],
+  ['📊','Generovat tabulky pro VEMU','V rejstříku zaškrtněte zkontrolované spisy (výběr lze udělat hromadně v záhlaví) a použijte <b>Generovat tabulky pro VEMU</b>. Stav „Vygenerováno“ se u spisu zapamatuje; po nahrání do Vemy a kontrole tlačítkem <b>Potvrdit nahrání do Vemy</b> (vedle Generovat) přejde na „Nahráno“. Když tabulky vygenerujete znovu, stav se vrátí na „Vygenerováno“. Výsledkem je <b>ZIP s datem a časem generování v názvu</b> (např. VEMA_export_20261020-1015.zip). Hlavní soubor <b>ZHLAV.xlsx</b> vzniká přímo ze šablony Vemy (list Číselníky je zbavený osobních údajů – tabulka osobyv se jmény a rodnými čísly je z šablony odstraněna) (Zaváděcí formulář – dlouhé věty, 151 sloupců) a obsahuje všechny tři její listy (ZHLAV, Číselníky, Metadata) beze změny. V listu ZHLAV zůstávají 1. řádek (popisy sloupců), 2. řádek (názvy sloupců; <b>povinné položky jsou červeně</b>) a 3. řádek se vzorovým zaměstnancem (Kateřina Nováková) pro kontrolu; naše data začínají <b>4. řádkem</b>. Vzorový řádek je před nahráním do Vemy potřeba smazat. Formáty buněk (text, číslo, datum DD.MM.RR nebo DD.MM.RRRR) určují sloupce šablony. Útvar (číselný kód z číselníku útvarů) se zapisuje do sloupce <b>pracvz</b>. Texty z dotazníku se převádějí na číselníkové kódy Vemy: obec a okres narození (v dotazníku se obec i okres nabízejí z číselníku Vemy, lze ale psát i volný text; neúplný název, např. „Brandýs nad Labem“, se přiřadí k „Brandýs nad Labem-Stará Boleslav“) i okres a obec pracoviště (sloupce okresp, obecp; berou se z adresy pracoviště v Nastavení → Adresy pracovišť (název pracoviště je jen popis; obec a okres se tam nabízejí z číselníku), a když obec chybí, zkusí se název pracoviště jako název obce; sídlo pracoviště sidpra je úplná adresa „ulice č.p., PSČ obec“ (při prázdném nastavení název pracoviště); okres upřesní obec se stejným názvem), obor vzdělání, kód školy a oboru; stupeň vzdělání se převádí na písmenný kód. Co se nepodaří převést, zůstane prázdné a aplikace to vypíše k ručnímu doplnění. Další tabulky v ZIPu (Adresy, Bankovni_ucty, Deti, Vzdelani, Predchozi_zamestnani, Znalosti_jazyky a číselníky Ciselnik_pracovist a Ciselnik_utvaru) zůstávají samostatné soubory .xlsx. Ve spisu (pole Odbor / oddělení) se v nabídce zobrazuje i kód útvaru a do pole lze přímo napsat kód (např. 821) nebo část názvu. Kódy útvarů jdou upravit v Nastavení → Odbory / oddělení (tlačítko <b>Doplnit podle systemizace</b> přidá chybějící útvary). Pevné hodnoty se nastavují v Nastavení. Při změně šablony Vemy se data pro export obnoví skriptem <code>tools/build_vema_data.py</code>.'],
   ['📧','Upozornění na odevzdaný dotazník','Po odeslání dotazníku nabídne aplikace zaměstnanci tlačítko <b>Upozornit personální oddělení e-mailem</b>: otevře se předvyplněný e-mail pro tu osobu, která mu v aplikaci <b>vygenerovala odkaz</b> (zaměstnanec ho odešle ze své schránky; aplikace nemůže zaručit, že to udělá). U odkazů vygenerovaných dříve se použije <b>záložní e-mail</b> z Nastavení → Upozornění na odevzdaný dotazník. Tlačítko zůstane i u odeslaného dotazníku.'],
   ['🔢','Osobní čísla','Osobní číslo se novému spisu <b>přidělí automaticky</b> při založení i při importu – vždy nejnižší volné číslo od začátku zadaného v <b>Nastavení → Osobní čísla</b> (tak se vynechá interval čísel zaměstnanců DESÚ, kteří je už mají). V rejstříku je pod jménem místo kódu spisu a ve spisu je pole <b>Osobní číslo</b> jen ke čtení. Smažete-li spis dřív, než se pro něj vygenerují tabulky pro Vemu, číslo se uvolní a přidělí se dalšímu; po vygenerování tabulek se znovu nepoužije. Při odchodu z Nastavení s neuloženými změnami (Zpět, přepnutí pohledu, Odhlásit) se aplikace zeptá, zda změny uložit, zahodit, nebo zůstat. Spisům založeným dřív se číslo samo nepřidělí (smažte je a založte znovu); pokud není začátek v Nastavení vyplněný, čísla se nepřidělují.'],
   ['🗂️','Vzory dokumentů (Nastavení)','V <b>Nastavení → Vzory dokumentů</b> je seznam všech vzorů, ze kterých se dokumenty generují. U každého jde <b>Stáhnout</b> aktuální vzor, <b>Nahradit…</b> ho novou verzí (soubor Word .docx) a <b>Vrátit výchozí</b> (smaže nahraný vzor a vrátí vzor dodaný s aplikací). Nahraný vzor platí hned pro další generování; ukládá se okamžitě, není potřeba Uložit nastavení. Před nahráním aplikace zkontroluje soubor a vypíše nalezená zástupná pole <code>{{pole}}</code> a upozorní na neznámá. Přehled polí je v rozbalovací části „Zástupná pole pro vzory“. Už vygenerované dokumenty se nemění.'],
@@ -6517,7 +6525,7 @@ const HELP = [
  {g:'IT a provoz (stručně)',items:[
   ['💻','Přiřazení administrátora','V pohledu IT a provoz lze spisy hromadně přiřadit administrátorovi systémů. Záložky <b>IT a přístupy</b> a <b>Provoz</b> obsahují checklisty podle kategorie zaměstnance.']]},
  {g:'Nastavení (⚙)',items:[
-  ['⚙️','Přehled sekcí','Pracoviště, pozice, administrátoři systémů, nadřízení, pravidla pro stávající e-mail, <b>text e-mailu s odkazem</b>, <b>text e-mailu při vrácení k doplnění</b>, odbory/oddělení, pracovníci provozu, kód pracoviště pro Vemu, pevné hodnoty pro Vemu, kanceláře podle budovy, adresy systémů, kategorie a přiřazené systémy, <b>povinné položky personálního oddělení</b>. Sekce lze sbalit; změny se uloží tlačítkem Uložit.'],
+  ['⚙️','Přehled sekcí','Pracoviště, pozice, administrátoři systémů, nadřízení, pravidla pro stávající e-mail, <b>text e-mailu s odkazem</b>, <b>text e-mailu při vrácení k doplnění</b>, odbory/oddělení, pracovníci provozu, <b>adresy pracovišť</b> (ulice, PSČ, obec a okres; název pracoviště je jen popis) a kódy pracovišť pro Vemu, pevné hodnoty pro Vemu, kanceláře podle budovy, adresy systémů, kategorie a přiřazené systémy, <b>povinné položky personálního oddělení</b>. Sekce lze sbalit; změny se uloží tlačítkem Uložit.'],
   ['💾','Záloha a obnova','Stažení zálohy všech dat do souboru a její obnovení najdete v Nastavení. Zálohu doporučuji stáhnout před hromadným mazáním.'],
   ['🛡️','Ochrana osobních údajů','Data vidí jen přihlášení zaměstnanci ze seznamu oprávněných (databázová tabulka <code>staff</code>). Zaměstnanec se přes svůj odkaz dostane jen ke svému spisu. Po uplynutí lhůty od <b>Generovat tabulky pro VEMU</b> (60 dní; ručně to lze udělat dřív tlačítkem <b>Smazat osobní údaje</b> v rejstříku) se osobní údaje ze spisu automaticky smažou — proto si tabulky a podklady uložte včas na řádné místo.'],
   ['🧹','Smazat všechny spisy','Nevratná operace v Nastavení; před ní stáhněte zálohu.']]}
