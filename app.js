@@ -1,4 +1,4 @@
-const APP_VERSION = '2026-11-02.4';
+const APP_VERSION = '2026-11-02.5';
 const STORAGE_INDEX_KEY = 'onboarding:index';
 const STORAGE_INFO_KEY = 'onboarding:info-content';
 const STORAGE_SETTINGS_KEY = 'onboarding:settings';
@@ -512,10 +512,10 @@ const CHECKLIST_SECTIONS = [
   { id:'whatspot', label:'Whatspot', owner:'admin', items:[
     {id:'whatspot_user', label:'Vytvoření uživatele', hint:'rezervace aut — vyplnit jen pro MD pracovníky'},
   ]},
-  { id:'vema_server', label:'Vema server', owner:'admin', items:[
+  { id:'vema_server', label:'Vema portál', owner:'admin', items:[
     {id:'jipkaas', label:'Import jipkaas certifikátu novému uživateli'},
   ]},
-  { id:'vema', label:'Vema', owner:'hr', items:[
+  { id:'vema', label:'Vema klient', owner:'hr', items:[
     {id:'vema_user', label:'Vytvoření uživatele ve Vemě (dělá Perso)'},
   ]},
   { id:'outlook', label:'Outlook', owner:'admin', items:[
