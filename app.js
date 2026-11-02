@@ -1,4 +1,4 @@
-const APP_VERSION = '2026-11-02.1';
+const APP_VERSION = '2026-11-02.2';
 const STORAGE_INDEX_KEY = 'onboarding:index';
 const STORAGE_INFO_KEY = 'onboarding:info-content';
 const STORAGE_SETTINGS_KEY = 'onboarding:settings';
@@ -905,7 +905,8 @@ function fieldMarkup(f, value, disabled, attrName, attrValue){
   const acKind = f.bankList ? 'bank' : f.insuranceList ? 'insurance' : f.datalist ? f.datalist : '';
   const acAttr = acKind ? `data-autocomplete="${acKind}"` : '';
   const autocompleteAttr = f.autocomplete ? `autocomplete="${esc(f.autocomplete)}"` : (acKind ? 'autocomplete="off"' : '');
-  return `<input type="${f.type||'text'}" ${attr}="${esc(av)}" value="${esc(val)}" placeholder="${esc(f.placeholder||'')}" ${acAttr} ${autocompleteAttr} ${dis}>`;
+  const digitsAttr = f.validate === 'rodneCislo' ? 'data-digits-only inputmode="numeric" maxlength="10"' : '';   // rodné číslo jen číslice, bez lomítka
+  return `<input type="${f.type||'text'}" ${attr}="${esc(av)}" value="${esc(val)}" placeholder="${esc(f.placeholder||'')}" ${acAttr} ${autocompleteAttr} ${digitsAttr} ${dis}>`;
 }
 function dateInputHtml(val, dis, attr, av){
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(val || '');
@@ -1282,8 +1283,9 @@ const VALIDATORS = {
   rodneCislo(raw){
     if(!raw) return {ok:true};
     const cleaned = raw.replace(/\s+/g,'');
-    const m = /^(\d{2})(\d{2})(\d{2})\/?(\d{3,4})$/.exec(cleaned);
-    if(!m) return {ok:false, severity:'error', message:'Očekávaný formát RRMMDD/XXX(X)'};
+    if(cleaned.includes('/')) return {ok:false, severity:'error', message:'Rodné číslo zadejte jen číslicemi, bez lomítka (např. 9001011234)'};
+    const m = /^(\d{2})(\d{2})(\d{2})(\d{3,4})$/.exec(cleaned);
+    if(!m) return {ok:false, severity:'error', message:'Rodné číslo zadejte jen číslicemi: RRMMDDXXX nebo RRMMDDXXXX'};
     const rr = m[1], mmRaw = m[2], dd = m[3], suffix = m[4];
     let mm = parseInt(mmRaw,10);
     if(mm > 70) return {ok:false, severity:'error', message:'Neplatný měsíc v rodném čísle'};
@@ -3856,6 +3858,12 @@ function attachHandlers(){
     });
   });
 
+  app.querySelectorAll('[data-digits-only]').forEach(input => {
+    input.addEventListener('input', () => {
+      const clean = input.value.replace(/\D/g, '').slice(0, 10);
+      if(clean !== input.value){ const pos = input.selectionStart - (input.value.length - clean.length); input.value = clean; try{ input.setSelectionRange(Math.max(0,pos), Math.max(0,pos)); }catch(e){} }
+    });
+  });
   app.querySelectorAll('[data-autocomplete]').forEach(input => {
     const kind = input.getAttribute('data-autocomplete');
     if(kind === 'utvar') input.addEventListener('change', () => { const n = normalizeDepartmentInput(input.value); if(n !== input.value) input.value = n; }, true);
@@ -4865,7 +4873,7 @@ function zhlavColumns(){
   return [
     {code:'oscis', get:p=>p.osobni_cislo},
     {code:'upljmeno', get:p=>[p.titul_pred,p.jmeno,p.prijmeni,p.titul_za].filter(Boolean).join(' ')},
-    {code:'rocis', get:p=>p.rodne_cislo},
+    {code:'rocis', get:p=>rcDigits(p.rodne_cislo)},
     {code:'statp', get:p=>countryCode(p.statni_prislusnost)},
     {code:'zaloha', get:p=>''},
     {code:'adrz', get:p=>''},
@@ -4975,7 +4983,7 @@ function zhlavColumns(){
     {code:'tituly', get:p=>[p.titul_pred, p.titul_za].map(x => (x||'').trim()).filter(Boolean).join(', ')},
     {code:'naroz', get:p=>p.datum_narozeni},
     {code:'pohl', get:p=>{ const sx = personSex(p); return sx === 'z' ? '1' : sx === 'm' ? '0' : ''; }},
-    {code:'cpoj', get:p=>p.rodne_cislo},
+    {code:'cpoj', get:p=>rcDigits(p.rodne_cislo)},
     {code:'sidlos', get:p=>p.sidlo_skoly},
     {code:'stats', get:p=>(p.sidlo_skoly || p.skola) ? '203' : ''},   // stát sídla školy v dotazníku nesbíráme; předpokládá se ČR
     {code:'slespzc', get:p=>ynCode(p.duchod) || '0'},
@@ -5019,7 +5027,7 @@ function zhlavColumns(){
     {code:'zvzda', get:p=>'0'},
     {code:'prijmm', get:p=>p.prijmeni_manzela},
     {code:'jmenom', get:p=>p.jmeno_manzela},
-    {code:'rocism', get:p=>p.rodne_cislo_manzela},
+    {code:'rocism', get:p=>rcDigits(p.rodne_cislo_manzela)},
     {code:'ztppm', get:p=>['Ženatý/vdaná','Registrované partnerství'].includes(p.rodinny_stav) ? ynCode(p.manzel_ztpp) : '0'},   // povinné ve Vemě; u neženatých/nevdaných 0
     {code:'pracv', get:p=>workplaceVemaCode(p.pracoviste)},
   ];
@@ -5103,7 +5111,7 @@ const SATELLITE_TABLES = [
     name: 'Deti',
     header: ['oscis-A','zapl-A','detid-A','prijmdd-A','jmenodd-A','rocisd-A','rprna-A','pohld-A','mistnd-A','adrbd-A','vyzos-A','vyzosko-A','ztpp-A','ztppko-A'],
     rows(oscis, p){
-      return (p.deti||[]).map((d,i) => [oscis, p.datum_nastupu, String(i+1), d.prijmeni, d.jmeno, d.rodne_cislo, d.datum_narozeni, '', d.bydliste, '', ynCode(d.danove_zvyhodneni), '', ynCode(d.ztpp), '']);
+      return (p.deti||[]).map((d,i) => [oscis, p.datum_nastupu, String(i+1), d.prijmeni, d.jmeno, rcDigits(d.rodne_cislo), d.datum_narozeni, '', d.bydliste, '', ynCode(d.danove_zvyhodneni), '', ynCode(d.ztpp), '']);
     }
   },
   {
@@ -5131,6 +5139,7 @@ const SATELLITE_TABLES = [
 ];
 
 // Datum v ostatních tabulkách pro Vemu: skutečné datum zobrazené jako DD.MM.RRRR. Hodnoty, které nejsou datum (např. samotný rok), se nemění.
+function rcDigits(v){ return String(v == null ? '' : v).replace(/\D/g, ''); }   // rodné číslo do Vemy vždy jen číslice
 function vemaDate(v){
   if(typeof v !== 'string') return v;
   const d = vemaParseDate(v);
@@ -6466,7 +6475,7 @@ const HELP_EMP = [
   ['⭐','Co je povinné','Povinné údaje jsou označeny <b style="color:#C62828">červenou hvězdičkou *</b>. Bez nich dotazník nepůjde odeslat. Ostatní údaje jsou doplňkové – vyplňte je, pokud se vás týkají.'],
   ['➡️','Jak se pohybovat','Dotazník je rozdělen do kroků. Tlačítky <b>Pokračovat</b> a <b>Zpět</b> se posouváte mezi kroky, nahoře můžete kliknutím přeskočit na libovolný krok – <b>chybějící povinné údaje vás nezastaví</b>, můžete vyplňovat i napřeskáčku. Krok, který jste už otevřeli a v němž ještě něco povinného chybí, se nahoře zobrazí <b style="color:#C62828">červeně s tečkou ●</b>; po doplnění zčerná.']]},
  {g:'Jednotlivé kroky',items:[
-  ['🪪','Základní údaje','Jméno, příjmení, tituly, rodné číslo <b>bez lomítka</b> (např. 9001011234), místo narození a státní příslušnost. Název obce narození začněte psát – nabídne se obec z číselníku (u stejnojmenných obcí je vidět okres) a po výběru se doplní i okres narození. Obec pište správně s diakritikou (Vyškov × Výškov jsou dvě různé obce). Existuje-li obcí stejného názvu více (např. Lhota), vyberte ji z nabídky, kde je vidět okres, nebo vyplňte okres narození – aplikace to připomene. Když obec v nabídce nenajdete, napište ji normálně sami. Datum narození se z rodného čísla doplní samo a aplikace ho zkontroluje.'],
+  ['🪪','Základní údaje','Jméno, příjmení, tituly, rodné číslo <b>jen číslicemi, bez lomítka</b> (např. 9001011234; lomítko ani jiné znaky se do pole nedají zapsat – platí i u dětí a manžela/manželky), místo narození a státní příslušnost. Název obce narození začněte psát – nabídne se obec z číselníku (u stejnojmenných obcí je vidět okres) a po výběru se doplní i okres narození. Obec pište správně s diakritikou (Vyškov × Výškov jsou dvě různé obce). Existuje-li obcí stejného názvu více (např. Lhota), vyberte ji z nabídky, kde je vidět okres, nebo vyplňte okres narození – aplikace to připomene. Když obec v nabídce nenajdete, napište ji normálně sami. Datum narození se z rodného čísla doplní samo a aplikace ho zkontroluje.'],
   ['🏠','Bydliště a kontakt','Trvalé bydliště, soukromý telefon a e-mail. Doručovací adresu vyplňte jen tehdy, pokud je jiná než trvalá. Kontakt pro mimořádnou událost je doplňkový (koho zavolat, kdyby se vám něco stalo).'],
   ['🏦','Pojišťovna a účet','Zdravotní pojišťovnu vyberte ze seznamu. <b>Nahrajte kartičku pojišťovny</b> (povinné): tlačítkem <b>📷 Vyfotit kamerou</b> ji vyfotíte kamerou počítače (prohlížeč se zeptá na povolení kamery): přiložte kartičku stranou s údaji do rámečku a držte ji klidně – aplikace ji sama rozpozná, vyfotí a ořízne (kdyby to nešlo, použijte <b>Vyfotit hned</b>). Nebo <b>📎 Nahrát soubor</b> / přetažením vložíte hotovou fotografii či sken (JPG, PNG, PDF). Fotografie se před odesláním zmenší. Nahraný soubor můžete tlačítkem <b>Smazat</b> nahradit jiným. Číslo účtu zadejte bez lomítka a kódu banky, kód banky vyplňte zvlášť (např. 0100). Po zadání čísla účtu se zobrazí tři souhlasy se zasíláním platu, cestovních náhrad a příspěvku na stravování na tento účet.'],
   ['👪','Rodina a děti','Rodinný stav je povinný. Krok <b>Děti</b> je doplňkový – pokud děti nemáte, jen pokračujte dál. Další dítě přidáte tlačítkem <b>+ Přidat dítě</b>. Omylem přidané dítě zrušíte tlačítkem <b>✕ Zrušit / odebrat</b>.'],
@@ -6504,7 +6513,7 @@ const HELP = [
   ['📝','Osobní údaje','Formulář je rozdělen do sekcí. Povinné údaje jsou označeny <b style="color:#C62828">*</b>; chybějící jsou po pokusu o schválení zvýrazněny červeně a nad formulářem je výpis sekcí, kde ještě něco chybí.'],
   ['👔','Pracovní poměr','Typ poměru je předvyplněn jako <b>HPP</b> (lze změnit). <b>Zkušební doba:</b> u služebního poměru 6 nebo 8 měsíců – správná hodnota se předvyplní podle toho, zda je pozice vedoucí; u pracovního poměru se počet měsíců vybírá po jednom. Vedoucí pozice a platová třída se berou z Organigramu. <b>Tarifní plat</b> se dopočítá sám z tabulky tarifů (pracovní / služební poměr) podle platové třídy a platového stupně 1. <b>Platový stupeň</b> je předvyplněn na 1 (lze změnit, tarif se přepočte). Při otevření spisu se z Organigramu doplní chybějící vedoucí pozice a platová třída. Další položky pro Vemu (klasifikace, platová skupina, skupina prací, způsob odměňování aj.) se doplňují automaticky a najdete je v sbalené sekci <b>Automaticky doplňované hodnoty pro Vemu</b> na konci formuláře (jen ke kontrole).'],
   ['📎','Přílohy od zaměstnance','Zaměstnanec v dotazníku nahrává <b>kartičku zdravotní pojišťovny</b> (povinné, krok Pojišťovna a účet) a případná <b>osvědčení o ZOZ</b> (nepovinné, krok Praxe a ZOZ). Ve spisu je vidíte v těchto krocích; tlačítkem <b>Zobrazit</b> je otevřete a tlačítkem <b>⬇ Stáhnout</b> uložíte. Název souboru se vytvoří automaticky ve tvaru <b>Příjmení_Jméno_kartička_ZP.jpg</b> (u ZOZ <b>…_osvědčení_ZOZ.pdf</b>, při více souborech s pořadovým číslem). Fotky se ukládají zmenšené (cca 200–400 kB). Soubory jsou uložené odděleně v databázi, přístupné jen přihlášeným zaměstnancům a <b>mažou se spolu s osobními údaji</b> (ručně tlačítkem Smazat osobní údaje i automaticky po 60 dnech). Do tabulek pro Vemu nejdou a do zálohy (json) se neukládají.'],
-  ['🪪','Rodné číslo','Aplikace kontroluje rodné číslo a z něj dopočítá datum narození; nesrovnalosti zobrazí jako upozornění u pole.'],
+  ['🪪','Rodné číslo','Rodné číslo (i dětí a manžela/manželky) se zadává jen číslicemi, lomítko ani jiné znaky se do pole nedají zapsat; dříve uložené hodnoty s lomítkem aplikace označí chybou a do Vemy se vždy exportují jen číslice. Aplikace číslo kontroluje a z něj dopočítá datum narození; nesrovnalosti zobrazí jako upozornění u pole.'],
   ['✉️','Stávající e-mail','Navrhuje se podle pravidel z Nastavení (zdrojový úřad, jméno, příjmení). Je potřeba pro odeslání odkazu e-mailem.']]},
  {g:'Odkaz pro zaměstnance',items:[
   ['🔗','Vygenerovat a zkopírovat odkaz','Tlačítko je aktivní, až když jsou doplněny povinné údaje personálního oddělení. Odkaz je <b>osobní a tajný</b> (obsahuje dlouhý náhodný kód) a dotazník lze přes něj vyplňovat <b>30 dní</b> (vrácením k doplnění nebo novým zkopírováním odkazu se platnost obnoví). Po vypršení nebo po smazání osobních údajů odkaz dál otevře jen záložku <b>Co potřebujete vědět</b> — osobní údaje se ze serveru vůbec nepošlou. Odkazy rozeslané před zavedením tajného kódu už nefungují. Odkaz otevírá osobní prostor zaměstnance (první záložka <b>Vaše údaje</b>, druhá <b>Co potřebujete vědět</b>).'],
