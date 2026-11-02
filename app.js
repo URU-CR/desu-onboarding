@@ -1,4 +1,4 @@
-const APP_VERSION = '2026-11-02.3';
+const APP_VERSION = '2026-11-02.4';
 const STORAGE_INDEX_KEY = 'onboarding:index';
 const STORAGE_INFO_KEY = 'onboarding:info-content';
 const STORAGE_SETTINGS_KEY = 'onboarding:settings';
@@ -4345,7 +4345,8 @@ async function persistCurrentRecord(){
     entry.pracoviste = state.currentRecord.personal.pracoviste || entry.pracoviste;
     entry.datumNastupu = state.currentRecord.personal.datum_nastupu || entry.datumNastupu;
     entry.zdrojovyUrad = state.currentRecord.personal.zdrojovy_urad || entry.zdrojovyUrad;
-    if(typeof state.currentRecord.personal.osobni_cislo === 'string') entry.osobniCislo = state.currentRecord.personal.osobni_cislo.trim();   // ruční změna osobního čísla
+    { const pn = String(state.currentRecord.personal.osobni_cislo || '').trim();   // ruční změna osobního čísla; prázdné pole číslo v rejstříku nesmaže (maže se jen záměrně)
+      if(pn) entry.osobniCislo = pn; else if(entry.osobniCislo) state.currentRecord.personal.osobni_cislo = entry.osobniCislo; }
     entry.personalStatus = state.currentRecord.personalStatus;
     entry.assignedAdmin = state.currentRecord.assignedAdmin;
     entry.hrMissingCount = missingHrRequiredFields(state.currentRecord).length;
@@ -6260,7 +6261,13 @@ async function openDetail(id){
   state.currentId = id;
   state.currentRecord = await loadRecord(id);
   { const en = state.index.find(e => e.id === id);   // rejstřík se mohl rozejít se spisem (souběžný zápis) – srovnat
-    if(en && !state.employeeMode && en.personalStatus !== state.currentRecord.personalStatus){ en.personalStatus = state.currentRecord.personalStatus; saveIndex(); } }
+    if(en && !state.employeeMode && en.personalStatus !== state.currentRecord.personalStatus){ en.personalStatus = state.currentRecord.personalStatus; saveIndex(); }
+    // osobní číslo: rejstřík a spis se musí shodovat (číslo, které je jen na jedné straně, se doplní na druhou)
+    if(en && !state.employeeMode){
+      const pn = String(state.currentRecord.personal.osobni_cislo || '').trim(), en_n = String(en.osobniCislo || '').trim();
+      if(pn && pn !== en_n){ en.osobniCislo = pn; saveIndex(); }
+      else if(!pn && en_n){ state.currentRecord.personal.osobni_cislo = en_n; persistRecordOnly(); }
+    } }
   let _chg = await refreshFromOrganigram(state.currentRecord);
   if(ensureSuggestedEmail(state.currentRecord) || _chg) persistRecordOnly();
   state.view = 'detail';
