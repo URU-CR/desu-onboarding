@@ -1,4 +1,4 @@
-const APP_VERSION = '2026-11-02.5';
+const APP_VERSION = '2026-11-02.6';
 const STORAGE_INDEX_KEY = 'onboarding:index';
 const STORAGE_INFO_KEY = 'onboarding:info-content';
 const STORAGE_SETTINGS_KEY = 'onboarding:settings';
@@ -6140,6 +6140,7 @@ async function refreshFromServer(manual){
         }
       }
     }
+    if(state.view === 'list') await reconcileWaitingEntries(manual);
     if(changed || manual){ state.error = null; render(); }
     if(manual) showToast(changed ? 'Aktualizováno – načteny novější údaje.' : 'Aktualizováno – žádné změny.');
   }catch(e){
@@ -6149,6 +6150,28 @@ async function refreshFromServer(manual){
     refreshing = false;
     document.querySelectorAll('[data-refresh]').forEach(b => b.classList.remove('spin'));
   }
+}
+// Stav spisů, které čekají na zaměstnance (rozpracováno s odkazem / vráceno k doplnění): rejstřík se srovná se skutečným stavem spisu,
+// i kdyby se změna od zaměstnance do rejstříku nepropsala (např. souběžný zápis dvou uživatelů).
+let reconcilingWaiting = false, lastReconcile = 0;
+async function reconcileWaitingEntries(force){
+  if(state.employeeMode || state.loading || !window.storage || reconcilingWaiting) return;
+  if(!force && Date.now() - lastReconcile < 60000) return;
+  const waiting = state.index.filter(e => (e.personalStatus === 'returned' || ((e.personalStatus || 'draft') === 'draft' && e.linkGeneratedAt)) && e.id !== state.currentId);
+  if(!waiting.length) return;
+  reconcilingWaiting = true; lastReconcile = Date.now();
+  try{
+    let changed = false;
+    for(const e of waiting){
+      try{
+        const rr = await withTimeout(window.storage.get(recordKey(e.id), true), 15000);
+        if(!rr) continue;
+        const st = JSON.parse(rr.value).personalStatus;
+        if(st && st !== (e.personalStatus || 'draft')){ e.personalStatus = st; changed = true; }
+      }catch(err){ /* další spis */ }
+    }
+    if(changed){ await saveIndex(); render(); }
+  }finally{ reconcilingWaiting = false; }
 }
 document.addEventListener('click', ev => { const b = ev.target.closest && ev.target.closest('[data-refresh]'); if(b) refreshFromServer(true); });
 document.addEventListener('visibilitychange', () => { if(!document.hidden) refreshFromServer(false); });
@@ -6487,6 +6510,7 @@ async function openDetail(id){
     return;
   }
   render();
+  reconcileWaitingEntries(true);
   }
 })();
 
@@ -6531,7 +6555,7 @@ const HELP = [
   ['📄','Vytěžit podklady','Hromadný import z Excelu/JSON. Sloupce se namapují na údaje (zkontrolujte odhad) a lze nastavit <b>společné hodnoty</b> pro celou dávku – pracoviště, důvod vzniku pracovního poměru, typ poměru apod. Hodnota ze sloupce má vždy přednost.'],
   ['🔎','Hledání, filtry a řazení','Vyhledávání funguje na jméno, pozici, pracoviště, zdrojový úřad, administrátora i referenci. Filtry jsou pod záhlavím sloupců, řadit lze kliknutím na název sloupce.'],
   ['↻','Aktualizovat','Rejstřík i spis se po návratu do okna a každých ~45 s sami načtou znovu; tlačítko <b>↻</b> (Aktualizovat) načte aktuální stav hned (např. po odeslání dotazníku zaměstnancem). Ukládání personálního oddělení se slučuje se změnami zaměstnance, takže otevřený spis už jeho údaje nepřepíše.'],
-  ['🏷️','Stavy spisu','<b>K doplnění personálním oddělením</b> (chybí povinné údaje) → <b>Připraveno – vygenerujte odkaz</b> → <b>Čeká na zaměstnance</b> → <b>Odesláno zaměstnancem</b> → <b>Zkontrolováno</b>; případně <b>Vráceno k doplnění</b>.'],
+  ['🏷️','Stavy spisu','<b>K doplnění personálním oddělením</b> (chybí povinné údaje) → <b>Připraveno – vygenerujte odkaz</b> → <b>Čeká na zaměstnance</b> → <b>Odesláno zaměstnancem</b> → <b>Zkontrolováno</b>; případně <b>Vráceno k doplnění</b>. Stav u spisů čekajících na zaměstnance (Čeká na zaměstnance, Vráceno k doplnění) se při otevření rejstříku a při tlačítku Aktualizovat srovná se skutečným stavem spisu, takže odeslání od zaměstnance se v rejstříku ukáže vždy.'],
   ['✎','Rychlé doplnění','Tužka v řádku otevře okno pro rychlé doplnění základních údajů bez otevírání celého spisu.'],
   ['🗑️','Smazání spisu','Tlačítko Smazat v řádku (po potvrzení) odstraní jeden spis. Hromadné smazání všech spisů je v Nastavení.']]},
  {g:'Spis – údaje personálního oddělení',items:[
