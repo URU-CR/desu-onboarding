@@ -1,4 +1,4 @@
-const APP_VERSION = '2026-11-02.2';
+const APP_VERSION = '2026-11-02.3';
 const STORAGE_INDEX_KEY = 'onboarding:index';
 const STORAGE_INFO_KEY = 'onboarding:info-content';
 const STORAGE_SETTINGS_KEY = 'onboarding:settings';
@@ -444,7 +444,7 @@ const PERSONAL_SECTIONS = [
     {id:'kurzy_dovednosti', label:'Kurzy, specifické odborné znalosti a dovednosti', full:true},
   ]},
   { id:'pracovni_pomer', label:'Pracovní poměr', owner:'hr', fields:[
-    {id:'osobni_cislo', label:'Osobní číslo (přidělí se automaticky)', essential:true, readonly:true},
+    {id:'osobni_cislo', label:'Osobní číslo (přidělí se automaticky, lze přepsat)', essential:true, validate:'osobniCislo', digits:true},
     {id:'zdrojovy_urad', label:'Zdrojový úřad', essential:true, type:'select', options:['', ...ZDROJOVE_URADY]},
     {id:'email_stavajici', label:'Stávající pracovní e-mail (u zdrojového úřadu)', type:'email', validate:'email'},
     {id:'duvod_vzniku_pomeru', label:'Důvod vzniku pracovního poměru', essential:true, type:'select', options:['','Absolvent školy','Nástup z evidence úřadu práce','Ostatní osoby nastupující poprvé','Osoba měnící zaměstnání','Nástup z výběrového řízení','Opětovné přijetí do pracovního poměru']},
@@ -905,7 +905,7 @@ function fieldMarkup(f, value, disabled, attrName, attrValue){
   const acKind = f.bankList ? 'bank' : f.insuranceList ? 'insurance' : f.datalist ? f.datalist : '';
   const acAttr = acKind ? `data-autocomplete="${acKind}"` : '';
   const autocompleteAttr = f.autocomplete ? `autocomplete="${esc(f.autocomplete)}"` : (acKind ? 'autocomplete="off"' : '');
-  const digitsAttr = f.validate === 'rodneCislo' ? 'data-digits-only inputmode="numeric" maxlength="10"' : '';   // rodné číslo jen číslice, bez lomítka
+  const digitsAttr = f.validate === 'rodneCislo' ? 'data-digits-only inputmode="numeric" maxlength="10"' : f.digits ? 'data-digits-only inputmode="numeric" maxlength="10"' : '';   // rodné číslo jen číslice, bez lomítka
   return `<input type="${f.type||'text'}" ${attr}="${esc(av)}" value="${esc(val)}" placeholder="${esc(f.placeholder||'')}" ${acAttr} ${autocompleteAttr} ${digitsAttr} ${dis}>`;
 }
 function dateInputHtml(val, dis, attr, av){
@@ -1270,6 +1270,15 @@ function rodneCisloInfo(raw){
 }
 
 const VALIDATORS = {
+  osobniCislo(raw){   // osobní číslo: jen číslice, nesmí kolidovat s jiným spisem ani s číslem, které už bylo ve Vemě
+    const v = String(raw || '').trim();
+    if(!v) return {ok:true};
+    if(!/^\d+$/.test(v)) return {ok:false, severity:'error', message:'Osobní číslo musí obsahovat jen číslice.'};
+    const other = (state.index || []).find(e => e.id !== state.currentId && String(e.osobniCislo || '') === v);
+    if(other) return {ok:false, severity:'error', message:`Toto osobní číslo už má ${[other.jmeno, other.prijmeni].filter(Boolean).join(' ') || 'jiný spis'}.`};
+    if(((state.settings && state.settings.burnedNumbers) || []).map(String).includes(v)) return {ok:false, severity:'warning', message:'Toto číslo už bylo použito ve Vemě u smazaného spisu – ověřte, že ho lze přidělit znovu.'};
+    return {ok:true};
+  },
   obecNarozeni(raw, ctx){   // stejnojmenné obce: bez okresu nelze určit kód obce
     if(!raw || !VEMA_LOOKUP) return {ok:true};
     const r = vemaPlaceLookup(raw, ctx && ctx.okres_narozeni);
@@ -2746,6 +2755,7 @@ function sectionFieldsHtmlCore(sec, r, editable){
       ${isMissing ? `<div class="field-missing-note">Povinný údaj — nevyplněno</div>` : ''}
       ${validationNoteHtml(f, displayVal, ctxWithPending)}
       ${editable ? autofillButtonHtml(f, ctxWithPending, 'field', f.id) : ''}
+      ${editable && f.id === 'osobni_cislo' && !displayVal ? `<button type="button" class="btn btn-ghost btn-sm" data-assign-pn style="margin-top:6px;">Přidělit další volné číslo</button>` : ''}
       ${pending ? `<div class="pending-save-bar">Uložit změnu: <strong>${esc(pending.oldValue||'—')} → ${esc(pending.newValue||'—')}</strong><button type="button" class="btn btn-primary btn-sm" data-pending-confirm>Uložit</button><button type="button" class="btn btn-ghost btn-sm" data-pending-cancel>Zrušit</button></div>` : ''}
       ${hrFlagMode && flagged ? `<input class="flag-note-input" data-flag-note="${f.id}" placeholder="Co u tohoto pole chybí nebo je nejasně vyplněné" value="${esc(flags[f.id]||'')}">` : ''}
       ${showFlagInfo && flagged ? `<div class="field-flag-note">⚑ Personální: ${esc(flags[f.id] || 'zkontrolujte prosím toto pole')} ${editable ? `<button class="btn btn-ghost btn-sm" type="button" data-flag-resolve="${f.id}">✓ Vyřešeno</button>` : ''}</div>` : ''}
@@ -3822,7 +3832,7 @@ function attachHandlers(){
       if(fieldId === 'rozsah_uvazku' && newValue !== 'Zkrácený úvazek') state.currentRecord.personal.zkraceny_uvazek_procenta = '100';
       if(fieldId === 'rezim_zamestnani' || fieldId === 'vedouci') syncZkusebniDoba(state.currentRecord.personal);
       if(fieldId === 'jmeno' || fieldId === 'prijmeni' || fieldId === 'zdrojovy_urad') ensureExistingEmail(state.currentRecord);
-      if(fieldId === 'pozice' || fieldId === 'datum_nastupu' || fieldId === 'pracoviste' || fieldId === 'kategorie' || fieldId === 'zdrojovy_urad') persistCurrentRecord();
+      if(fieldId === 'pozice' || fieldId === 'datum_nastupu' || fieldId === 'pracoviste' || fieldId === 'kategorie' || fieldId === 'zdrojovy_urad' || fieldId === 'osobni_cislo') persistCurrentRecord();
       else persistRecordOnly();
       requestAnimationFrame(render);
     });
@@ -3913,6 +3923,13 @@ function attachHandlers(){
     if(calBtn) calBtn.addEventListener('click', () => openDatePicker(group, hidden, dayEl, monthEl, yearEl, commit));
   });
 
+  app.querySelectorAll('[data-assign-pn]').forEach(el => el.addEventListener('click', async () => {
+    const entry = state.index.find(e => e.id === state.currentId);
+    if(!entry || !state.currentRecord) return;
+    if(!assignPersonalNumber(state.currentRecord, entry)){ alert('Nejdřív nastavte začátek číslování v Nastavení → Osobní čísla.'); return; }
+    await persistCurrentRecord();
+    render();
+  }));
   app.querySelectorAll('[data-autofill-birthdate]').forEach(el => {
     el.addEventListener('click', () => {
       const [kind, ...rest] = el.getAttribute('data-autofill-birthdate').split(':');
@@ -4328,6 +4345,7 @@ async function persistCurrentRecord(){
     entry.pracoviste = state.currentRecord.personal.pracoviste || entry.pracoviste;
     entry.datumNastupu = state.currentRecord.personal.datum_nastupu || entry.datumNastupu;
     entry.zdrojovyUrad = state.currentRecord.personal.zdrojovy_urad || entry.zdrojovyUrad;
+    if(typeof state.currentRecord.personal.osobni_cislo === 'string') entry.osobniCislo = state.currentRecord.personal.osobni_cislo.trim();   // ruční změna osobního čísla
     entry.personalStatus = state.currentRecord.personalStatus;
     entry.assignedAdmin = state.currentRecord.assignedAdmin;
     entry.hrMissingCount = missingHrRequiredFields(state.currentRecord).length;
@@ -6527,7 +6545,7 @@ const HELP = [
  {g:'Výstupy',items:[
   ['📊','Generovat tabulky pro VEMU','V rejstříku zaškrtněte zkontrolované spisy (výběr lze udělat hromadně v záhlaví) a použijte <b>Generovat tabulky pro VEMU</b>. Stav „Vygenerováno“ se u spisu zapamatuje; po nahrání do Vemy a kontrole tlačítkem <b>Potvrdit nahrání do Vemy</b> (vedle Generovat) přejde na „Nahráno“. Když tabulky vygenerujete znovu, stav se vrátí na „Vygenerováno“. Výsledkem je <b>ZIP s datem a časem generování v názvu</b> (např. VEMA_export_20261020-1015.zip). Hlavní soubor <b>ZHLAV.xlsx</b> vzniká přímo ze šablony Vemy (list Číselníky je zbavený osobních údajů – tabulka osobyv se jmény a rodnými čísly je z šablony odstraněna) (Zaváděcí formulář – dlouhé věty, 151 sloupců) a obsahuje všechny tři její listy (ZHLAV, Číselníky, Metadata) beze změny. V listu ZHLAV zůstávají 1. řádek (popisy sloupců), 2. řádek (názvy sloupců; <b>povinné položky jsou červeně</b>) a 3. řádek se vzorovým zaměstnancem (Kateřina Nováková) pro kontrolu; naše data začínají <b>4. řádkem</b>. Vzorový řádek je před nahráním do Vemy potřeba smazat. Formáty buněk (text, číslo, datum DD.MM.RR nebo DD.MM.RRRR) určují sloupce šablony. Útvar (číselný kód z číselníku útvarů) se zapisuje do sloupce <b>pracvz</b>. Texty z dotazníku se převádějí na číselníkové kódy Vemy: obec a okres narození (v dotazníku se obec i okres nabízejí z číselníku Vemy, lze ale psát i volný text; neúplný název, např. „Brandýs nad Labem“, se přiřadí k „Brandýs nad Labem-Stará Boleslav“) i okres a obec pracoviště (sloupce okresp, obecp; berou se z adresy pracoviště v Nastavení → Adresy pracovišť (název pracoviště je jen popis; obec a okres se tam nabízejí z číselníku), a když obec chybí, zkusí se název pracoviště jako název obce; sídlo pracoviště sidpra je úplná adresa „ulice č.p., PSČ obec“ (při prázdném nastavení název pracoviště); okres upřesní obec se stejným názvem), obor vzdělání, kód školy a oboru; stupeň vzdělání se převádí na písmenný kód. Co se nepodaří převést, zůstane prázdné a aplikace to vypíše k ručnímu doplnění. Další tabulky v ZIPu (Adresy, Bankovni_ucty, Deti, Vzdelani, Predchozi_zamestnani, Znalosti_jazyky a číselníky Ciselnik_pracovist a Ciselnik_utvaru) zůstávají samostatné soubory .xlsx. Data v nich (např. narození dítěte, začátek a konec předchozího zaměstnání) jsou skutečná data ve formátu <b>DD.MM.RRRR</b>. Ve spisu (pole Odbor / oddělení) se v nabídce zobrazuje i kód útvaru a do pole lze přímo napsat kód (např. 821) nebo část názvu. Kódy útvarů jdou upravit v Nastavení → Odbory / oddělení (tlačítko <b>Doplnit podle systemizace</b> přidá chybějící útvary). Pevné hodnoty se nastavují v Nastavení. Při změně šablony Vemy se data pro export obnoví skriptem <code>tools/build_vema_data.py</code>.'],
   ['📧','Upozornění na odevzdaný dotazník','Po odeslání dotazníku nabídne aplikace zaměstnanci tlačítko <b>Upozornit personální oddělení e-mailem</b>: otevře se předvyplněný e-mail pro tu osobu, která mu v aplikaci <b>vygenerovala odkaz</b> (zaměstnanec ho odešle ze své schránky; aplikace nemůže zaručit, že to udělá). U odkazů vygenerovaných dříve se použije <b>záložní e-mail</b> z Nastavení → Upozornění na odevzdaný dotazník. Tlačítko zůstane i u odeslaného dotazníku.'],
-  ['🔢','Osobní čísla','Osobní číslo se novému spisu <b>přidělí automaticky</b> při založení i při importu – vždy nejnižší volné číslo od začátku zadaného v <b>Nastavení → Osobní čísla</b> (tak se vynechá interval čísel zaměstnanců DESÚ, kteří je už mají). V rejstříku je pod jménem místo kódu spisu a ve spisu je pole <b>Osobní číslo</b> jen ke čtení. Smažete-li spis dřív, než se pro něj vygenerují tabulky pro Vemu, číslo se uvolní a přidělí se dalšímu; po vygenerování tabulek se znovu nepoužije. Při odchodu z Nastavení s neuloženými změnami (Zpět, přepnutí pohledu, Odhlásit) se aplikace zeptá, zda změny uložit, zahodit, nebo zůstat. Spisům založeným dřív se číslo samo nepřidělí (smažte je a založte znovu); pokud není začátek v Nastavení vyplněný, čísla se nepřidělují.'],
+  ['🔢','Osobní čísla','Osobní číslo se novému spisu <b>přidělí automaticky</b> při založení i při importu – vždy nejnižší volné číslo od začátku zadaného v <b>Nastavení → Osobní čísla</b> (tak se vynechá interval čísel zaměstnanců DESÚ, kteří je už mají). V rejstříku je pod jménem místo kódu spisu a ve spisu (krok Pracovní poměr) je pole <b>Osobní číslo</b>, které lze <b>ručně přepsat</b> – např. když se nástup posune nebo někdo nenastoupí a jeho číslo se použije pro jiného. Číslo musí být jen číselné; aplikace upozorní, když ho už má jiný spis (chyba) nebo bylo použito ve Vemě u smazaného spisu (upozornění). Pokud spis číslo nemá (založen před nastavením začátku číslování), tlačítko <b>Přidělit další volné číslo</b> mu ho přidělí. Smažete-li spis dřív, než se pro něj vygenerují tabulky pro Vemu, číslo se uvolní a přidělí se dalšímu; po vygenerování tabulek se znovu nepoužije. Při odchodu z Nastavení s neuloženými změnami (Zpět, přepnutí pohledu, Odhlásit) se aplikace zeptá, zda změny uložit, zahodit, nebo zůstat. Spisům založeným dřív se číslo samo nepřidělí – přidělíte ho tlačítkem ve spisu nebo ho zadáte ručně; pokud není začátek v Nastavení vyplněný, čísla se nepřidělují.'],
   ['🗂️','Vzory dokumentů (Nastavení)','V <b>Nastavení → Vzory dokumentů</b> je seznam všech vzorů, ze kterých se dokumenty generují. U každého jde <b>Stáhnout</b> aktuální vzor, <b>Nahradit…</b> ho novou verzí (soubor Word .docx) a <b>Vrátit výchozí</b> (smaže nahraný vzor a vrátí vzor dodaný s aplikací). Nahraný vzor platí hned pro další generování; ukládá se okamžitě, není potřeba Uložit nastavení. Před nahráním aplikace zkontroluje soubor a vypíše nalezená zástupná pole <code>{{pole}}</code> a upozorní na neznámá. Přehled polí je v rozbalovací části „Zástupná pole pro vzory“. Už vygenerované dokumenty se nemění.'],
   ['📄','Dokumenty podle vzorů','Po <b>schválení údajů</b> je ve spisu tlačítko <b>Dokumenty podle vzorů</b> (samostatné „podklady k podpisu“ už neexistují – jsou součástí téhož výběru). Nahoře je společná trojice <b>Pracovní smlouva + Platový výměr + Dohoda o výkonu služby z jiného místa</b> s jedním zaškrtávátkem a polem <b>Číslo jednací</b> (vygenerované ve spisové službě): smlouva dostane toto č.j., platový výměr č.j./A a dohoda č.j./B. Č.j. se u spisu zapamatuje; nevyplněné zůstane k ručnímu doplnění. Otevře se seznam všech vzorů se zaškrtávátky; <b>předem je zaškrtnuté všechno</b> (nepotřebné odškrtněte). U vzorů je poznámka, pro jaký poměr jsou (všichni / služební poměr / dle potřeby – platový výměr a pracovní smlouva platí pro oba poměry), včetně podkladů k podpisu A, B, C. Tlačítkem <b>Vygenerovat</b> se každý dokument vyplní z údajů ve spisu a vytvoří se Word i PDF. U každého je <b>Zobrazit PDF</b>, <b>⬇ PDF</b> a <b>⬇ Word</b>; všechno najednou stáhnete jako <b>ZIP</b>. Názvy souborů jsou ve tvaru <b>Příjmení_Jméno_název.docx / .pdf</b>. Údaje, které ve spisu nejsou (č. j., datum podpisu, osobní číslo, které se nevyplnilo), zůstanou k ručnímu doplnění. PDF se vytváří přímo v prohlížeči, takže se může od Wordu lehce lišit zalomením stránek – Word je přesný. Vzory jsou ve složce <code>templates</code> a po změně vzoru se nahradí příslušný soubor. Dokumenty se generují z osobních údajů, proto je vytvořte před smazáním údajů.'],
   ['🧹','Smazání osobních údajů','Po nahrání do Vemy a ověření, že je vše správně, vyberte v rejstříku spisy a klikněte na <b>Smazat osobní údaje</b>. Tlačítko je aktivní jen u spisů ve stavu <b>Nahráno</b>. Smažte až po vygenerování dokumentů (z údajů se pak už znovu vytvořit nedají). Nevratně se smažou osobní údaje zaměstnance (zůstane jméno, pozice, pracoviště, datum nástupu a stavy) a jeho odkaz dál otevře jen záložku „Co potřebujete vědět“. Pokud smazání zapomenete, proběhne automaticky 60 dní po vygenerování tabulek.']]},
