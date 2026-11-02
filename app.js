@@ -1,4 +1,4 @@
-const APP_VERSION = '2026-11-02.6';
+const APP_VERSION = '2026-11-02.7';
 const STORAGE_INDEX_KEY = 'onboarding:index';
 const STORAGE_INFO_KEY = 'onboarding:info-content';
 const STORAGE_SETTINGS_KEY = 'onboarding:settings';
@@ -192,11 +192,15 @@ function categoryList(){ return (state.settings && state.settings.categories) ||
 function categoryNames(){ return categoryList().map(c => c.name); }
 function systemsForCategory(name){ const c = categoryList().find(c => c.name === name); return c ? c.systems : []; }
 // Zkušební doba (do Vemy jde jako počet měsíců 0–8):
+//  - delimitace: žádná zkušební doba (0),
 //  - služební poměr: natvrdo — vedoucí 8 měsíců, ostatní 6 měsíců (pole je zamčené),
 //  - pracovní poměr: výběr 0–8 měsíců po jednom.
 const ZKUSEBNI_SLUZEBNI = ['6 měsíců','8 měsíců'];
 const ZKUSEBNI_ALL = ['','Bez zkušební doby','1 měsíc','2 měsíce','3 měsíce','4 měsíce','5 měsíců','6 měsíců','7 měsíců','8 měsíců'];
+// Delimitace (typ nástupu) = žádná zkušební doba (do Vemy 0); zkušební doba se týká jen nových nástupů.
+function isDelimitace(p){ return !!p && /^Delimitace/i.test(String(p.typ_nastupu || '')); }
 function zkusebniDobaOptions(p){
+  if(isDelimitace(p)) return ['', 'Bez zkušební doby'];
   if(p && p.rezim_zamestnani === 'Služební poměr') return ['', ...ZKUSEBNI_SLUZEBNI];
   return ZKUSEBNI_ALL;
 }
@@ -205,6 +209,7 @@ function zkusebniDobaOptions(p){
 function syncZkusebniDoba(p){
   if(!p) return;
   if(p.zkusebni_doba === '8 měsíců (vedoucí zaměstnanec)') p.zkusebni_doba = '8 měsíců';
+  if(isDelimitace(p)){ p.zkusebni_doba = 'Bez zkušební doby'; return; }
   if(p.rezim_zamestnani === 'Služební poměr'){
     p.zkusebni_doba = p.vedouci === 'Ano' ? ZKUSEBNI_SLUZEBNI[1] : ZKUSEBNI_SLUZEBNI[0];
   } else if(p.zkusebni_doba && !zkusebniDobaOptions(p).includes(p.zkusebni_doba)){
@@ -213,6 +218,7 @@ function syncZkusebniDoba(p){
 }
 // Počet měsíců zkušební doby pro Vemu (sloupec zkusd) — služební poměr se počítá vždy z vedoucí pozice.
 function zkusdMonths(p){
+  if(isDelimitace(p)) return '0';
   if(p.rezim_zamestnani === 'Služební poměr') return p.vedouci === 'Ano' ? '8' : '6';
   const v = p.zkusebni_doba || '';
   if(!v) return '';
@@ -460,7 +466,7 @@ const PERSONAL_SECTIONS = [
     {id:'rozsah_uvazku', label:'Rozsah úvazku', essential:true, type:'select', options:['','Plný úvazek','Zkrácený úvazek']},
     {id:'doba_trvani_pomeru', label:'Doba trvání pracovního poměru', essential:true, type:'select', options:['','Na dobu neurčitou','Na dobu určitou']},
     {id:'uvazek', label:'Výše úvazku', placeholder:'např. 1,0'},
-    {id:'zkusebni_doba', label:'Zkušební doba', essential:true, type:'select', options:ZKUSEBNI_ALL, showWhenLocked:true, disabledIf:p=>p.rezim_zamestnani==='Služební poměr'},
+    {id:'zkusebni_doba', label:'Zkušební doba', essential:true, type:'select', options:ZKUSEBNI_ALL, showWhenLocked:true, disabledIf:p=>p.rezim_zamestnani==='Služební poměr' || isDelimitace(p)},
   ]},
   { id:'mzdove_udaje', label:'Mzdové a organizační údaje', owner:'hr', fields:[
     {id:'vedouci', label:'Vedoucí pozice', essential:true, type:'select', options:['','Ne','Ano']},
@@ -3830,7 +3836,7 @@ function attachHandlers(){
       state.currentRecord.personal[fieldId] = newValue;
       if(state.role === 'employee' && state.currentRecord.fieldFlags) delete state.currentRecord.fieldFlags[fieldId];
       if(fieldId === 'rozsah_uvazku' && newValue !== 'Zkrácený úvazek') state.currentRecord.personal.zkraceny_uvazek_procenta = '100';
-      if(fieldId === 'rezim_zamestnani' || fieldId === 'vedouci') syncZkusebniDoba(state.currentRecord.personal);
+      if(fieldId === 'rezim_zamestnani' || fieldId === 'vedouci' || fieldId === 'typ_nastupu') syncZkusebniDoba(state.currentRecord.personal);
       if(fieldId === 'jmeno' || fieldId === 'prijmeni' || fieldId === 'zdrojovy_urad') ensureExistingEmail(state.currentRecord);
       if(fieldId === 'pozice' || fieldId === 'datum_nastupu' || fieldId === 'pracoviste' || fieldId === 'kategorie' || fieldId === 'zdrojovy_urad' || fieldId === 'osobni_cislo') persistCurrentRecord();
       else persistRecordOnly();
@@ -5904,6 +5910,7 @@ async function openQuickEditModal(id){
     p.rozsah_uvazku = document.getElementById('qe-rozsah').value;
     if(p.rozsah_uvazku !== 'Zkrácený úvazek') p.zkraceny_uvazek_procenta = '100';
     p.datum_nastupu = document.getElementById('qe-datum').value;
+    syncZkusebniDoba(p);
     ensureSuggestedEmail(record);
     idxEntry.jmeno = jmeno;
     idxEntry.prijmeni = prijmeni;
@@ -6560,7 +6567,7 @@ const HELP = [
   ['🗑️','Smazání spisu','Tlačítko Smazat v řádku (po potvrzení) odstraní jeden spis. Hromadné smazání všech spisů je v Nastavení.']]},
  {g:'Spis – údaje personálního oddělení',items:[
   ['📝','Osobní údaje','Formulář je rozdělen do sekcí. Povinné údaje jsou označeny <b style="color:#C62828">*</b>; chybějící jsou po pokusu o schválení zvýrazněny červeně a nad formulářem je výpis sekcí, kde ještě něco chybí.'],
-  ['👔','Pracovní poměr','Typ poměru je předvyplněn jako <b>HPP</b> (lze změnit). <b>Zkušební doba:</b> u služebního poměru 6 nebo 8 měsíců – správná hodnota se předvyplní podle toho, zda je pozice vedoucí; u pracovního poměru se počet měsíců vybírá po jednom. Vedoucí pozice a platová třída se berou z Organigramu. <b>Tarifní plat</b> se dopočítá sám z tabulky tarifů (pracovní / služební poměr) podle platové třídy a platového stupně 1. <b>Platový stupeň</b> je předvyplněn na 1 (lze změnit, tarif se přepočte). Při otevření spisu se z Organigramu doplní chybějící vedoucí pozice a platová třída. Další položky pro Vemu (klasifikace, platová skupina, skupina prací, způsob odměňování aj.) se doplňují automaticky a najdete je v sbalené sekci <b>Automaticky doplňované hodnoty pro Vemu</b> na konci formuláře (jen ke kontrole).'],
+  ['👔','Pracovní poměr','Typ poměru je předvyplněn jako <b>HPP</b> (lze změnit). <b>Zkušební doba:</b> týká se jen nových nástupů – u <b>delimitace</b> (typ nástupu) žádná zkušební doba není (pole je zamčené na „Bez zkušební doby“, do Vemy jde 0), a to i u už nahraných spisů; u nových nástupů platí: u služebního poměru 6 nebo 8 měsíců – správná hodnota se předvyplní podle toho, zda je pozice vedoucí; u pracovního poměru se počet měsíců vybírá po jednom. Vedoucí pozice a platová třída se berou z Organigramu. <b>Tarifní plat</b> se dopočítá sám z tabulky tarifů (pracovní / služební poměr) podle platové třídy a platového stupně 1. <b>Platový stupeň</b> je předvyplněn na 1 (lze změnit, tarif se přepočte). Při otevření spisu se z Organigramu doplní chybějící vedoucí pozice a platová třída. Další položky pro Vemu (klasifikace, platová skupina, skupina prací, způsob odměňování aj.) se doplňují automaticky a najdete je v sbalené sekci <b>Automaticky doplňované hodnoty pro Vemu</b> na konci formuláře (jen ke kontrole).'],
   ['📎','Přílohy od zaměstnance','Zaměstnanec v dotazníku nahrává <b>kartičku zdravotní pojišťovny</b> (povinné, krok Pojišťovna a účet) a případná <b>osvědčení o ZOZ</b> (nepovinné, krok Praxe a ZOZ). Ve spisu je vidíte v těchto krocích; tlačítkem <b>Zobrazit</b> je otevřete a tlačítkem <b>⬇ Stáhnout</b> uložíte. Název souboru se vytvoří automaticky ve tvaru <b>Příjmení_Jméno_kartička_ZP.jpg</b> (u ZOZ <b>…_osvědčení_ZOZ.pdf</b>, při více souborech s pořadovým číslem). Fotky se ukládají zmenšené (cca 200–400 kB). Soubory jsou uložené odděleně v databázi, přístupné jen přihlášeným zaměstnancům a <b>mažou se spolu s osobními údaji</b> (ručně tlačítkem Smazat osobní údaje i automaticky po 60 dnech). Do tabulek pro Vemu nejdou a do zálohy (json) se neukládají.'],
   ['🪪','Rodné číslo','Rodné číslo (i dětí a manžela/manželky) se zadává jen číslicemi, lomítko ani jiné znaky se do pole nedají zapsat; dříve uložené hodnoty s lomítkem aplikace označí chybou a do Vemy se vždy exportují jen číslice. Aplikace číslo kontroluje a z něj dopočítá datum narození; nesrovnalosti zobrazí jako upozornění u pole.'],
   ['✉️','Stávající e-mail','Navrhuje se podle pravidel z Nastavení (zdrojový úřad, jméno, příjmení). Je potřeba pro odeslání odkazu e-mailem.']]},
