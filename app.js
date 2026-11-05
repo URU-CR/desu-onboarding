@@ -1,4 +1,4 @@
-const APP_VERSION = '2026-11-02.7';
+const APP_VERSION = '2026-11-05.1';
 const STORAGE_INDEX_KEY = 'onboarding:index';
 const STORAGE_INFO_KEY = 'onboarding:info-content';
 const STORAGE_SETTINGS_KEY = 'onboarding:settings';
@@ -395,17 +395,13 @@ const PERSONAL_SECTIONS = [
     {id:'bydliste', label:'Bydliště (jen pokud nezaopatřené dítě žije jinde)', full:true},
   ]},
   { id:'vzdelani', label:'Vzdělání', navLabel:'Vzdělání', owner:'employee', fields:[
-    {id:'stav_vzdelani', label:'Stav studia', essential:true, type:'select', options:['','Dokončené','Probíhající','Nedokončené']},
-    {id:'rok_zahajeni', label:'Rok zahájení studia', validate:'yearZahajeni'},
-    {id:'rok_ukonceni', label:'Rok ukončení studia', validate:'yearUkonceni'},
-    {id:'stupen_vzdelani', label:'Nejvyšší dosažené vzdělání', type:'select', options:['','Základní','Střední bez maturity','Střední s maturitou','Vyšší odborné','Vysokoškolské — bakalářské','Vysokoškolské — magisterské','Vysokoškolské — doktorské'], essential:true},
-    {id:'datum_zahajeni_vzdelani', label:'Datum zahájení nejvyššího dokončeného vzdělání', type:'date', essential:true, showIf:p=>p.stav_vzdelani==='Dokončené'},
-    {id:'datum_ukonceni_vzdelani', label:'Datum ukončení nejvyššího dokončeného vzdělání', type:'date', essential:true, showIf:p=>p.stav_vzdelani==='Dokončené'},
+    {id:'rok_ukonceni', label:'Rok ukončení studia', essential:true, validate:'yearUkonceni'},
+    {id:'stupen_vzdelani', label:'Nejvyšší dosažené vzdělání', essential:true, type:'select', options:['','Základní','Střední bez maturity','Střední s maturitou','Vyšší odborné','Vysokoškolské — bakalářské','Vysokoškolské — magisterské','Vysokoškolské — doktorské'], essential:true},
     {id:'obor', label:'Obor', essential:true},
-    {id:'ziskany_titul', label:'Získaný titul', showIf:p=>p.stav_vzdelani==='Dokončené'},
-    {id:'skola', label:'Název školy'},
+    {id:'ziskany_titul', label:'Získaný titul'},
+    {id:'skola', label:'Název školy', essential:true},
     {id:'sidlo_skoly', label:'Sídlo školy'},
-    {id:'druh_zkousky', label:'Druh zkoušky (maturita, státní zkouška, certifikát…)', showIf:p=>p.stav_vzdelani==='Dokončené'},
+    {id:'druh_zkousky', label:'Druh zkoušky (maturita, státní zkouška, certifikát…)'},
   ]},
   { id:'praxe', label:'Praxe, započitatelné doby a ZOZ', navLabel:'Praxe a ZOZ', owner:'employee', itemLabel:'Období', type:'repeat', optional:true, addLabel:'+ Přidat období',
     emptyHint:'Pokud žádnou praxi ani započitatelnou dobu nemáte (např. absolvent), tento krok prostě přeskočte.',
@@ -5000,7 +4996,7 @@ function zhlavColumns(){
     {code:'email', get:p=>p.email_soukromy},
     {code:'dobvz', get:p=>vemaLookupCode('obory_vzdelani', p.obor)},
     {code:'dstvz', get:p=>EDU_LEVEL_CODES[p.stupen_vzdelani] || ''},
-    {code:'rokuk', get:p=>p.datum_ukonceni_vzdelani},
+    {code:'rokuk', get:p=>p.datum_ukonceni_vzdelani},   // dotazník sbírá jen rok ukončení; ve Vemě je to datum, takže zůstane prázdné (s upozorněním)
     {code:'skolak', get:p=>vemaLookupCode('skoly', p.skola)},
     {code:'obork', get:p=>vemaLookupCode('obory_kody', p.obor)},
     {code:'jmenozd', get:p=>p.jmeno},
@@ -5220,6 +5216,7 @@ async function generateVemaExport(ids){
     if(p.okres_narozeni && !codes.okres) warnings.push(`${who}: okres narození „${p.okres_narozeni}“ se nepodařilo převést na kód.`);
     { const w = workplaceLocation(p.pracoviste), wc = vemaWorkplaceCodes(p);
       if(p.pracoviste && (!wc.obec || !wc.okres)) warnings.push(`${who}: okres/obec pracoviště „${p.pracoviste}“ (${w.obec || '–'}, ${w.okres || '–'}) se nepodařilo převést na kód – doplňte adresu pracoviště v Nastavení → Adresy pracovišť.`); }
+    if(p.rok_ukonceni && !p.datum_ukonceni_vzdelani) warnings.push(`${who}: ve spisu je jen rok ukončení vzdělání (${p.rok_ukonceni}), sloupec rokuk (datum ukončení nejvyššího vzdělání) zůstal prázdný – doplňte ho ručně.`);
     if(p.obor && !vemaLookupCode('obory_vzdelani', p.obor)) warnings.push(`${who}: obor vzdělání „${p.obor}“ není v číselníku Vemy (sloupec dobvz zůstal prázdný).`);
     if(p.skola && !vemaLookupCode('skoly', p.skola)) warnings.push(`${who}: škola „${p.skola}“ není v číselníku Vemy (sloupec skolak zůstal prázdný).`);
   });
@@ -5376,7 +5373,7 @@ function docValues(r){
     manzel_datum_narozeni: dash(csDate(p.datum_narozeni_manzela)),
     manzel_obcanstvi: dash(p.statni_obcanstvi_manzela),
     manzel_bydliste: dash(p.bydliste_manzela),
-    stav_vzdelani: dash(p.stav_vzdelani),
+    stav_vzdelani: dash(p.stav_vzdelani || (p.rok_ukonceni ? 'Dokončené' : '')),
     stupen_vzdelani: dash(p.stupen_vzdelani),
     skola_obor: [p.skola, p.obor, p.sidlo_skoly ? '(' + p.sidlo_skoly + ')' : ''].filter(Boolean).join(', ') || '—',
     rok_ukonceni: dash(p.rok_ukonceni),
@@ -6535,7 +6532,7 @@ const HELP_EMP = [
   ['🏠','Bydliště a kontakt','Trvalé bydliště, soukromý telefon a e-mail. Doručovací adresu vyplňte jen tehdy, pokud je jiná než trvalá. Kontakt pro mimořádnou událost je doplňkový (koho zavolat, kdyby se vám něco stalo).'],
   ['🏦','Pojišťovna a účet','Zdravotní pojišťovnu vyberte ze seznamu. <b>Nahrajte kartičku pojišťovny</b> (povinné): tlačítkem <b>📷 Vyfotit kamerou</b> ji vyfotíte kamerou počítače (prohlížeč se zeptá na povolení kamery): přiložte kartičku stranou s údaji do rámečku a držte ji klidně – aplikace ji sama rozpozná, vyfotí a ořízne (kdyby to nešlo, použijte <b>Vyfotit hned</b>). Nebo <b>📎 Nahrát soubor</b> / přetažením vložíte hotovou fotografii či sken (JPG, PNG, PDF). Fotografie se před odesláním zmenší. Nahraný soubor můžete tlačítkem <b>Smazat</b> nahradit jiným. Číslo účtu zadejte bez lomítka a kódu banky, kód banky vyplňte zvlášť (např. 0100). Po zadání čísla účtu se zobrazí tři souhlasy se zasíláním platu, cestovních náhrad a příspěvku na stravování na tento účet.'],
   ['👪','Rodina a děti','Rodinný stav je povinný. Krok <b>Děti</b> je doplňkový – pokud děti nemáte, jen pokračujte dál. Další dítě přidáte tlačítkem <b>+ Přidat dítě</b>. Omylem přidané dítě zrušíte tlačítkem <b>✕ Zrušit / odebrat</b>.'],
-  ['🎓','Vzdělání','Údaje o vašem dosaženém vzdělání – vyplňte podle pokynů u polí.'],
+  ['🎓','Vzdělání','Povinné jsou: <b>nejvyšší dosažené vzdělání, obor, název školy a rok ukončení studia</b>. Sídlo školy, získaný titul a druh zkoušky jsou nepovinné.'],
   ['💼','Praxe a ZOZ','Krok je <b>nepovinný</b> – pokud praxi nemáte (např. absolvent), přeskočte ho. Uvádějte <b>přesná data</b> (den.měsíc.rok): předchozí zaměstnání, ale i <b>vojenskou službu, mateřskou a rodičovskou dovolenou, evidenci na úřadu práce</b> a další započitatelné doby – u každého období vyberte jeho <b>druh</b>. Nesprávné údaje mohou vést k zařazení do nižšího platového stupně. Další období přidáte tlačítkem <b>+ Přidat období</b> (datum „Od“ se předvyplní dnem po konci předchozího období, můžete ho přepsat – období by na sebe měla navazovat); omylem přidanou položku zrušíte tlačítkem <b>✕ Zrušit / odebrat</b> (úplně prázdné položky se při pohybu v dotazníku odstraní samy). Dole můžete nahrát sken <b>osvědčení o zkoušce odborné způsobilosti (ZOZ)</b> (tlačítko <b>+ Přidat ZOZ</b>, lze více osvědčení) – může se uznat jako část praxe.'],
   ['🌍','Jazyky','Jazykové znalosti jsou doplňkové; další jazyk přidáte tlačítkem <b>+ Přidat jazyk</b>.'],
   ['🗂️','Další údaje','V kroku <b>Další údaje</b> jsou dodatečné údaje, které úřad ze zákona potřebuje; vyplňte je podle pokynů u polí. U otázky na <b>srážky ze mzdy stanovené soudem</b> odpovíte Ano / Ne; při Ano zvolíte, zda jde o jedno, nebo více rozhodnutí. U jednoho uvedete číslo rozhodnutí a výši srážky, u více rozhodnutí podrobnosti doplní personální oddělení.']]},
