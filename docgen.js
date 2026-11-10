@@ -104,7 +104,45 @@
       xml = xml.replace(/\{\{\s*(\w+)\s*\}\}/g, (m, k) => xmlEsc(values[k]));
       zip.file(n, xml);
     }
+    if(values.__logo) await applyLogo(zip, values.__logo);
     return zip.generateAsync({ type: 'blob', mimeType: DOCX_MIME, compression: 'DEFLATE' });
+  }
+
+  /** Logo v hlavičce vzoru: nahradí obrázek logem (PNG, data URL) a upraví rozměr podle poměru stran, nebo ho odstraní (logo.remove). */
+  async function applyLogo(zip, logo){
+    const parts = Object.keys(zip.files).filter(n => /^word\/(document|header\d*)\.xml$/.test(n));
+    let pngAdded = false;
+    for(const n of parts){
+      let xml = await zip.file(n).async('string');
+      if(!/<w:drawing>/.test(xml) || !/r:embed=/.test(xml)) continue;
+      const relName = n.replace('word/', 'word/_rels/') + '.rels';
+      let rels = zip.file(relName) ? await zip.file(relName).async('string') : '';
+      let changed = false;
+      xml = xml.replace(/<w:drawing>[\s\S]*?<\/w:drawing>/g, dr => {
+        const ids = [...dr.matchAll(/r:embed="(\w+)"/g)].map(m => m[1]);
+        if(!ids.length) return dr;           // kreslení bez obrázku (textové pole) se nemění
+        changed = true;
+        if(logo.remove) return '';
+        // PNG relace = první embed (blip), SVG varianta se z rozšíření odstraní
+        let out = dr.replace(/<a:extLst>(?:(?!<\/a:extLst>)[\s\S])*svgBlip[\s\S]*?<\/a:extLst>/g, '');
+        const rid = ids[0];
+        rels = rels.replace(new RegExp('(<Relationship [^>]*Id="' + rid + '"[^>]*Target=")[^"]*(")'), '$1media/org_logo.png$2')
+                   .replace(new RegExp('(<Relationship [^>]*Target=")[^"]*("[^>]*Id="' + rid + '")'), '$1media/org_logo.png$2');
+        const cx0 = parseInt((/<wp:extent cx="(\d+)"/.exec(out) || [])[1], 10), cy0 = parseInt((/<wp:extent cx="\d+" cy="(\d+)"/.exec(out) || [])[1], 10);
+        if(cx0 && cy0 && logo.w && logo.h){
+          let cy = cy0, cx = Math.round(cy * logo.w / logo.h);
+          if(cx > cx0){ cx = cx0; cy = Math.round(cx * logo.h / logo.w); }   // nejvýš původní šířka, výška podle poměru stran
+          out = out.replace(/(<wp:extent cx=")\d+(" cy=")\d+/, '$1' + cx + '$2' + cy).replace(/(<a:ext cx=")\d+(" cy=")\d+/, '$1' + cx + '$2' + cy);
+        }
+        pngAdded = true;
+        return out;
+      });
+      if(changed){ zip.file(n, xml); if(rels) zip.file(relName, rels); }
+    }
+    if(pngAdded && logo.dataUrl){
+      const b64 = String(logo.dataUrl).replace(/^data:image\/\w+;base64,/, '');
+      zip.file('word/media/org_logo.png', b64, { base64: true });
+    }
   }
 
   /** Zkontroluje nahrávaný vzor: je to platný .docx a jaká zástupná pole obsahuje. */

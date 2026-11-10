@@ -1,4 +1,4 @@
-const APP_VERSION = '2026-11-10.1';
+const APP_VERSION = '2026-11-10.2';
 const STORAGE_INDEX_KEY = 'onboarding:index';
 const STORAGE_INFO_KEY = 'onboarding:info-content';
 const STORAGE_SETTINGS_KEY = 'onboarding:settings';
@@ -121,6 +121,47 @@ const DEFAULT_WORKPLACE_VEMA_CODES = {};
 const DEFAULT_WORKPLACE_LOCATIONS = {};
 const ORG_TRANSITION_DATE = new Date('2027-01-01T00:00:00');
 function isAfterOrgTransition(){ return new Date() >= ORG_TRANSITION_DATE; }
+// Zaměstnavatel v dokumentech: nástup do 31. 12. 2026 = DESÚ, od 1. 1. 2027 = ÚRÚ ČR. Údaje se berou z Nastavení → Zaměstnavatel.
+const EMPLOYER_FIELDS = [
+  ['zkr','Zkratka (např. do čísla osvědčení, „v DESU“)','DESU','ÚRÚ'],
+  ['nazev_n','Název – 1. pád (kdo/co)','Dopravní a energetický stavební úřad','Úřad rozvoje území České republiky'],
+  ['nazev_g','Název – 2. pád (bez koho/čeho)','Dopravního a energetického stavebního úřadu','Úřadu rozvoje území České republiky'],
+  ['nazev_i','Název – 7. pád (s kým/čím)','Dopravním a energetickým stavebním úřadem','Úřadem rozvoje území České republiky'],
+  ['nazev_l','Název – 6. pád (o kom/čem, v kom/čem)','Dopravním a energetickém stavebním úřadu','Úřadu rozvoje území České republiky'],
+  ['adresa','Adresa sídla','Nábřeží Ludvíka Svobody 1222/12, 110 00 Praha 1',''],
+  ['adresa_pata','Adresa v patičce (prázdné = adresa sídla)','nábř. Ludvíka Svobody 1222/12, 110 00 Praha 1',''],
+  ['ico','IČO','19139314',''],
+  ['idds','ID datové schránky','7mnrnuu',''],
+  ['email','E-mail podatelny','posta@desu.gov.cz',''],
+  ['statutar','Statutární orgán – jméno v podpisu (s tituly)','Mgr. Bc. Martin Kozák',''],
+  ['statutar_i','Statutární orgán – jméno v 7. pádě (s kým)','Bc. Martinem Kozákem',''],
+  ['funkce','Funkce – 1. pád (např. ředitel / předseda)','ředitel',''],
+  ['funkce_i','Funkce – 7. pád (ředitelem / předsedou)','ředitelem',''],
+];
+function defaultEmployers(){
+  const o = { desu: { logo: '' }, uru: { logo: '' } };
+  EMPLOYER_FIELDS.forEach(([k,,d,u]) => { o.desu[k] = d; o.uru[k] = u; });
+  return o;
+}
+function employerKeyFor(p){
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String((p && p.datum_nastupu) || ''));
+  if(m) return new Date(+m[1], +m[2] - 1, +m[3]) >= ORG_TRANSITION_DATE ? 'uru' : 'desu';
+  return isAfterOrgTransition() ? 'uru' : 'desu';
+}
+function employerData(key){ const e = (state.settings && state.settings.employers && state.settings.employers[key]) || {}; return e; }
+function employerMissing(key){ const e = employerData(key); return EMPLOYER_FIELDS.filter(([k]) => k !== 'adresa_pata' && !String(e[k] || '').trim()).map(x => x[1]).concat(key === 'uru' && !e.logo ? ['Logo'] : []); }
+function employerDocValues(p){
+  const key = employerKeyFor(p), e = employerData(key), dots = '……………………';
+  const v = k => String(e[k] || '').trim() || dots;
+  return {
+    org_zkr: v('zkr'), org_n: v('nazev_n'), org_g: v('nazev_g'), org_i: v('nazev_i'), org_l: v('nazev_l'),
+    org_adresa: v('adresa'), org_adresa_pata: String(e.adresa_pata || '').trim() || v('adresa'),
+    org_ico: v('ico'), org_idds: v('idds'), org_email: v('email'),
+    org_statutar: v('statutar'), org_statutar_i: v('statutar_i'), org_funkce: v('funkce'), org_funkce_i: v('funkce_i'),
+    // logo: DESÚ má logo přímo ve vzorech; u ÚRÚ se vzorové logo nahradí nahraným (nebo odstraní, když není nahrané)
+    __logo: key === 'uru' ? (e.logo ? { dataUrl: e.logo, w: e.logoW || 0, h: e.logoH || 0 } : { remove: true }) : null,
+  };
+}
 function currentOrgName(){ return isAfterOrgTransition() ? 'Úřad rozvoje území ČR' : 'Dopravní a energetický stavební úřad'; }
 function currentOrgAbbrev(){ return isAfterOrgTransition() ? 'ÚRÚ ČR' : 'DESÚ'; }
 
@@ -843,6 +884,8 @@ async function loadSettings(){
     state.settings.departmentsVersion = DEPT_VERSION;
     if(!state.employeeMode && state.role === 'hr') setTimeout(() => { saveSettings(); }, 0);
   }
+  { const def = defaultEmployers(); const cur = (state.settings.employers && typeof state.settings.employers === 'object') ? state.settings.employers : {};
+    state.settings.employers = { desu: { ...def.desu, ...(cur.desu || {}) }, uru: { ...def.uru, ...(cur.uru || {}) } }; }
   if(!Array.isArray(state.settings.facilityStaff)) state.settings.facilityStaff = [...DEFAULT_FACILITY_STAFF];
   if(!state.settings.offices || typeof state.settings.offices !== 'object') state.settings.offices = {};
   workplaceList().forEach(w => { if(!Array.isArray(state.settings.offices[w])) state.settings.offices[w] = []; });
@@ -2159,6 +2202,19 @@ function renderSettingsPage(){
     </div>
 
     <div class="panel" style="margin-bottom:20px;">
+      ${settingsPanelStart('employer', 'Zaměstnavatel (údaje do dokumentů)')}
+      <p style="font-size:12.5px;color:var(--ink-faint);margin:0 0 12px;">V dokumentech se podle <b>data nástupu</b> použije <b>Dopravní a energetický stavební úřad</b> (nástup do 31. 12. 2026) nebo <b>Úřad rozvoje území České republiky</b> (nástup od 1. 1. 2027). Názvy zadejte ve správných pádech – dosadí se do vět v dokumentech. Co zůstane prázdné, vypíše se v dokumentu jako tečky. Logo DESÚ je přímo ve vzorech.</p>
+      ${['desu','uru'].map(k => { const e = (draft.employers && draft.employers[k]) || {}; return `
+        <h5 style="margin:14px 0 8px;font-size:14px;">${k === 'desu' ? 'DESÚ – nástup do 31. 12. 2026' : 'ÚRÚ ČR – nástup od 1. 1. 2027'}</h5>
+        ${EMPLOYER_FIELDS.map(([f, label]) => `<div class="contact-edit-row" style="grid-template-columns:320px 1fr;"><label style="font-size:13px;align-self:center;">${esc(label)}</label><input data-employer-field="${k}:${f}" value="${esc(e[f]||'')}"></div>`).join('')}
+        ${k === 'uru' ? `<div class="contact-edit-row" style="grid-template-columns:320px 1fr;align-items:center;"><label style="font-size:13px;">Logo (hlavička dokumentů)</label>
+          <div style="display:flex;gap:12px;align-items:center;">${e.logo ? `<img src="${esc(e.logo)}" alt="logo" style="max-height:48px;max-width:260px;background:#fff;border:1px solid var(--line);padding:4px;">` : '<span style="color:var(--ink-faint);font-size:12.5px;">není nahráno – v dokumentech ÚRÚ pak logo chybí</span>'}
+          <button type="button" class="btn btn-ghost btn-sm" data-employer-logo-upload>Nahrát logo</button>${e.logo ? '<button type="button" class="btn btn-ghost btn-sm" data-employer-logo-remove>Odebrat</button>' : ''}
+          <input type="file" data-employer-logo-file accept="image/png,image/jpeg,image/svg+xml" style="display:none;"></div></div>` : ''}`; }).join('')}
+      ${settingsPanelEnd()}
+    </div>
+
+    <div class="panel" style="margin-bottom:20px;">
       ${settingsPanelStart('notify', 'Upozornění na odevzdaný dotazník')}
       <p style="font-size:12.5px;color:var(--ink-faint);margin:0 0 12px;">Po odeslání dotazníku nabídne aplikace zaměstnanci tlačítko, které otevře předvyplněný e-mail osobě, jež mu odkaz vygenerovala (odešle ho zaměstnanec ze své schránky). U odkazů vygenerovaných dříve (nebo bez zjištěné osoby) se použije tento záložní e-mail.</p>
       <div class="contact-edit-row" style="grid-template-columns:280px 1fr;">
@@ -3375,6 +3431,26 @@ function attachHandlers(){
   app.querySelectorAll('[data-tpl-upload]').forEach(el => el.addEventListener('click', () => { const f = app.querySelector(`[data-tpl-file="${el.getAttribute('data-tpl-upload')}"]`); if(f) f.click(); }));
   app.querySelectorAll('[data-tpl-file]').forEach(el => el.addEventListener('change', () => { const f = el.files && el.files[0]; const id = el.getAttribute('data-tpl-file'); el.value = ''; if(f) uploadTemplateFile(id, f); }));
   app.querySelectorAll('[data-tpl-restore]').forEach(el => el.addEventListener('click', () => restoreTemplateFile(el.getAttribute('data-tpl-restore'))));
+  app.querySelectorAll('[data-employer-field]').forEach(el => el.addEventListener('change', () => {
+    const [k, f] = el.getAttribute('data-employer-field').split(':');
+    state.settingsDraft.employers[k][f] = String(el.value || '').trim();
+  }));
+  app.querySelectorAll('[data-employer-logo-upload]').forEach(el => el.addEventListener('click', () => { const f = app.querySelector('[data-employer-logo-file]'); if(f) f.click(); }));
+  app.querySelectorAll('[data-employer-logo-remove]').forEach(el => el.addEventListener('click', () => { const e = state.settingsDraft.employers.uru; e.logo = ''; e.logoW = 0; e.logoH = 0; render(); }));
+  app.querySelectorAll('[data-employer-logo-file]').forEach(el => el.addEventListener('change', async () => {
+    const f = el.files && el.files[0]; el.value = ''; if(!f) return;
+    try{
+      const url = URL.createObjectURL(f);
+      const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error('Obrázek se nepodařilo načíst.')); i.src = url; });
+      const nw = img.naturalWidth || img.width || 800, nh = img.naturalHeight || img.height || 200;
+      const scale = Math.min(1, 1200 / nw), cw = Math.max(1, Math.round(nw * scale)), ch = Math.max(1, Math.round(nh * scale));
+      const cv = document.createElement('canvas'); cv.width = cw; cv.height = ch;
+      cv.getContext('2d').drawImage(img, 0, 0, cw, ch);   // průhlednost se zachová, výstup je vždy PNG
+      URL.revokeObjectURL(url);
+      const e = state.settingsDraft.employers.uru; e.logo = cv.toDataURL('image/png'); e.logoW = cw; e.logoH = ch;
+      render();
+    }catch(err){ alert(err.message || 'Logo se nepodařilo nahrát.'); }
+  }));
   app.querySelectorAll('[data-notify-email]').forEach(el => {
     el.addEventListener('change', () => { state.settingsDraft.notifyEmail = String(el.value || '').trim(); });
   });
@@ -5368,6 +5444,7 @@ function docValues(r){
   const dash = v => (String(v == null ? '' : v).trim()) || '—';
   const cj = String(r.cisloJednaci || '').trim();
   return {
+    ...employerDocValues(p),
     cj: cj || dots,
     cj_a: (cj || dots) + '/A',
     cj_b: (cj || dots) + '/B',
@@ -5497,6 +5574,12 @@ function openConfirmUploadModal(ids){
 // Vlastní (nahrané) vzory se ukládají do databáze pod klíčem onboarding:template:<id> a mají přednost před vzorem dodaným s aplikací (složka templates/).
 const TEMPLATE_KEY_PREFIX = 'onboarding:template:';
 const TEMPLATE_TOKENS = [
+  ['org_n','Zaměstnavatel – název v 1. pádě (podle data nástupu: DESÚ do 31. 12. 2026, ÚRÚ ČR od 1. 1. 2027; údaje z Nastavení → Zaměstnavatel)'],
+  ['org_g','Zaměstnavatel – název ve 2. pádě'],['org_i','Zaměstnavatel – název v 7. pádě'],['org_l','Zaměstnavatel – název v 6. pádě'],
+  ['org_zkr','Zaměstnavatel – zkratka'],['org_adresa','Zaměstnavatel – adresa sídla'],['org_adresa_pata','Zaměstnavatel – adresa v patičce'],
+  ['org_ico','Zaměstnavatel – IČO'],['org_idds','Zaměstnavatel – datová schránka'],['org_email','Zaměstnavatel – e-mail'],
+  ['org_statutar','Statutární orgán – jméno v podpisu'],['org_statutar_i','Statutární orgán – jméno v 7. pádě'],
+  ['org_funkce','Funkce statutárního orgánu – 1. pád'],['org_funkce_i','Funkce statutárního orgánu – 7. pád'],
   ['jmeno_cele','Titul před, jméno, příjmení, titul za (např. Ing. Jana Nováková, MBA)'],
   ['prijmeni_jmeno_titul','Příjmení, jméno, tituly (např. Nováková Jana, Ing.)'],
   ['osobni_cislo','Osobní číslo (není-li přiděleno, tečky)'],
@@ -5654,6 +5737,7 @@ async function openDocsModal(id){
     <div class="modal docs-modal">
       <h3>Dokumenty – ${esc(name)}</h3>
       <div id="docs-pick">
+        ${(() => { const k = employerKeyFor(p); const miss = employerMissing(k); return `<p class="docs-intro" style="margin-bottom:6px;"><b>Zaměstnavatel v dokumentech:</b> ${k === 'uru' ? 'Úřad rozvoje území České republiky (nástup od 1. 1. 2027)' : 'Dopravní a energetický stavební úřad (nástup do 31. 12. 2026)'}${miss.length ? `<br><span style="color:#b3261e;">V Nastavení → Zaměstnavatel chybí: ${esc(miss.join(', '))}. V dokumentech budou na těch místech tečky${k === 'uru' && miss.includes('Logo') ? ', bez loga' : ''}.</span>` : ''}</p>`; })()}
         <p class="docs-intro">Dokumenty se vyplní z údajů ve spisu podle aktuálních vzorů. Předem je zaškrtnuté všechno, nepotřebné odškrtněte.</p>
         <label class="docs-row docs-all"><input type="checkbox" id="docs-all"><span class="docs-row-main"><span class="docs-row-title">Označit vše</span></span></label>
         <div class="docs-list">${rowsHtml}</div>
@@ -6599,6 +6683,7 @@ const HELP = [
   ['📧','Upozornění na odevzdaný dotazník','Po odeslání dotazníku nabídne aplikace zaměstnanci tlačítko <b>Upozornit personální oddělení e-mailem</b>: otevře se předvyplněný e-mail pro tu osobu, která mu v aplikaci <b>vygenerovala odkaz</b> (zaměstnanec ho odešle ze své schránky; aplikace nemůže zaručit, že to udělá). U odkazů vygenerovaných dříve se použije <b>záložní e-mail</b> z Nastavení → Upozornění na odevzdaný dotazník. Tlačítko zůstane i u odeslaného dotazníku.'],
   ['🔢','Osobní čísla','Osobní číslo se novému spisu <b>přidělí automaticky</b> při založení i při importu – vždy nejnižší volné číslo od začátku zadaného v <b>Nastavení → Osobní čísla</b> (tak se vynechá interval čísel zaměstnanců DESÚ, kteří je už mají). V rejstříku je pod jménem místo kódu spisu a ve spisu (krok Pracovní poměr) je pole <b>Osobní číslo</b>, které lze <b>ručně přepsat</b> – např. když se nástup posune nebo někdo nenastoupí a jeho číslo se použije pro jiného. Číslo musí být jen číselné; aplikace upozorní, když ho už má jiný spis (chyba) nebo bylo použito ve Vemě u smazaného spisu (upozornění). Pokud spis číslo nemá (založen před nastavením začátku číslování), tlačítko <b>Přidělit další volné číslo</b> mu ho přidělí. Smažete-li spis dřív, než se pro něj vygenerují tabulky pro Vemu, číslo se uvolní a přidělí se dalšímu; po vygenerování tabulek se znovu nepoužije. Při odchodu z Nastavení s neuloženými změnami (Zpět, přepnutí pohledu, Odhlásit) se aplikace zeptá, zda změny uložit, zahodit, nebo zůstat. Spisům založeným dřív se číslo samo nepřidělí – přidělíte ho tlačítkem ve spisu nebo ho zadáte ručně; pokud není začátek v Nastavení vyplněný, čísla se nepřidělují.'],
   ['🗂️','Vzory dokumentů (Nastavení)','V <b>Nastavení → Vzory dokumentů</b> je seznam všech vzorů, ze kterých se dokumenty generují. U každého jde <b>Stáhnout</b> aktuální vzor, <b>Nahradit…</b> ho novou verzí (soubor Word .docx) a <b>Vrátit výchozí</b> (smaže nahraný vzor a vrátí vzor dodaný s aplikací). Nahraný vzor platí hned pro další generování; ukládá se okamžitě, není potřeba Uložit nastavení. Před nahráním aplikace zkontroluje soubor a vypíše nalezená zástupná pole <code>{{pole}}</code> a upozorní na neznámá. Přehled polí je v rozbalovací části „Zástupná pole pro vzory“. Už vygenerované dokumenty se nemění.'],
+  ['🏢','Zaměstnavatel v dokumentech','V <b>Nastavení → Zaměstnavatel</b> jsou údaje úřadu, které se doplňují do dokumentů: název ve čtyřech pádech, zkratka, adresa sídla a patičky, IČO, datová schránka, e-mail, statutární orgán (jméno v podpisu a ve 7. pádě, funkce) a u ÚRÚ ČR také <b>logo</b>. Použije se podle <b>data nástupu</b> ve spisu: nástup do 31. 12. 2026 = Dopravní a energetický stavební úřad (údaje jsou předvyplněné, logo je ve vzorech), nástup od 1. 1. 2027 = Úřad rozvoje území České republiky (údaje i logo je třeba zadat; co chybí, vypíše se jako tečky a okno Dokumenty na to upozorní). Logo se nahrává jako PNG, JPG nebo SVG a převede se na PNG; v hlavičce dokumentu se zmenší podle poměru stran. Ve vlastních vzorech lze použít pole <code>{{org_n}}</code>, <code>{{org_g}}</code>, <code>{{org_ico}}</code> aj. (seznam je v okně Vzory dokumentů). Pozor: ve vzorech „Portrétní fotografie“ a „Prohlášení o interních předpisech“ zůstává zmínka o Ministerstvu dopravy – pro nástupy do ÚRÚ je třeba vzor upravit.'],
   ['📄','Dokumenty podle vzorů','Po <b>schválení údajů</b> je ve spisu tlačítko <b>Dokumenty podle vzorů</b> (samostatné „podklady k podpisu“ už neexistují – jsou součástí téhož výběru). Nahoře je společná trojice <b>Pracovní smlouva + Platový výměr + Dohoda o výkonu služby z jiného místa</b> s jedním zaškrtávátkem a polem <b>Číslo jednací</b> (vygenerované ve spisové službě): smlouva dostane toto č.j., platový výměr č.j./A a dohoda č.j./B. Č.j. se u spisu zapamatuje; nevyplněné zůstane k ručnímu doplnění. Otevře se seznam všech vzorů se zaškrtávátky; <b>předem je zaškrtnuté všechno</b> (nepotřebné odškrtněte). U vzorů je poznámka, pro jaký poměr jsou (všichni / služební poměr / dle potřeby – platový výměr a pracovní smlouva platí pro oba poměry), včetně podkladů k podpisu A, B, C. Tlačítkem <b>Vygenerovat</b> se každý dokument vyplní z údajů ve spisu a vytvoří se Word i PDF. U každého je <b>Zobrazit PDF</b>, <b>⬇ PDF</b> a <b>⬇ Word</b>; všechno najednou stáhnete jako <b>ZIP</b>. Názvy souborů jsou ve tvaru <b>Příjmení_Jméno_název.docx / .pdf</b>. Údaje, které ve spisu nejsou (č. j., datum podpisu, osobní číslo, které se nevyplnilo), zůstanou k ručnímu doplnění. PDF se vytváří přímo v prohlížeči, takže se může od Wordu lehce lišit zalomením stránek – Word je přesný. Vzory jsou ve složce <code>templates</code> a po změně vzoru se nahradí příslušný soubor. Dokumenty se generují z osobních údajů, proto je vytvořte před smazáním údajů.'],
   ['🧹','Smazání osobních údajů','Po nahrání do Vemy a ověření, že je vše správně, vyberte v rejstříku spisy a klikněte na <b>Smazat osobní údaje</b>. Tlačítko je aktivní jen u spisů ve stavu <b>Nahráno</b>. Smažte až po vygenerování dokumentů (z údajů se pak už znovu vytvořit nedají). Nevratně se smažou osobní údaje zaměstnance (zůstane jméno, pozice, pracoviště, datum nástupu a stavy) a jeho odkaz dál otevře jen záložku „Co potřebujete vědět“. Pokud smazání zapomenete, proběhne automaticky 60 dní po vygenerování tabulek.']]},
  {g:'IT a provoz (stručně)',items:[
