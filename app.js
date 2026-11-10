@@ -1,4 +1,4 @@
-const APP_VERSION = '2026-11-10.2';
+const APP_VERSION = '2026-11-10.3';
 const STORAGE_INDEX_KEY = 'onboarding:index';
 const STORAGE_INFO_KEY = 'onboarding:info-content';
 const STORAGE_SETTINGS_KEY = 'onboarding:settings';
@@ -5399,8 +5399,17 @@ const DOC_TEMPLATES = [
   { id:'ucet',     base:'13_Souhlas_s_bezhotovostním_zasíláním',  title:'Souhlas se zasíláním platu na osobní účet (C)',             file:'templates/11_souhlas_s_bezhotovostnim_zasilanim.docx', when:'both' },
   { id:'priloha',  base:'14_Příloha_1_Prohlášení_BOZP',              title:'Příloha č. 1 – Prohlášení k dodržování BOZP (služba z jiného místa)', file:'templates/priloha_1_prohlaseni_BOZP.docx',   when:'optional' },
 ];
+// Varianty pro pracovní poměry podle zákoníku práce (ZP). Vzor dodaný s aplikací není (file:null) – nahrává se v Nastavení → Vzory dokumentů.
+// Ve výběru dokumentů nahrazují základní dokument (replaces), pokud je zvolen režim „Zákoník práce“.
+const DOC_TEMPLATES_ZP = [
+  { id:'smlouva_zp', replaces:'smlouva', base:'01_Pracovní_smlouva_ZP',                title:'Pracovní smlouva (zákoník práce)',                 file:null, when:'pracovni' },
+  { id:'vymer_zp',   replaces:'vymer',   base:'02_Mzdový_platový_výměr_ZP',            title:'Mzdový / platový výměr (zákoník práce)',           file:null, when:'pracovni' },
+  { id:'info_zp',    replaces:'info',    base:'07_Informace_o_pracovním_poměru_ZP',    title:'Informace o pracovním poměru (zákoník práce)',     file:null, when:'pracovni' },
+];
+const DOC_TEMPLATES_ALL = DOC_TEMPLATES.concat(DOC_TEMPLATES_ZP);
 // Pracovní smlouva (č.j.) + Platový výměr (č.j./A) + Dohoda o výkonu služby z jiného místa (č.j./B) se vybírají a číslují společně
 const DOC_CJ_GROUP = ['smlouva', 'vymer', 'dohoda'];
+const DOC_CJ_GROUP_ZP = ['smlouva_zp', 'vymer_zp', 'dohoda'];
 const DOC_WHEN_LABEL = { both:'všichni', pracovni:'pracovní poměr', sluzebni:'služební poměr', optional:'dle potřeby' };
 
 function csDate(iso){
@@ -5643,7 +5652,9 @@ function base64ToBuf(b64){
 // Zdroj vzoru pro generování: vlastní (nahraný) obsah, jinak adresa vzoru dodaného s aplikací
 async function templateSource(t){
   const ov = await loadTemplateOverrides();
-  return ov[t.id] ? base64ToBuf(ov[t.id].data) : t.file;
+  if(ov[t.id]) return base64ToBuf(ov[t.id].data);
+  if(!t.file) throw new Error('Vzor „' + t.title + '“ zatím není nahrán (Nastavení → Vzory dokumentů).');
+  return t.file;
 }
 async function templateBuffer(t){
   const src = await templateSource(t);
@@ -5658,16 +5669,16 @@ function templatesPanelHtml(){
   return `
     <p style="font-size:12.5px;color:var(--ink-faint);margin:0 0 12px;">Dokumenty se generují z těchto vzorů (Word .docx). Vzor můžete stáhnout, upravit ve Wordu a nahrát zpět, nebo nahradit novou verzí. Nahraný vzor platí hned pro všechna další generování a <strong>ukládá se okamžitě</strong> (netřeba mačkat Uložit nastavení). Místa, která se mají vyplnit z údajů spisu, se ve vzoru zapisují jako <code>{{pole}}</code> – přehled polí je níže.</p>
     <div class="tpl-list">
-      ${DOC_TEMPLATES.map(t => { const ov = tplOverrides[t.id]; return `
+      ${DOC_TEMPLATES_ALL.map(t => { const ov = tplOverrides[t.id]; return `
         <div class="tpl-row">
           <div class="tpl-main">
             <div class="tpl-title">${esc(t.title)}</div>
-            <div class="tpl-meta">${esc(DOC_WHEN_LABEL[t.when])} · ${ov ? `<strong>vlastní vzor</strong>: ${esc(ov.fileName || 'vzor.docx')}, nahráno ${esc(fmt(ov.uploadedAt))}${ov.uploadedBy ? ' (' + esc(ov.uploadedBy) + ')' : ''}` : 'výchozí vzor dodaný s aplikací'}</div>
+            <div class="tpl-meta">${esc(DOC_WHEN_LABEL[t.when])} · ${ov ? `<strong>vlastní vzor</strong>: ${esc(ov.fileName || 'vzor.docx')}, nahráno ${esc(fmt(ov.uploadedAt))}${ov.uploadedBy ? ' (' + esc(ov.uploadedBy) + ')' : ''}` : (t.file ? 'výchozí vzor dodaný s aplikací' : '<strong style="color:#b45309;">vzor zatím nenahrán</strong> – nahrajte Word se zástupnými poli')}</div>
           </div>
           <div class="tpl-actions">
-            <button class="btn btn-ghost btn-sm" type="button" data-tpl-download="${t.id}">⬇ Stáhnout</button>
-            <button class="btn btn-ghost btn-sm" type="button" data-tpl-upload="${t.id}">Nahradit…</button>
-            ${ov ? `<button class="btn btn-ghost btn-sm" type="button" data-tpl-restore="${t.id}" title="Smaže nahraný vzor a vrátí vzor dodaný s aplikací">Vrátit výchozí</button>` : ''}
+            ${(ov || t.file) ? `<button class="btn btn-ghost btn-sm" type="button" data-tpl-download="${t.id}">⬇ Stáhnout</button>` : ''}
+            <button class="btn btn-ghost btn-sm" type="button" data-tpl-upload="${t.id}">${(ov || t.file) ? 'Nahradit…' : 'Nahrát vzor…'}</button>
+            ${ov ? `<button class="btn btn-ghost btn-sm" type="button" data-tpl-restore="${t.id}" title="${t.file ? 'Smaže nahraný vzor a vrátí vzor dodaný s aplikací' : 'Smaže nahraný vzor'}">${t.file ? 'Vrátit výchozí' : 'Smazat vzor'}</button>` : ''}
             <input type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" data-tpl-file="${t.id}" style="display:none;">
           </div>
         </div>`; }).join('')}
@@ -5678,12 +5689,12 @@ function templatesPanelHtml(){
     </details>`;
 }
 async function downloadTemplateFile(id){
-  const t = DOC_TEMPLATES.find(x => x.id === id); if(!t) return;
+  const t = DOC_TEMPLATES_ALL.find(x => x.id === id); if(!t) return;
   const buf = await templateBuffer(t);
   downloadBlob(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }), `vzor_${t.base}.docx`);
 }
 async function uploadTemplateFile(id, file){
-  const t = DOC_TEMPLATES.find(x => x.id === id); if(!t || !file) return;
+  const t = DOC_TEMPLATES_ALL.find(x => x.id === id); if(!t || !file) return;
   if(typeof DocGen === 'undefined'){ alert('Modul pro dokumenty se nenačetl. Obnovte prosím stránku.'); return; }
   DocGen.init({ version: APP_VERSION });
   if(file.size > 8 * 1024 * 1024){ alert('Soubor je příliš velký (nejvýše 8 MB).'); return; }
@@ -5707,8 +5718,8 @@ async function uploadTemplateFile(id, file){
   render();
 }
 async function restoreTemplateFile(id){
-  const t = DOC_TEMPLATES.find(x => x.id === id); if(!t) return;
-  if(!confirm(`Smazat nahraný vzor „${t.title}“ a vrátit výchozí vzor dodaný s aplikací?`)) return;
+  const t = DOC_TEMPLATES_ALL.find(x => x.id === id); if(!t) return;
+  if(!confirm(`${t.file ? `Smazat nahraný vzor „${t.title}“ a vrátit výchozí vzor dodaný s aplikací?` : `Smazat nahraný vzor „${t.title}“?`}`)) return;
   try{
     await window.storage.delete(TEMPLATE_KEY_PREFIX + id, true);
     await loadTemplateOverrides(); delete tplOverrides[id];
@@ -5729,18 +5740,32 @@ async function openDocsModal(id){
   backdrop.className = 'modal-backdrop';
   const results = {};          // id -> { docx, pdf, err }
   const urls = [];
-  const rowHtml = (t, title, hint, extra) => `<label class="docs-row"><input type="checkbox" data-doc="${t.id}" ${preset(t) ? 'checked' : ''}><span class="docs-row-main"><span class="docs-row-title">${title}</span><span class="docs-row-hint">${hint}</span></span></label>${extra || ''}`;
-  const rowsHtml = DOC_TEMPLATES.filter(t => !DOC_CJ_GROUP.includes(t.id) || t.id === DOC_CJ_GROUP[0]).map(t => t.id === DOC_CJ_GROUP[0]
-    ? rowHtml(t, 'Pracovní smlouva + Platový výměr (č.j./A) + Dohoda o výkonu služby z jiného místa (č.j./B)', 'společné číslo jednací', `<div class="docs-cj"><label for="docs-cj">Číslo jednací (ze spisové služby)</label><input type="text" id="docs-cj" value="${esc(rec.cisloJednaci || '')}"><span class="docs-row-hint">Výměr dostane č.j./A, dohoda č.j./B. Nevyplněné zůstane k ručnímu doplnění.</span></div>`)
-    : rowHtml(t, esc(t.title), esc(DOC_WHEN_LABEL[t.when]))).join('');
+  const rowHtml = (t, title, hint, extra, off) => `<label class="docs-row"${off ? ' style="opacity:.55;"' : ''}><input type="checkbox" data-doc="${t.id}" ${preset(t) && !off ? 'checked' : ''} ${off ? 'disabled' : ''}><span class="docs-row-main"><span class="docs-row-title">${title}</span><span class="docs-row-hint">${hint}</span></span></label>${extra || ''}`;
+  const ovs = await loadTemplateOverrides();
+  let zp = !!rec.docRezimZp;          // režim dokumentů: false = státní zaměstnanec (zákon č. 195/2026 Sb.), true = zákoník práce
+  const activeList = () => DOC_TEMPLATES.map(t => zp ? (DOC_TEMPLATES_ZP.find(v => v.replaces === t.id) || t) : t);
+  const cjGroup = () => zp ? DOC_CJ_GROUP_ZP : DOC_CJ_GROUP;
+  const avail = t => !!(t.file || ovs[t.id]);
+  const rowsHtml = () => activeList().filter(t => !cjGroup().includes(t.id) || t.id === cjGroup()[0]).map(t => {
+    if(t.id === cjGroup()[0]){
+      const miss = cjGroup().map(id => DOC_TEMPLATES_ALL.find(x => x.id === id)).filter(x => !avail(x));
+      return rowHtml(t, (zp ? 'Pracovní smlouva + Mzdový/platový výměr (č.j./A) + Dohoda o výkonu práce z jiného místa (č.j./B)' : 'Pracovní smlouva + Platový výměr (č.j./A) + Dohoda o výkonu služby z jiného místa (č.j./B)'), 'společné číslo jednací' + (miss.length ? ` · <span style="color:#b45309;">nenahráno: ${esc(miss.map(x => x.title).join('; '))}</span>` : ''), `<div class="docs-cj"><label for="docs-cj">Číslo jednací (ze spisové služby)</label><input type="text" id="docs-cj" value="${esc(rec.cisloJednaci || '')}"><span class="docs-row-hint">Výměr dostane č.j./A, dohoda č.j./B. Nevyplněné zůstane k ručnímu doplnění.</span></div>`, miss.length === cjGroup().length);
+    }
+    return rowHtml(t, esc(t.title), avail(t) ? esc(DOC_WHEN_LABEL[t.when]) : '<span style="color:#b45309;">vzor zatím nenahrán – nahrajte v Nastavení → Vzory dokumentů</span>', '', !avail(t));
+  }).join('');
   backdrop.innerHTML = `
     <div class="modal docs-modal">
       <h3>Dokumenty – ${esc(name)}</h3>
       <div id="docs-pick">
         ${(() => { const k = employerKeyFor(p); const miss = employerMissing(k); return `<p class="docs-intro" style="margin-bottom:6px;"><b>Zaměstnavatel v dokumentech:</b> ${k === 'uru' ? 'Úřad rozvoje území České republiky (nástup od 1. 1. 2027)' : 'Dopravní a energetický stavební úřad (nástup do 31. 12. 2026)'}${miss.length ? `<br><span style="color:#b3261e;">V Nastavení → Zaměstnavatel chybí: ${esc(miss.join(', '))}. V dokumentech budou na těch místech tečky${k === 'uru' && miss.includes('Logo') ? ', bez loga' : ''}.</span>` : ''}</p>`; })()}
+        <div class="docs-regime" style="margin:0 0 10px;font-size:13px;">
+          <b>Právní režim smlouvy, výměru a informace:</b><br>
+          <label style="margin-right:14px;"><input type="radio" name="docs-regime" value="state" ${zp ? '' : 'checked'}> Státní zaměstnanec (zákon č. 195/2026 Sb.)</label>
+          <label><input type="radio" name="docs-regime" value="zp" ${zp ? 'checked' : ''}> Zákoník práce</label>
+        </div>
         <p class="docs-intro">Dokumenty se vyplní z údajů ve spisu podle aktuálních vzorů. Předem je zaškrtnuté všechno, nepotřebné odškrtněte.</p>
         <label class="docs-row docs-all"><input type="checkbox" id="docs-all"><span class="docs-row-main"><span class="docs-row-title">Označit vše</span></span></label>
-        <div class="docs-list">${rowsHtml}</div>
+        <div class="docs-list">${rowsHtml()}</div>
       </div>
       <div id="docs-out" style="display:none;"></div>
       <p id="docs-status" class="docs-status"></p>
@@ -5753,25 +5778,30 @@ async function openDocsModal(id){
   document.body.appendChild(backdrop);
   const $ = sel => backdrop.querySelector(sel);
   const boxes = () => [...backdrop.querySelectorAll('[data-doc]')];
-  const isChosen = t => boxes().some(b => b.checked && (b.getAttribute('data-doc') === t.id || (b.getAttribute('data-doc') === DOC_CJ_GROUP[0] && DOC_CJ_GROUP.includes(t.id))));
+  const isChosen = t => avail(t) && boxes().some(b => b.checked && (b.getAttribute('data-doc') === t.id || (b.getAttribute('data-doc') === cjGroup()[0] && cjGroup().includes(t.id))));
   const close = () => { urls.forEach(u => URL.revokeObjectURL(u)); backdrop.remove(); };
   const refreshPick = () => {
-    const sel = DOC_TEMPLATES.filter(isChosen).length;
-    $('#docs-all').checked = sel === DOC_TEMPLATES.length;
+    const sel = activeList().filter(isChosen).length;
+    $('#docs-all').checked = sel === activeList().filter(avail).length;
     $('#docs-run').disabled = sel === 0;
     $('#docs-run').textContent = sel ? `Vygenerovat (${sel})` : 'Vygenerovat';
   };
   $('#docs-close').addEventListener('click', close);
   backdrop.addEventListener('click', (ev) => { if(ev.target === backdrop) close(); });
   $('#docs-all').addEventListener('change', () => { boxes().forEach(b => { b.checked = $('#docs-all').checked; }); refreshPick(); });
-  boxes().forEach(b => b.addEventListener('change', refreshPick));
-  refreshPick();
+  const wireBoxes = () => boxes().forEach(b => b.addEventListener('change', refreshPick));
+  wireBoxes(); refreshPick();
+  backdrop.querySelectorAll('input[name="docs-regime"]').forEach(r => r.addEventListener('change', () => {
+    zp = r.value === 'zp' && r.checked ? true : (r.value === 'state' && r.checked ? false : zp);
+    const cjEl = $('#docs-cj'); if(cjEl) rec.cisloJednaci = cjEl.value;   // číslo jednací zůstane při přepnutí
+    $('.docs-list').innerHTML = rowsHtml(); wireBoxes(); refreshPick();
+  }));
 
   const showPick = () => { $('#docs-pick').style.display = ''; $('#docs-out').style.display = 'none'; $('#docs-back').style.display = 'none'; $('#docs-run').style.display = ''; $('#docs-status').textContent = ''; };
   $('#docs-back').addEventListener('click', showPick);
 
   function renderOut(){
-    const rows = DOC_TEMPLATES.filter(t => results[t.id]).map(t => {
+    const rows = DOC_TEMPLATES_ALL.filter(t => results[t.id]).map(t => {
       const x = results[t.id];
       if(x.err) return `<div class="docs-out-row"><span class="docs-row-title">${esc(t.title)}</span><span class="docs-err">Nepodařilo se vytvořit: ${esc(x.err)}</span></div>`;
       return `<div class="docs-out-row"><span class="docs-row-title">${esc(t.title)}</span>
@@ -5791,7 +5821,7 @@ async function openDocsModal(id){
       </div>
       <div class="docs-out-list">${rows}</div>`;
     $('#docs-out').querySelectorAll('[data-dact]').forEach(b => b.addEventListener('click', () => {
-      const t = DOC_TEMPLATES.find(x => x.id === b.getAttribute('data-did')); const x = results[t.id];
+      const t = DOC_TEMPLATES_ALL.find(x => x.id === b.getAttribute('data-did')); const x = results[t.id];
       const act = b.getAttribute('data-dact');
       if(act === 'view'){ const u = URL.createObjectURL(x.pdf); urls.push(u); window.open(u, '_blank'); }
       else if(act === 'pdf') downloadBlob(x.pdf, docFileName(rec, t, 'pdf'));
@@ -5799,7 +5829,7 @@ async function openDocsModal(id){
     }));
     $('#docs-out').querySelectorAll('[data-dzip]').forEach(b => b.addEventListener('click', async () => {
       const kind = b.getAttribute('data-dzip'); const files = [];
-      DOC_TEMPLATES.forEach(t => { const x = results[t.id]; if(!x || x.err) return;
+      DOC_TEMPLATES_ALL.forEach(t => { const x = results[t.id]; if(!x || x.err) return;
         if(kind !== 'docx') files.push({ name: docFileName(rec, t, 'pdf'), blob: x.pdf });
         if(kind !== 'pdf') files.push({ name: docFileName(rec, t, 'docx'), blob: x.docx }); });
       try{
@@ -5813,15 +5843,15 @@ async function openDocsModal(id){
   }
 
   $('#docs-run').addEventListener('click', async () => {
-    const chosen = DOC_TEMPLATES.filter(isChosen);
+    const chosen = activeList().filter(isChosen);
     if(!chosen.length) return;
     if(typeof DocGen === 'undefined'){ $('#docs-status').textContent = 'Modul pro dokumenty se nenačetl. Obnovte prosím stránku.'; return; }
     DocGen.init({ version: APP_VERSION });
     $('#docs-run').disabled = true; $('#docs-close').disabled = true;
     Object.keys(results).forEach(k => delete results[k]);
     const cjVal = ($('#docs-cj') ? $('#docs-cj').value : '').trim();
-    if(cjVal !== String(rec.cisloJednaci || '')){
-      rec.cisloJednaci = cjVal;
+    if(cjVal !== String(rec.cisloJednaci || '') || !!rec.docRezimZp !== zp){
+      rec.cisloJednaci = cjVal; rec.docRezimZp = zp;
       try{ await saveRecord(id, rec); }catch(e){ console.error('cj save failed', e); }
     }
     const values = docValues(rec);
@@ -6684,6 +6714,7 @@ const HELP = [
   ['🔢','Osobní čísla','Osobní číslo se novému spisu <b>přidělí automaticky</b> při založení i při importu – vždy nejnižší volné číslo od začátku zadaného v <b>Nastavení → Osobní čísla</b> (tak se vynechá interval čísel zaměstnanců DESÚ, kteří je už mají). V rejstříku je pod jménem místo kódu spisu a ve spisu (krok Pracovní poměr) je pole <b>Osobní číslo</b>, které lze <b>ručně přepsat</b> – např. když se nástup posune nebo někdo nenastoupí a jeho číslo se použije pro jiného. Číslo musí být jen číselné; aplikace upozorní, když ho už má jiný spis (chyba) nebo bylo použito ve Vemě u smazaného spisu (upozornění). Pokud spis číslo nemá (založen před nastavením začátku číslování), tlačítko <b>Přidělit další volné číslo</b> mu ho přidělí. Smažete-li spis dřív, než se pro něj vygenerují tabulky pro Vemu, číslo se uvolní a přidělí se dalšímu; po vygenerování tabulek se znovu nepoužije. Při odchodu z Nastavení s neuloženými změnami (Zpět, přepnutí pohledu, Odhlásit) se aplikace zeptá, zda změny uložit, zahodit, nebo zůstat. Spisům založeným dřív se číslo samo nepřidělí – přidělíte ho tlačítkem ve spisu nebo ho zadáte ručně; pokud není začátek v Nastavení vyplněný, čísla se nepřidělují.'],
   ['🗂️','Vzory dokumentů (Nastavení)','V <b>Nastavení → Vzory dokumentů</b> je seznam všech vzorů, ze kterých se dokumenty generují. U každého jde <b>Stáhnout</b> aktuální vzor, <b>Nahradit…</b> ho novou verzí (soubor Word .docx) a <b>Vrátit výchozí</b> (smaže nahraný vzor a vrátí vzor dodaný s aplikací). Nahraný vzor platí hned pro další generování; ukládá se okamžitě, není potřeba Uložit nastavení. Před nahráním aplikace zkontroluje soubor a vypíše nalezená zástupná pole <code>{{pole}}</code> a upozorní na neznámá. Přehled polí je v rozbalovací části „Zástupná pole pro vzory“. Už vygenerované dokumenty se nemění.'],
   ['🏢','Zaměstnavatel v dokumentech','V <b>Nastavení → Zaměstnavatel</b> jsou údaje úřadu, které se doplňují do dokumentů: název ve čtyřech pádech, zkratka, adresa sídla a patičky, IČO, datová schránka, e-mail, statutární orgán (jméno v podpisu a ve 7. pádě, funkce) a u ÚRÚ ČR také <b>logo</b>. Použije se podle <b>data nástupu</b> ve spisu: nástup do 31. 12. 2026 = Dopravní a energetický stavební úřad (údaje jsou předvyplněné, logo je ve vzorech), nástup od 1. 1. 2027 = Úřad rozvoje území České republiky (údaje i logo je třeba zadat; co chybí, vypíše se jako tečky a okno Dokumenty na to upozorní). Logo se nahrává jako PNG, JPG nebo SVG a převede se na PNG; v hlavičce dokumentu se zmenší podle poměru stran. Ve vlastních vzorech lze použít pole <code>{{org_n}}</code>, <code>{{org_g}}</code>, <code>{{org_ico}}</code> aj. (seznam je v okně Vzory dokumentů). Pozor: ve vzorech „Portrétní fotografie“ a „Prohlášení o interních předpisech“ zůstává zmínka o Ministerstvu dopravy – pro nástupy do ÚRÚ je třeba vzor upravit.'],
+  ['⚖️','Státní zaměstnanec × zákoník práce','V okně <b>Dokumenty podle vzorů</b> je nahoře přepínač <b>právního režimu</b>: výchozí je <b>státní zaměstnanec (zákon č. 195/2026 Sb.)</b>, druhá volba je <b>Zákoník práce</b>. Přepínač mění jen <b>pracovní smlouvu, platový/mzdový výměr a informaci o pracovním poměru</b>; ostatní dokumenty zůstávají. Vzory pro zákoník práce se nahrávají v <b>Nastavení → Vzory dokumentů</b> (tlačítko „Nahrát vzor…“, Word se zástupnými poli, stejně jako ostatní vzory). Dokud vzor nahraný není, je jeho řádek šedý a nejde zaškrtnout. Zvolený režim se u spisu zapamatuje.'],
   ['📄','Dokumenty podle vzorů','Po <b>schválení údajů</b> je ve spisu tlačítko <b>Dokumenty podle vzorů</b> (samostatné „podklady k podpisu“ už neexistují – jsou součástí téhož výběru). Nahoře je společná trojice <b>Pracovní smlouva + Platový výměr + Dohoda o výkonu služby z jiného místa</b> s jedním zaškrtávátkem a polem <b>Číslo jednací</b> (vygenerované ve spisové službě): smlouva dostane toto č.j., platový výměr č.j./A a dohoda č.j./B. Č.j. se u spisu zapamatuje; nevyplněné zůstane k ručnímu doplnění. Otevře se seznam všech vzorů se zaškrtávátky; <b>předem je zaškrtnuté všechno</b> (nepotřebné odškrtněte). U vzorů je poznámka, pro jaký poměr jsou (všichni / služební poměr / dle potřeby – platový výměr a pracovní smlouva platí pro oba poměry), včetně podkladů k podpisu A, B, C. Tlačítkem <b>Vygenerovat</b> se každý dokument vyplní z údajů ve spisu a vytvoří se Word i PDF. U každého je <b>Zobrazit PDF</b>, <b>⬇ PDF</b> a <b>⬇ Word</b>; všechno najednou stáhnete jako <b>ZIP</b>. Názvy souborů jsou ve tvaru <b>Příjmení_Jméno_název.docx / .pdf</b>. Údaje, které ve spisu nejsou (č. j., datum podpisu, osobní číslo, které se nevyplnilo), zůstanou k ručnímu doplnění. PDF se vytváří přímo v prohlížeči, takže se může od Wordu lehce lišit zalomením stránek – Word je přesný. Vzory jsou ve složce <code>templates</code> a po změně vzoru se nahradí příslušný soubor. Dokumenty se generují z osobních údajů, proto je vytvořte před smazáním údajů.'],
   ['🧹','Smazání osobních údajů','Po nahrání do Vemy a ověření, že je vše správně, vyberte v rejstříku spisy a klikněte na <b>Smazat osobní údaje</b>. Tlačítko je aktivní jen u spisů ve stavu <b>Nahráno</b>. Smažte až po vygenerování dokumentů (z údajů se pak už znovu vytvořit nedají). Nevratně se smažou osobní údaje zaměstnance (zůstane jméno, pozice, pracoviště, datum nástupu a stavy) a jeho odkaz dál otevře jen záložku „Co potřebujete vědět“. Pokud smazání zapomenete, proběhne automaticky 60 dní po vygenerování tabulek.']]},
  {g:'IT a provoz (stručně)',items:[
