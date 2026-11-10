@@ -92,7 +92,7 @@ create or replace function public._emp_fields() returns text[]
 language sql immutable as $$ select array[
     'titul_pred','jmeno','prijmeni','titul_za','rodne_prijmeni','prijmeni_byvale_1','prijmeni_byvale_2',
     'rodne_cislo','datum_narozeni','misto_narozeni','okres_narozeni','stat_narozeni','statni_prislusnost',
-    'trvale_ulice','trvale_cp','trvale_co','trvale_obec','trvale_psc','kraj','trvale_stat','dorucovaci_adresa',
+    'trvale_ulice','trvale_cp','trvale_co','trvale_obec','trvale_psc','kraj','kraj_zahranici','trvale_stat','dorucovaci_adresa',
     'telefon_soukromy','email_soukromy','nouzovy_kontakt_jmeno','nouzovy_kontakt_telefon','nouzovy_kontakt_adresa',
     'zdravotni_pojistovna','cislo_uctu','kod_banky','souhlas_plat_ucet','souhlas_cestovni_nahrady','souhlas_stravovani',
     'rodinny_stav','jmeno_manzela','prijmeni_manzela','rodne_cislo_manzela','datum_narozeni_manzela',

@@ -1,4 +1,4 @@
-const APP_VERSION = '2026-11-05.1';
+const APP_VERSION = '2026-11-10.1';
 const STORAGE_INDEX_KEY = 'onboarding:index';
 const STORAGE_INFO_KEY = 'onboarding:info-content';
 const STORAGE_SETTINGS_KEY = 'onboarding:settings';
@@ -331,6 +331,16 @@ function resolveField(f, p){
   return f;
 }
 
+// Trvalé bydliště v ČR: kraj se vybírá z českých krajů; v zahraničí se místo toho volitelně vyplní region/kraj volným textem.
+function isCzechCountry(v){ const t = String(v == null ? '' : v).trim().toLowerCase(); return !t || ['česká republika','česko','czech republic','czechia','čr','cr'].includes(t); }
+// Stupnice jazykových znalostí podle SERR (A1–C2) + rodný jazyk; starší hodnoty se převádějí (viz migrateJazyky).
+const JAZYK_UROVNE = ['A1 – začátečník','A2 – základní','B1 – mírně pokročilý','B2 – středně pokročilý','C1 – pokročilý','C2 – mistrovská znalost','Rodný jazyk (rodilý mluvčí)'];
+const JAZYK_STARE_NA_NOVE = {'Základní (začátečník)':'A2 – základní','Střední (pokročilý)':'B2 – středně pokročilý','Odborný':'C1 – pokročilý'};
+function migrateJazyky(p){
+  let changed = false;
+  (p.jazyky || []).forEach(j => { if(j && JAZYK_STARE_NA_NOVE[j.stupen_znalosti]){ j.stupen_znalosti = JAZYK_STARE_NA_NOVE[j.stupen_znalosti]; changed = true; } });
+  return changed;
+}
 const KRAJE = ['Hlavní město Praha','Středočeský kraj','Jihočeský kraj','Plzeňský kraj','Karlovarský kraj','Ústecký kraj','Liberecký kraj','Královéhradecký kraj','Pardubický kraj','Kraj Vysočina','Jihomoravský kraj','Olomoucký kraj','Zlínský kraj','Moravskoslezský kraj'];
 
 const PERSONAL_SECTIONS = [
@@ -355,7 +365,8 @@ const PERSONAL_SECTIONS = [
     {id:'trvale_co', label:'Číslo orientační'},
     {id:'trvale_obec', label:'Obec', essential:true, autocomplete:'address-level2'},
     {id:'trvale_psc', label:'PSČ', placeholder:'123 45', validate:'psc', essential:true, autocomplete:'postal-code'},
-    {id:'kraj', label:'Kraj', essential:true, type:'select', options:['', ...KRAJE]},
+    {id:'kraj', label:'Kraj', essential:true, type:'select', options:['', ...KRAJE], showIf:p=>isCzechCountry(p.trvale_stat)},
+    {id:'kraj_zahranici', label:'Kraj / region / provincie (pokud existuje)', showIf:p=>!isCzechCountry(p.trvale_stat)},
     {id:'trvale_stat', label:'Stát', placeholder:'Česká republika', default:'Česká republika', essential:true, autocomplete:'country-name', datalist:'zeme'},
     {id:'dorucovaci_adresa', label:'Doručovací adresa (vyplňte, jen pokud jiná než trvalá)', full:true},
     {id:'telefon_soukromy', label:'Telefon (soukromý)', type:'tel', validate:'telefon', essential:true, autocomplete:'tel'},
@@ -419,7 +430,7 @@ const PERSONAL_SECTIONS = [
   ]},
   { id:'jazyky', label:'Jazykové znalosti', navLabel:'Jazyky', owner:'employee', itemLabel:'Jazyk', type:'repeat', optional:true, addLabel:'+ Přidat jazyk', fields:[
     {id:'jazyk', label:'Jazyk', datalist:'jazyky'},
-    {id:'stupen_znalosti', label:'Stupeň znalosti', essential:true, type:'select', options:['','Základní (začátečník)','Střední (pokročilý)','Odborný']},
+    {id:'stupen_znalosti', label:'Úroveň znalosti (A1–C2, nebo rodný jazyk)', essential:true, type:'select', options:['', ...JAZYK_UROVNE]},
     {id:'stupen_osvedceni', label:'Stupeň osvědčení', placeholder:'maturita, státní zkouška, certifikát…'},
     {id:'pouzivani', label:'Používání', essential:true, type:'select', options:['','Aktivní','Pasivní']},
   ]},
@@ -760,6 +771,7 @@ function normalizeRecord(record){
   if(!record.personal.typ_pomeru) record.personal.typ_pomeru = 'HPP';
   if(!record.personal.platovy_stupen) record.personal.platovy_stupen = '1';
   syncZkusebniDoba(record.personal);
+  migrateJazyky(record.personal);
   const defaultChecklist = emptyChecklist();
   record.checklist = record.checklist || {};
   Object.keys(defaultChecklist).forEach(key => {
@@ -1310,8 +1322,9 @@ const VALIDATORS = {
     }
     return {ok:true, formatted: rr+mmRaw+dd+suffix};
   },
-  psc(raw){
+  psc(raw, ctx){
     if(!raw) return {ok:true};
+    if(ctx && !isCzechCountry(ctx.trvale_stat)) return {ok:true};   // zahraniční PSČ má jiný formát
     const digits = raw.replace(/\D/g,'');
     if(digits.length !== 5) return {ok:false, severity:'error', message:'PSČ musí mít 5 číslic'};
     return {ok:true, formatted: digits.slice(0,3)+' '+digits.slice(3)};
@@ -3831,6 +3844,10 @@ function attachHandlers(){
       }
       state.currentRecord.personal[fieldId] = newValue;
       if(state.role === 'employee' && state.currentRecord.fieldFlags) delete state.currentRecord.fieldFlags[fieldId];
+      if(fieldId === 'trvale_stat'){   // po změně státu se nehodící hodnota kraje zruší
+        const pp = state.currentRecord.personal;
+        if(isCzechCountry(newValue) && !KRAJE.includes(pp.kraj)) pp.kraj = ''; else if(!isCzechCountry(newValue)) pp.kraj = '';
+      }
       if(fieldId === 'rozsah_uvazku' && newValue !== 'Zkrácený úvazek') state.currentRecord.personal.zkraceny_uvazek_procenta = '100';
       if(fieldId === 'rezim_zamestnani' || fieldId === 'vedouci' || fieldId === 'typ_nastupu') syncZkusebniDoba(state.currentRecord.personal);
       if(fieldId === 'jmeno' || fieldId === 'prijmeni' || fieldId === 'zdrojovy_urad') ensureExistingEmail(state.currentRecord);
@@ -5364,7 +5381,7 @@ function docValues(r){
     statni_prislusnost: p.statni_prislusnost || '',
     rodinny_stav: dash(p.rodinny_stav),
     rodne_cislo: p.rodne_cislo || '',
-    adresa_trvala_plna: [adr, p.kraj ? 'kraj ' + p.kraj : '', p.trvale_stat].filter(Boolean).join(', '),
+    adresa_trvala_plna: [adr, p.kraj ? 'kraj ' + p.kraj : (p.kraj_zahranici || ''), p.trvale_stat].filter(Boolean).join(', '),
     dorucovaci_adresa: dash(p.dorucovaci_adresa),
     telefon: p.telefon_soukromy || '',
     email_soukromy: p.email_soukromy || '',
@@ -6529,12 +6546,12 @@ const HELP_EMP = [
   ['➡️','Jak se pohybovat','Dotazník je rozdělen do kroků. Tlačítky <b>Pokračovat</b> a <b>Zpět</b> se posouváte mezi kroky, nahoře můžete kliknutím přeskočit na libovolný krok – <b>chybějící povinné údaje vás nezastaví</b>, můžete vyplňovat i napřeskáčku. Krok, který jste už otevřeli a v němž ještě něco povinného chybí, se nahoře zobrazí <b style="color:#C62828">červeně s tečkou ●</b>; po doplnění zčerná.']]},
  {g:'Jednotlivé kroky',items:[
   ['🪪','Základní údaje','Jméno, příjmení, tituly, rodné číslo <b>jen číslicemi, bez lomítka</b> (např. 9001011234; lomítko ani jiné znaky se do pole nedají zapsat – platí i u dětí a manžela/manželky), místo narození a státní příslušnost. Název obce narození začněte psát – nabídne se obec z číselníku (u stejnojmenných obcí je vidět okres) a po výběru se doplní i okres narození. Obec pište správně s diakritikou (Vyškov × Výškov jsou dvě různé obce). Existuje-li obcí stejného názvu více (např. Lhota), vyberte ji z nabídky, kde je vidět okres, nebo vyplňte okres narození – aplikace to připomene. Když obec v nabídce nenajdete, napište ji normálně sami. Datum narození se z rodného čísla doplní samo a aplikace ho zkontroluje.'],
-  ['🏠','Bydliště a kontakt','Trvalé bydliště, soukromý telefon a e-mail. Doručovací adresu vyplňte jen tehdy, pokud je jiná než trvalá. Kontakt pro mimořádnou událost je doplňkový (koho zavolat, kdyby se vám něco stalo).'],
+  ['🏠','Bydliště a kontakt','Trvalé bydliště, soukromý telefon a e-mail. Máte-li trvalé bydliště <b>mimo ČR</b>, vyberte u pole Stát příslušný stát – pole Kraj se pak změní na volitelný „Kraj / region“, který vyplníte volným textem, a PSČ se nekontroluje podle českého formátu. Doručovací adresu vyplňte jen tehdy, pokud je jiná než trvalá. Kontakt pro mimořádnou událost je doplňkový (koho zavolat, kdyby se vám něco stalo).'],
   ['🏦','Pojišťovna a účet','Zdravotní pojišťovnu vyberte ze seznamu. <b>Nahrajte kartičku pojišťovny</b> (povinné): tlačítkem <b>📷 Vyfotit kamerou</b> ji vyfotíte kamerou počítače (prohlížeč se zeptá na povolení kamery): přiložte kartičku stranou s údaji do rámečku a držte ji klidně – aplikace ji sama rozpozná, vyfotí a ořízne (kdyby to nešlo, použijte <b>Vyfotit hned</b>). Nebo <b>📎 Nahrát soubor</b> / přetažením vložíte hotovou fotografii či sken (JPG, PNG, PDF). Fotografie se před odesláním zmenší. Nahraný soubor můžete tlačítkem <b>Smazat</b> nahradit jiným. Číslo účtu zadejte bez lomítka a kódu banky, kód banky vyplňte zvlášť (např. 0100). Po zadání čísla účtu se zobrazí tři souhlasy se zasíláním platu, cestovních náhrad a příspěvku na stravování na tento účet.'],
   ['👪','Rodina a děti','Rodinný stav je povinný. Krok <b>Děti</b> je doplňkový – pokud děti nemáte, jen pokračujte dál. Další dítě přidáte tlačítkem <b>+ Přidat dítě</b>. Omylem přidané dítě zrušíte tlačítkem <b>✕ Zrušit / odebrat</b>.'],
   ['🎓','Vzdělání','Povinné jsou: <b>nejvyšší dosažené vzdělání, obor, název školy a rok ukončení studia</b>. Sídlo školy, získaný titul a druh zkoušky jsou nepovinné.'],
   ['💼','Praxe a ZOZ','Krok je <b>nepovinný</b> – pokud praxi nemáte (např. absolvent), přeskočte ho. Uvádějte <b>přesná data</b> (den.měsíc.rok): předchozí zaměstnání, ale i <b>vojenskou službu, mateřskou a rodičovskou dovolenou, evidenci na úřadu práce</b> a další započitatelné doby – u každého období vyberte jeho <b>druh</b>. Nesprávné údaje mohou vést k zařazení do nižšího platového stupně. Další období přidáte tlačítkem <b>+ Přidat období</b> (datum „Od“ se předvyplní dnem po konci předchozího období, můžete ho přepsat – období by na sebe měla navazovat); omylem přidanou položku zrušíte tlačítkem <b>✕ Zrušit / odebrat</b> (úplně prázdné položky se při pohybu v dotazníku odstraní samy). Dole můžete nahrát sken <b>osvědčení o zkoušce odborné způsobilosti (ZOZ)</b> (tlačítko <b>+ Přidat ZOZ</b>, lze více osvědčení) – může se uznat jako část praxe.'],
-  ['🌍','Jazyky','Jazykové znalosti jsou doplňkové; další jazyk přidáte tlačítkem <b>+ Přidat jazyk</b>.'],
+  ['🌍','Jazyky','Jazykové znalosti jsou doplňkové; další jazyk přidáte tlačítkem <b>+ Přidat jazyk</b>. Úroveň znalosti se vybírá podle evropské stupnice <b>A1 až C2</b> (A1 začátečník … C2 mistrovská znalost). Je-li jazyk váš <b>rodný</b>, zvolte „Rodný jazyk (rodilý mluvčí)“.'],
   ['🗂️','Další údaje','V kroku <b>Další údaje</b> jsou dodatečné údaje, které úřad ze zákona potřebuje; vyplňte je podle pokynů u polí. U otázky na <b>srážky ze mzdy stanovené soudem</b> odpovíte Ano / Ne; při Ano zvolíte, zda jde o jedno, nebo více rozhodnutí. U jednoho uvedete číslo rozhodnutí a výši srážky, u více rozhodnutí podrobnosti doplní personální oddělení.']]},
  {g:'Odeslání a kontrola',items:[
   ['✅','Souhrn a odeslání','Poslední krok je <b>Souhrn</b>. Pokud chybí povinné údaje, aplikace vypíše, ve kterých krocích. Až je vše hotové, klikněte na <b>Odeslat personálnímu oddělení</b> a potvrďte.'],
@@ -6578,7 +6595,7 @@ const HELP = [
   ['✅','Schválit údaje','Dostupné ve stavu Odesláno / Vráceno, pokud jsou vyplněna všechna povinná pole. Po schválení má spis stav Zkontrolováno.'],
   ['🙋','Co dělá zaměstnanec','Vyplní průvodce, potvrdí souhlas se zpracováním osobních údajů a odešle. Po odeslání je formulář zamčen; zaměstnanec ho může sám stáhnout zpět a opravit, pokud ho ještě nezkontrolujete.']]},
  {g:'Výstupy',items:[
-  ['📊','Generovat tabulky pro VEMU','V rejstříku zaškrtněte zkontrolované spisy (výběr lze udělat hromadně v záhlaví) a použijte <b>Generovat tabulky pro VEMU</b>. Stav „Vygenerováno“ se u spisu zapamatuje; po nahrání do Vemy a kontrole tlačítkem <b>Potvrdit nahrání do Vemy</b> (vedle Generovat) přejde na „Nahráno“. Když tabulky vygenerujete znovu, stav se vrátí na „Vygenerováno“. Výsledkem je <b>ZIP s datem a časem generování v názvu</b> (např. VEMA_export_20261020-1015.zip). Hlavní soubor <b>ZHLAV.xlsx</b> vzniká přímo ze šablony Vemy (list Číselníky je zbavený osobních údajů – tabulka osobyv se jmény a rodnými čísly je z šablony odstraněna) (Zaváděcí formulář – dlouhé věty, 151 sloupců) a obsahuje všechny tři její listy (ZHLAV, Číselníky, Metadata) beze změny. V listu ZHLAV zůstávají 1. řádek (popisy sloupců), 2. řádek (názvy sloupců; <b>povinné položky jsou červeně</b>) a 3. řádek se vzorovým zaměstnancem (Kateřina Nováková) pro kontrolu; naše data začínají <b>4. řádkem</b>. Vzorový řádek je před nahráním do Vemy potřeba smazat. Formáty buněk (text, číslo, datum DD.MM.RR nebo DD.MM.RRRR) určují sloupce šablony. Útvar (číselný kód z číselníku útvarů) se zapisuje do sloupce <b>pracvz</b>. Texty z dotazníku se převádějí na číselníkové kódy Vemy: obec a okres narození (v dotazníku se obec i okres nabízejí z číselníku Vemy, lze ale psát i volný text; neúplný název, např. „Brandýs nad Labem“, se přiřadí k „Brandýs nad Labem-Stará Boleslav“) i okres a obec pracoviště (sloupce okresp, obecp; berou se z adresy pracoviště v Nastavení → Adresy pracovišť (název pracoviště je jen popis; obec a okres se tam nabízejí z číselníku), a když obec chybí, zkusí se název pracoviště jako název obce; sídlo pracoviště sidpra je úplná adresa „ulice č.p., PSČ obec“ (při prázdném nastavení název pracoviště); okres upřesní obec se stejným názvem), obor vzdělání, kód školy a oboru; stupeň vzdělání se převádí na písmenný kód. Co se nepodaří převést, zůstane prázdné a aplikace to vypíše k ručnímu doplnění. Další tabulky v ZIPu (Adresy, Bankovni_ucty, Deti, Vzdelani, Predchozi_zamestnani, Znalosti_jazyky a číselníky Ciselnik_pracovist a Ciselnik_utvaru) zůstávají samostatné soubory .xlsx. Data v nich (např. narození dítěte, začátek a konec předchozího zaměstnání) jsou skutečná data ve formátu <b>DD.MM.RRRR</b>. Ve spisu (pole Odbor / oddělení) se v nabídce zobrazuje i kód útvaru a do pole lze přímo napsat kód (např. 821) nebo část názvu. Kódy útvarů jdou upravit v Nastavení → Odbory / oddělení (tlačítko <b>Doplnit podle systemizace</b> přidá chybějící útvary). Pevné hodnoty se nastavují v Nastavení. Při změně šablony Vemy se data pro export obnoví skriptem <code>tools/build_vema_data.py</code>.'],
+  ['📊','Generovat tabulky pro VEMU','V rejstříku zaškrtněte zkontrolované spisy (výběr lze udělat hromadně v záhlaví) a použijte <b>Generovat tabulky pro VEMU</b>. Stav „Vygenerováno“ se u spisu zapamatuje; po nahrání do Vemy a kontrole tlačítkem <b>Potvrdit nahrání do Vemy</b> (vedle Generovat) přejde na „Nahráno“. Když tabulky vygenerujete znovu, stav se vrátí na „Vygenerováno“. Výsledkem je <b>ZIP s datem a časem generování v názvu</b> (např. VEMA_export_20261020-1015.zip). Hlavní soubor <b>ZHLAV.xlsx</b> vzniká přímo ze šablony Vemy (list Číselníky je zbavený osobních údajů – tabulka osobyv se jmény a rodnými čísly je z šablony odstraněna) (Zaváděcí formulář – dlouhé věty, 151 sloupců) a obsahuje všechny tři její listy (ZHLAV, Číselníky, Metadata) beze změny. V listu ZHLAV zůstávají 1. řádek (popisy sloupců), 2. řádek (názvy sloupců; <b>povinné položky jsou červeně</b>) a 3. řádek se vzorovým zaměstnancem (Kateřina Nováková) pro kontrolu; naše data začínají <b>4. řádkem</b>. Vzorový řádek je před nahráním do Vemy potřeba smazat. Formáty buněk (text, číslo, datum DD.MM.RR nebo DD.MM.RRRR) určují sloupce šablony. Útvar (číselný kód z číselníku útvarů) se zapisuje do sloupce <b>pracvz</b>. Texty z dotazníku se převádějí na číselníkové kódy Vemy: obec a okres narození (v dotazníku se obec i okres nabízejí z číselníku Vemy, lze ale psát i volný text; neúplný název, např. „Brandýs nad Labem“, se přiřadí k „Brandýs nad Labem-Stará Boleslav“) i okres a obec pracoviště (sloupce okresp, obecp; berou se z adresy pracoviště v Nastavení → Adresy pracovišť (název pracoviště je jen popis; obec a okres se tam nabízejí z číselníku), a když obec chybí, zkusí se název pracoviště jako název obce; sídlo pracoviště sidpra je úplná adresa „ulice č.p., PSČ obec“ (při prázdném nastavení název pracoviště); okres upřesní obec se stejným názvem), obor vzdělání, kód školy a oboru; stupeň vzdělání se převádí na písmenný kód. Co se nepodaří převést, zůstane prázdné a aplikace to vypíše k ručnímu doplnění. Další tabulky v ZIPu (Adresy, Bankovni_ucty, Deti, Vzdelani, Predchozi_zamestnani, Znalosti_jazyky a číselníky Ciselnik_pracovist a Ciselnik_utvaru) zůstávají samostatné soubory .xlsx. Úroveň jazyka v tabulce Znalosti_jazyky je podle stupnice A1–C2 nebo „Rodný jazyk (rodilý mluvčí)“ (starší hodnoty Základní/Střední/Odborný se převádějí na A2/B2/C1). U trvalého bydliště mimo ČR se kraj nevyplňuje z českého seznamu a PSČ se nekontroluje; kód státu se u cizích států exportuje jako text a personální ho doplní podle číselníku. Data v nich (např. narození dítěte, začátek a konec předchozího zaměstnání) jsou skutečná data ve formátu <b>DD.MM.RRRR</b>. Ve spisu (pole Odbor / oddělení) se v nabídce zobrazuje i kód útvaru a do pole lze přímo napsat kód (např. 821) nebo část názvu. Kódy útvarů jdou upravit v Nastavení → Odbory / oddělení (tlačítko <b>Doplnit podle systemizace</b> přidá chybějící útvary). Pevné hodnoty se nastavují v Nastavení. Při změně šablony Vemy se data pro export obnoví skriptem <code>tools/build_vema_data.py</code>.'],
   ['📧','Upozornění na odevzdaný dotazník','Po odeslání dotazníku nabídne aplikace zaměstnanci tlačítko <b>Upozornit personální oddělení e-mailem</b>: otevře se předvyplněný e-mail pro tu osobu, která mu v aplikaci <b>vygenerovala odkaz</b> (zaměstnanec ho odešle ze své schránky; aplikace nemůže zaručit, že to udělá). U odkazů vygenerovaných dříve se použije <b>záložní e-mail</b> z Nastavení → Upozornění na odevzdaný dotazník. Tlačítko zůstane i u odeslaného dotazníku.'],
   ['🔢','Osobní čísla','Osobní číslo se novému spisu <b>přidělí automaticky</b> při založení i při importu – vždy nejnižší volné číslo od začátku zadaného v <b>Nastavení → Osobní čísla</b> (tak se vynechá interval čísel zaměstnanců DESÚ, kteří je už mají). V rejstříku je pod jménem místo kódu spisu a ve spisu (krok Pracovní poměr) je pole <b>Osobní číslo</b>, které lze <b>ručně přepsat</b> – např. když se nástup posune nebo někdo nenastoupí a jeho číslo se použije pro jiného. Číslo musí být jen číselné; aplikace upozorní, když ho už má jiný spis (chyba) nebo bylo použito ve Vemě u smazaného spisu (upozornění). Pokud spis číslo nemá (založen před nastavením začátku číslování), tlačítko <b>Přidělit další volné číslo</b> mu ho přidělí. Smažete-li spis dřív, než se pro něj vygenerují tabulky pro Vemu, číslo se uvolní a přidělí se dalšímu; po vygenerování tabulek se znovu nepoužije. Při odchodu z Nastavení s neuloženými změnami (Zpět, přepnutí pohledu, Odhlásit) se aplikace zeptá, zda změny uložit, zahodit, nebo zůstat. Spisům založeným dřív se číslo samo nepřidělí – přidělíte ho tlačítkem ve spisu nebo ho zadáte ručně; pokud není začátek v Nastavení vyplněný, čísla se nepřidělují.'],
   ['🗂️','Vzory dokumentů (Nastavení)','V <b>Nastavení → Vzory dokumentů</b> je seznam všech vzorů, ze kterých se dokumenty generují. U každého jde <b>Stáhnout</b> aktuální vzor, <b>Nahradit…</b> ho novou verzí (soubor Word .docx) a <b>Vrátit výchozí</b> (smaže nahraný vzor a vrátí vzor dodaný s aplikací). Nahraný vzor platí hned pro další generování; ukládá se okamžitě, není potřeba Uložit nastavení. Před nahráním aplikace zkontroluje soubor a vypíše nalezená zástupná pole <code>{{pole}}</code> a upozorní na neznámá. Přehled polí je v rozbalovací části „Zástupná pole pro vzory“. Už vygenerované dokumenty se nemění.'],
