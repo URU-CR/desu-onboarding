@@ -1,4 +1,4 @@
-const APP_VERSION = '2026-11-10.5';
+const APP_VERSION = '2026-11-10.6';
 const STORAGE_INDEX_KEY = 'onboarding:index';
 const STORAGE_INFO_KEY = 'onboarding:info-content';
 const STORAGE_SETTINGS_KEY = 'onboarding:settings';
@@ -737,6 +737,7 @@ async function loadIndex(){
     const res = await window.storage.get(STORAGE_INDEX_KEY, true);
     state.index = res ? JSON.parse(res.value) : [];
     indexBase = JSON.stringify(state.index);
+    state.index.forEach(e => { if(e && e.osobniCislo) e.osobniCislo = stripPn(e.osobniCislo); });   // úvodní nuly se při příštím uložení rejstříku zapíšou
   }catch(e){
     state.index = [];
     indexBase = null;
@@ -1326,15 +1327,17 @@ function rodneCisloInfo(raw){
   return { year: century + yy, sex };
 }
 
+// osobní číslo se vždy ukládá bez úvodních nul („097“ → „97“); samotné nuly zůstanou „0“
+const stripPn = v => { const t = String(v == null ? '' : v).trim(); return /^\d+$/.test(t) ? (t.replace(/^0+(?=\d)/, '')) : t; };
 const VALIDATORS = {
   osobniCislo(raw){   // osobní číslo: jen číslice, nesmí kolidovat s jiným spisem ani s číslem, které už bylo ve Vemě
-    const v = String(raw || '').trim();
+    const v = stripPn(raw);
     if(!v) return {ok:true};
     if(!/^\d+$/.test(v)) return {ok:false, severity:'error', message:'Osobní číslo musí obsahovat jen číslice.'};
     const other = (state.index || []).find(e => e.id !== state.currentId && String(e.osobniCislo || '') === v);
     if(other) return {ok:false, severity:'error', message:`Toto osobní číslo už má ${[other.jmeno, other.prijmeni].filter(Boolean).join(' ') || 'jiný spis'}.`};
     if(((state.settings && state.settings.burnedNumbers) || []).map(String).includes(v)) return {ok:false, severity:'warning', message:'Toto číslo už bylo použito ve Vemě u smazaného spisu – ověřte, že ho lze přidělit znovu.'};
-    return {ok:true};
+    return {ok:true, formatted:v};
   },
   obecNarozeni(raw, ctx){   // stejnojmenné obce: bez okresu nelze určit kód obce
     if(!raw || !VEMA_LOOKUP) return {ok:true};
@@ -4985,7 +4988,7 @@ const ZHLAV_POVINNE_KODY = new Set(['oscis','upljmeno','rocis','statp','zivmi','
 function zhlavColumns(){
   const vc = (state.settings && state.settings.vemaConstants) || {};
   return [
-    {code:'oscis', get:p=>p.osobni_cislo},
+    {code:'oscis', get:p=>stripPn(p.osobni_cislo)},
     {code:'upljmeno', get:p=>[p.titul_pred,p.jmeno,p.prijmeni,p.titul_za].filter(Boolean).join(' ')},
     {code:'rocis', get:p=>rcDigits(p.rodne_cislo)},
     {code:'statp', get:p=>countryCode(p.statni_prislusnost)},
@@ -5495,7 +5498,7 @@ function docValues(r){
     cislo_uctu_banka: (p.cislo_uctu || '……………………') + '/' + (p.kod_banky || '….'),
     jmeno_cele: jmenoCele,
     prijmeni_jmeno_titul: [[(p.prijmeni || '').trim(), (p.jmeno || '').trim()].filter(Boolean).join(' '), titulyPred, titulZa].filter(Boolean).join(', '),
-    osobni_cislo: p.osobni_cislo || dots,
+    osobni_cislo: stripPn(p.osobni_cislo) || dots,
     pan_pani: sex === 'z' ? 'paní' : sex === 'm' ? 'pan' : 'pan/paní',
     narozen_a: sex === 'z' ? 'Narozena' : sex === 'm' ? 'Narozen' : 'Narozen/a',
     pozice: p.pozice || '',
@@ -6428,7 +6431,8 @@ async function openDetail(id){
     if(en && !state.employeeMode && en.personalStatus !== state.currentRecord.personalStatus){ en.personalStatus = state.currentRecord.personalStatus; saveIndex(); }
     // osobní číslo: rejstřík a spis se musí shodovat (číslo, které je jen na jedné straně, se doplní na druhou)
     if(en && !state.employeeMode){
-      const pn = String(state.currentRecord.personal.osobni_cislo || '').trim(), en_n = String(en.osobniCislo || '').trim();
+      const pn0 = String(state.currentRecord.personal.osobni_cislo || '').trim(), pn = stripPn(pn0), en_n = stripPn(en.osobniCislo || '');
+      if(pn !== pn0){ state.currentRecord.personal.osobni_cislo = pn; persistRecordOnly(); }   // úvodní nuly pryč
       if(pn && pn !== en_n){ en.osobniCislo = pn; saveIndex(); }
       else if(!pn && en_n){ state.currentRecord.personal.osobni_cislo = en_n; persistRecordOnly(); }
     } }
@@ -6717,7 +6721,7 @@ const HELP = [
  {g:'Výstupy',items:[
   ['📊','Generovat tabulky pro VEMU','V rejstříku zaškrtněte zkontrolované spisy (výběr lze udělat hromadně v záhlaví) a použijte <b>Generovat tabulky pro VEMU</b>. Stav „Vygenerováno“ se u spisu zapamatuje; po nahrání do Vemy a kontrole tlačítkem <b>Potvrdit nahrání do Vemy</b> (vedle Generovat) přejde na „Nahráno“. Když tabulky vygenerujete znovu, stav se vrátí na „Vygenerováno“. Výsledkem je <b>ZIP s datem a časem generování v názvu</b> (např. VEMA_export_20261020-1015.zip). Hlavní soubor <b>ZHLAV.xlsx</b> vzniká přímo ze šablony Vemy (list Číselníky je zbavený osobních údajů – tabulka osobyv se jmény a rodnými čísly je z šablony odstraněna) (Zaváděcí formulář – dlouhé věty, 151 sloupců) a obsahuje všechny tři její listy (ZHLAV, Číselníky, Metadata) beze změny. V listu ZHLAV zůstávají 1. řádek (popisy sloupců), 2. řádek (názvy sloupců; <b>povinné položky jsou červeně</b>) a 3. řádek se vzorovým zaměstnancem (Kateřina Nováková) pro kontrolu; naše data začínají <b>4. řádkem</b>. Vzorový řádek je před nahráním do Vemy potřeba smazat. Formáty buněk (text, číslo, datum DD.MM.RR nebo DD.MM.RRRR) určují sloupce šablony. Útvar (číselný kód z číselníku útvarů) se zapisuje do sloupce <b>pracvz</b>. Texty z dotazníku se převádějí na číselníkové kódy Vemy: obec a okres narození (v dotazníku se obec i okres nabízejí z číselníku Vemy, lze ale psát i volný text; neúplný název, např. „Brandýs nad Labem“, se přiřadí k „Brandýs nad Labem-Stará Boleslav“) i okres a obec pracoviště (sloupce okresp, obecp; berou se z adresy pracoviště v Nastavení → Adresy pracovišť (název pracoviště je jen popis; obec a okres se tam nabízejí z číselníku), a když obec chybí, zkusí se název pracoviště jako název obce; sídlo pracoviště sidpra je úplná adresa „ulice č.p., PSČ obec“ (při prázdném nastavení název pracoviště); okres upřesní obec se stejným názvem), obor vzdělání, kód školy a oboru; stupeň vzdělání se převádí na písmenný kód. Co se nepodaří převést, zůstane prázdné a aplikace to vypíše k ručnímu doplnění. Další tabulky v ZIPu (Adresy, Bankovni_ucty, Deti, Vzdelani, Predchozi_zamestnani, Znalosti_jazyky a číselníky Ciselnik_pracovist a Ciselnik_utvaru) zůstávají samostatné soubory .xlsx. Úroveň jazyka v tabulce Znalosti_jazyky je podle stupnice A1–C2 nebo „Rodný jazyk (rodilý mluvčí)“ (starší hodnoty Základní/Střední/Odborný se převádějí na A2/B2/C1). U trvalého bydliště mimo ČR se kraj nevyplňuje z českého seznamu a PSČ se nekontroluje; kód státu se u cizích států exportuje jako text a personální ho doplní podle číselníku. Data v nich (např. narození dítěte, začátek a konec předchozího zaměstnání) jsou skutečná data ve formátu <b>DD.MM.RRRR</b>. Ve spisu (pole Odbor / oddělení) se v nabídce zobrazuje i kód útvaru a do pole lze přímo napsat kód (např. 821) nebo část názvu. Kódy útvarů jdou upravit v Nastavení → Odbory / oddělení (tlačítko <b>Doplnit podle systemizace</b> přidá chybějící útvary). Pevné hodnoty se nastavují v Nastavení. Při změně šablony Vemy se data pro export obnoví skriptem <code>tools/build_vema_data.py</code>.'],
   ['📧','Upozornění na odevzdaný dotazník','Po odeslání dotazníku nabídne aplikace zaměstnanci tlačítko <b>Upozornit personální oddělení e-mailem</b>: otevře se předvyplněný e-mail pro tu osobu, která mu v aplikaci <b>vygenerovala odkaz</b> (zaměstnanec ho odešle ze své schránky; aplikace nemůže zaručit, že to udělá). U odkazů vygenerovaných dříve se použije <b>záložní e-mail</b> z Nastavení → Upozornění na odevzdaný dotazník. Tlačítko zůstane i u odeslaného dotazníku.'],
-  ['🔢','Osobní čísla','Osobní číslo se novému spisu <b>přidělí automaticky</b> při založení i při importu – vždy nejnižší volné číslo od začátku zadaného v <b>Nastavení → Osobní čísla</b> (tak se vynechá interval čísel zaměstnanců DESÚ, kteří je už mají). V rejstříku je pod jménem místo kódu spisu a ve spisu (krok Pracovní poměr) je pole <b>Osobní číslo</b>, které lze <b>ručně přepsat</b> – např. když se nástup posune nebo někdo nenastoupí a jeho číslo se použije pro jiného. Číslo musí být jen číselné; aplikace upozorní, když ho už má jiný spis (chyba) nebo bylo použito ve Vemě u smazaného spisu (upozornění). Pokud spis číslo nemá (založen před nastavením začátku číslování), tlačítko <b>Přidělit další volné číslo</b> mu ho přidělí. Smažete-li spis dřív, než se pro něj vygenerují tabulky pro Vemu, číslo se uvolní a přidělí se dalšímu; po vygenerování tabulek se znovu nepoužije. Při odchodu z Nastavení s neuloženými změnami (Zpět, přepnutí pohledu, Odhlásit) se aplikace zeptá, zda změny uložit, zahodit, nebo zůstat. Spisům založeným dřív se číslo samo nepřidělí – přidělíte ho tlačítkem ve spisu nebo ho zadáte ručně; pokud není začátek v Nastavení vyplněný, čísla se nepřidělují.'],
+  ['🔢','Osobní čísla','Osobní číslo se novému spisu <b>přidělí automaticky</b> při založení i při importu – vždy nejnižší volné číslo od začátku zadaného v <b>Nastavení → Osobní čísla</b> (tak se vynechá interval čísel zaměstnanců DESÚ, kteří je už mají). V rejstříku je pod jménem místo kódu spisu a ve spisu (krok Pracovní poměr) je pole <b>Osobní číslo</b>, které lze <b>ručně přepsat</b> – např. když se nástup posune nebo někdo nenastoupí a jeho číslo se použije pro jiného. Číslo musí být jen číselné; aplikace upozorní, když ho už má jiný spis (chyba) nebo bylo použito ve Vemě u smazaného spisu (upozornění). Pokud spis číslo nemá (založen před nastavením začátku číslování), tlačítko <b>Přidělit další volné číslo</b> mu ho přidělí. Smažete-li spis dřív, než se pro něj vygenerují tabulky pro Vemu, číslo se uvolní a přidělí se dalšímu; po vygenerování tabulek se znovu nepoužije. Při odchodu z Nastavení s neuloženými změnami (Zpět, přepnutí pohledu, Odhlásit) se aplikace zeptá, zda změny uložit, zahodit, nebo zůstat. Spisům založeným dřív se číslo samo nepřidělí – přidělíte ho tlačítkem ve spisu nebo ho zadáte ručně; pokud není začátek v Nastavení vyplněný, čísla se nepřidělují. <b>Úvodní nuly se vždy odstraňují</b> (097 → 97), i u ručně zadaného čísla a u starších spisů (opraví se při otevření spisu).'],
   ['🗂️','Vzory dokumentů (Nastavení)','V <b>Nastavení → Vzory dokumentů</b> je seznam všech vzorů, ze kterých se dokumenty generují. U každého jde <b>Stáhnout</b> aktuální vzor, <b>Nahradit…</b> ho novou verzí (soubor Word .docx) a <b>Vrátit výchozí</b> (smaže nahraný vzor a vrátí vzor dodaný s aplikací). Nahraný vzor platí hned pro další generování; ukládá se okamžitě, není potřeba Uložit nastavení. Před nahráním aplikace zkontroluje soubor a vypíše nalezená zástupná pole <code>{{pole}}</code> a upozorní na neznámá. Přehled polí je v rozbalovací části „Zástupná pole pro vzory“. Už vygenerované dokumenty se nemění.'],
   ['🏢','Zaměstnavatel v dokumentech','V <b>Nastavení → Zaměstnavatel</b> jsou údaje úřadu, které se doplňují do dokumentů: název ve čtyřech pádech, zkratka, adresa sídla a patičky, IČO, datová schránka, e-mail, statutární orgán (jméno v podpisu a ve 7. pádě, funkce) a u ÚRÚ ČR také <b>logo</b>. Použije se podle <b>data nástupu</b> ve spisu: nástup do 31. 12. 2026 = Dopravní a energetický stavební úřad (údaje jsou předvyplněné, logo je ve vzorech), nástup od 1. 1. 2027 = Úřad rozvoje území České republiky (údaje i logo je třeba zadat; co chybí, vypíše se jako tečky a okno Dokumenty na to upozorní). Logo se nahrává jako PNG, JPG nebo SVG a převede se na PNG; v hlavičce dokumentu se zmenší podle poměru stran. Ve vlastních vzorech lze použít pole <code>{{org_n}}</code>, <code>{{org_g}}</code>, <code>{{org_ico}}</code> aj. (seznam je v okně Vzory dokumentů). Pozor: ve vzorech „Portrétní fotografie“ a „Prohlášení o interních předpisech“ zůstává zmínka o Ministerstvu dopravy – pro nástupy do ÚRÚ je třeba vzor upravit.'],
   ['⚖️','Státní zaměstnanec × zákoník práce','V okně <b>Dokumenty podle vzorů</b> je nahoře přepínač <b>právního režimu</b>: předvolí se automaticky podle <b>Typu úvazku</b> ve spisu (<b>Služební poměr</b> nebo nevyplněno → státní zaměstnanec, zákon č. 195/2026 Sb.; <b>Pracovní poměr</b> → Zákoník práce), a lze ho ručně změnit. Přepínač mění jen <b>pracovní smlouvu, platový výměr a informaci o pracovním poměru</b>; ostatní dokumenty zůstávají. Vzory <b>pracovní smlouvy a platového výměru pro zákoník práce</b> jsou součástí aplikace. <b>Informace o pracovním poměru pro ZP</b> zatím vzor nemá: nahraje se v <b>Nastavení → Vzory dokumentů</b> (tlačítko „Nahrát vzor…“); do té doby je řádek šedý a nejde zaškrtnout. Vzory lze v Nastavení stáhnout, upravit a nahradit. Ruční změna se u spisu zapamatuje.'],
