@@ -7,7 +7,7 @@ from lxml import etree
 sys.path.insert(0, os.path.dirname(__file__))
 from tokenize_employer import replace_in_par, ptext, W
 
-def process(src, dst, reps, part_names=('word/document.xml', 'word/header1.xml', 'word/header2.xml', 'word/footer1.xml', 'word/footer2.xml')):
+def process(src, dst, reps, trim_empty=0, part_names=('word/document.xml', 'word/header1.xml', 'word/header2.xml', 'word/footer1.xml', 'word/footer2.xml')):
     zin = zipfile.ZipFile(src); out = {}
     for n in zin.namelist():
         data = zin.read(n)
@@ -18,6 +18,15 @@ def process(src, dst, reps, part_names=('word/document.xml', 'word/header1.xml',
                 r = el.getparent()
                 if r is not None and r.getparent() is not None and len(r) == 1 + (1 if r.find(W('rPr')) is not None else 0):
                     r.getparent().remove(r)
+            if n == 'word/document.xml' and trim_empty:       # pojistka proti přetečení výměru na 2. stranu: ubrat prázdné odstavce před podpisem
+                ps = list(root.iter(W('p')))
+                idx = [i for i, p in enumerate(ps) if ptext(p).startswith('měsíčně')]
+                if idx:
+                    gap = []
+                    for p in ps[idx[0] + 1:]:
+                        if ptext(p).strip(): break
+                        gap.append(p)
+                    for p in gap[:min(trim_empty, max(len(gap) - 1, 0))]: p.getparent().remove(p)
             for p in root.iter(W('p')):
                 for old, new in reps:
                     if old[0] and old[0] not in ptext(p): continue
@@ -73,5 +82,5 @@ SMLOUVA = [
 ]
 if __name__ == '__main__':
     v, s, d = sys.argv[1:4]
-    process(v, os.path.join(d, 'zp_platovy_vymer.docx'), VYMER)
+    process(v, os.path.join(d, 'zp_platovy_vymer.docx'), VYMER, trim_empty=2)
     process(s, os.path.join(d, 'zp_pracovni_smlouva.docx'), SMLOUVA)
