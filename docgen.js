@@ -111,7 +111,7 @@
   /** Logo v hlavičce vzoru: nahradí obrázek logem (PNG, data URL) a upraví rozměr podle poměru stran, nebo ho odstraní (logo.remove). */
   async function applyLogo(zip, logo){
     const parts = Object.keys(zip.files).filter(n => /^word\/(document|header\d*)\.xml$/.test(n));
-    let pngAdded = false;
+    let pngAdded = false, floatBottom = 0;
     for(const n of parts){
       let xml = await zip.file(n).async('string');
       if(!/<w:drawing>/.test(xml) || !/r:embed=/.test(xml)) continue;
@@ -137,10 +137,25 @@
           if(cx > maxCx){ cx = maxCx; cy = Math.round(cx * logo.h / logo.w); }
           out = out.replace(/(<wp:extent cx=")\d+(" cy=")\d+/, '$1' + cx + '$2' + cy).replace(/(<a:ext cx=")\d+(" cy=")\d+/, '$1' + cx + '$2' + cy);
         }
+        // plovoucí logo (textové pole s wrapNone) nezabírá v hlavičce místo – pod logem se musí uvolnit místo zvětšením horního okraje stránky
+        if(/<wp:anchor\b/.test(out)){
+          const pv = parseInt((/<wp:positionV[^>]*>\s*<wp:posOffset>(-?\d+)</.exec(out) || [])[1], 10) || 0;
+          const hEmu = parseInt((/<wp:extent cx="\d+" cy="(\d+)"/.exec(out) || [])[1], 10) || 0;
+          floatBottom = Math.max(floatBottom, Math.max(pv, 0) + hEmu);
+        }
         pngAdded = true;
         return out;
       });
       if(changed){ zip.file(n, xml); if(rels) zip.file(relName, rels); }
+    }
+    if(floatBottom > 0 && zip.file('word/document.xml')){
+      let dx = await zip.file('word/document.xml').async('string');
+      const need = Math.round(floatBottom / 635) + 170;      // EMU → twipy (1 twip = 635 EMU) + rezerva ≈ 3 mm
+      dx = dx.replace(/<w:pgMar [^>]*\/>/g, tag => {
+        const hd = parseInt((/w:header="(\d+)"/.exec(tag) || [])[1], 10) || 0, top = parseInt((/w:top="(-?\d+)"/.exec(tag) || [])[1], 10) || 0;
+        return top >= hd + need ? tag : tag.replace(/w:top="-?\d+"/, 'w:top="' + (hd + need) + '"');
+      });
+      zip.file('word/document.xml', dx);
     }
     if(pngAdded && logo.dataUrl){
       const b64 = String(logo.dataUrl).replace(/^data:image\/\w+;base64,/, '');
