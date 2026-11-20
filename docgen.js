@@ -130,8 +130,11 @@
                    .replace(new RegExp('(<Relationship [^>]*Target=")[^"]*("[^>]*Id="' + rid + '")'), '$1media/org_logo.png$2');
         const cx0 = parseInt((/<wp:extent cx="(\d+)"/.exec(out) || [])[1], 10), cy0 = parseInt((/<wp:extent cx="\d+" cy="(\d+)"/.exec(out) || [])[1], 10);
         if(cx0 && cy0 && logo.w && logo.h){
-          let cy = cy0, cx = Math.round(cy * logo.w / logo.h);
-          if(cx > cx0){ cx = cx0; cy = Math.round(cx * logo.h / logo.w); }   // nejvýš původní šířka, výška podle poměru stran
+          // výška podle jednotného vizuálního stylu (hlavičkový papír A4 = 22 mm), šířka podle poměru stran; nejvýš 165 mm (šířka textu)
+          const hMm = logo.heightMm > 0 ? logo.heightMm : 22;
+          let cy = Math.round(hMm * 36000), cx = Math.round(cy * logo.w / logo.h);
+          const maxCx = 165 * 36000;
+          if(cx > maxCx){ cx = maxCx; cy = Math.round(cx * logo.h / logo.w); }
           out = out.replace(/(<wp:extent cx=")\d+(" cy=")\d+/, '$1' + cx + '$2' + cy).replace(/(<a:ext cx=")\d+(" cy=")\d+/, '$1' + cx + '$2' + cy);
         }
         pngAdded = true;
