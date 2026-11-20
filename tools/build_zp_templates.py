@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Vyrobí vzory pro zaměstnance podle zákoníku práce (templates/zp_*.docx) ze vzorů dodaných personálním oddělením
 (.doc → .docx přes LibreOffice) tak, že ručně vyplněná místa nahradí zástupnými poli {{…}}.
-Použití: python3 tools/build_zp_templates.py <vymer.docx> <smlouva.docx> templates"""
+Použití: python3 tools/build_zp_templates.py <vymer.docx> <smlouva.docx> templates [<seznameni.docx>]"""
 import sys, zipfile, os
 from lxml import etree
 sys.path.insert(0, os.path.dirname(__file__))
@@ -32,7 +32,7 @@ def process(src, dst, reps, trim_empty=0, part_names=('word/document.xml', 'word
                     if old[0] and old[0] not in ptext(p): continue
                     if old[1] == '<<END>>':            # připojit na konec odstavce (za poslední tabulátor)
                         ts = list(p.iter(W('t')))
-                        if ts: ts[-1].text = (ts[-1].text or '').rstrip() + new; ts[-1].set('{http://www.w3.org/XML/1998/namespace}space', 'preserve')
+                        if ts: ts[-1].text = (ts[-1].text or '').rstrip() + ' ' + new; ts[-1].set('{http://www.w3.org/XML/1998/namespace}space', 'preserve')
                     else:
                         replace_in_par(p, old[1], new)
             data = etree.tostring(root, xml_declaration=True, encoding='UTF-8', standalone=True)
@@ -80,7 +80,15 @@ SMLOUVA = [
     R('ředitel', 'ředitel', '{{org_funkce}}'),
     R('Dopravní a energetický stavební úřad', 'Dopravní a energetický stavební úřad', '{{org_n}}'),
 ]
+SEZNAMENI = [   # Seznámení se s povinnostmi a právy zaměstnanců (ZP) – ZP protějšek Informace o pracovním poměru
+    R('Jméno a příjmení', '<<END>>', '{{jmeno_cele}}'),
+    R('Adresa bydliště', '<<END>>', '{{adresa_trvala}}'),
+    R('Název zaměstnavatele', 'Dopravní a energetický stavební úřad', '{{org_n}}'),
+    R('Sídlo zaměstnavatele', 'nábřeží Ludvíka Svobody 1222/12, 110 00 Praha 1', '{{org_adresa}}'),
+    R('IČO', '24858234', '{{org_ico}}'),
+]
 if __name__ == '__main__':
     v, s, d = sys.argv[1:4]
+    if len(sys.argv) > 4: process(sys.argv[4], os.path.join(d, 'zp_seznameni_s_povinnostmi.docx'), SEZNAMENI)
     process(v, os.path.join(d, 'zp_platovy_vymer.docx'), VYMER, trim_empty=2)
     process(s, os.path.join(d, 'zp_pracovni_smlouva.docx'), SMLOUVA)
